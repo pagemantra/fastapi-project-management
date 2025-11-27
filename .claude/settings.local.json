@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(del \"d:\\Development\\fastapi-project-management\\backend\\server.js\")",
+      "Bash(del \"d:\\Development\\fastapi-project-management\\backend\\README.md\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
