@@ -2,7 +2,21 @@
   "permissions": {
     "allow": [
       "Bash(del \"d:\\Development\\fastapi-project-management\\backend\\server.js\")",
-      "Bash(del \"d:\\Development\\fastapi-project-management\\backend\\README.md\")"
+      "Bash(del \"d:\\Development\\fastapi-project-management\\backend\\README.md\")",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(npm run dev:*)",
+      "Bash(pushd:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(cat:*)",
+      "Bash(netstat:*)",
+      "Bash(xargs:*)",
+      "Bash(while read pid)",
+      "Bash(do taskkill //F //PID $pid)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

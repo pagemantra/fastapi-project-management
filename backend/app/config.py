@@ -1,5 +1,4 @@
 from pydantic_settings import BaseSettings
-from functools import lru_cache
 
 
 class Settings(BaseSettings):
@@ -7,7 +6,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # MongoDB
-    MONGODB_URL: str = "mongodb+srv://koyalamudikavyasri_db_user:projectmangement3@projectmanagement.x3gqxoe.mongodb.net/?appName=projectmanagement"
+    MONGODB_URL: str = "mongodb+srv://koyalamudikavyasri_db_user:kjibqBlPHwFfIYIS@projectmanagement.x3gqxoe.mongodb.net/?appName=projectmanagement"
     DATABASE_NAME: str = "employee_tracking"
 
     # JWT
@@ -19,9 +18,4 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 
-@lru_cache()
-def get_settings():
-    return Settings()
-
-
-settings = get_settings()
+settings = Settings()
