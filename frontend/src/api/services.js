@@ -23,6 +23,7 @@ export const userService = {
 export const teamService = {
   getTeams: (params) => api.get('/teams', { params }),
   getTeam: (id) => api.get(`/teams/${id}`),
+  getMyTeam: () => api.get('/teams/my-team'),
   createTeam: (data) => api.post('/teams', data),
   updateTeam: (id, data) => api.put(`/teams/${id}`, data),
   deleteTeam: (id) => api.delete(`/teams/${id}`),
