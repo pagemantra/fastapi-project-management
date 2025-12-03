@@ -3,14 +3,14 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional
 from bson import ObjectId
 import uuid
-from database import get_database
-from models.attendance import (
+from ..database import get_database
+from ..models.attendance import (
     TimeSessionResponse, TimeSessionCreate, ClockOut, StartBreak,
     BreakSettingsCreate, BreakSettingsUpdate, BreakSettingsResponse,
     SessionStatus, BreakType, Break, AttendanceSummary
 )
-from models.user import UserRole
-from utils.dependencies import get_current_active_user, require_roles
+from ..models.user import UserRole
+from ..utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 
