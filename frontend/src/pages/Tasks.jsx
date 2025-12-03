@@ -95,7 +95,14 @@ const Tasks = () => {
       setModalVisible(false);
       fetchTasks();
     } catch (error) {
-      message.error(error.response?.data?.detail || 'Operation failed');
+      const detail = error.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        // Handle Pydantic validation errors
+        const errorMessages = detail.map(err => `${err.loc?.slice(-1)[0]}: ${err.msg}`).join(', ');
+        message.error(errorMessages);
+      } else {
+        message.error(detail || 'Operation failed');
+      }
     }
   };
 
@@ -294,7 +301,11 @@ const Tasks = () => {
           <Form.Item
             name="title"
             label="Title"
-            rules={[{ required: true, message: 'Please enter title' }]}
+            rules={[
+              { required: true, message: 'Please enter title' },
+              { min: 3, message: 'Title must be at least 3 characters' },
+              { max: 200, message: 'Title must not exceed 200 characters' }
+            ]}
           >
             <Input />
           </Form.Item>
