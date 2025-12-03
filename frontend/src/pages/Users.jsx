@@ -280,13 +280,12 @@ const Users = () => {
             <Col span={12}>
               <Form.Item
                 name="email"
-                label="Email"
+                label="Email (Optional)"
                 rules={[
-                  { required: true, message: 'Please enter email' },
                   { type: 'email', message: 'Please enter a valid email' },
                 ]}
               >
-                <Input disabled={!!editingUser} />
+                <Input disabled={!!editingUser} placeholder="Optional" />
               </Form.Item>
             </Col>
           </Row>
