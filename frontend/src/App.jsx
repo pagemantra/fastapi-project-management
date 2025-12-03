@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, App as AntApp } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import MainLayout from './layouts/MainLayout';
@@ -35,8 +35,9 @@ function App() {
         },
       }}
     >
-      <AuthProvider>
-        <BrowserRouter>
+      <AntApp>
+        <AuthProvider>
+          <BrowserRouter>
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
@@ -118,6 +119,7 @@ function App() {
           </Routes>
         </BrowserRouter>
       </AuthProvider>
+      </AntApp>
     </ConfigProvider>
   );
 }

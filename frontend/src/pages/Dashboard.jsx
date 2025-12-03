@@ -162,9 +162,9 @@ const Dashboard = () => {
           <Card>
             <Statistic
               title="Total Tasks"
-              value={stats.tasks?.total_tasks || 0}
+              value={stats.tasks?.total || 0}
               prefix={<CheckCircleOutlined />}
-              valueStyle={{ color: '#3f8600' }}
+              styles={{ value: { color: '#3f8600' } }}
             />
           </Card>
         </Col>
@@ -172,9 +172,9 @@ const Dashboard = () => {
           <Card>
             <Statistic
               title="Pending Tasks"
-              value={stats.tasks?.by_status?.pending || 0}
+              value={stats.tasks?.pending || 0}
               prefix={<ClockCircleOutlined />}
-              valueStyle={{ color: '#faad14' }}
+              styles={{ value: { color: '#faad14' } }}
             />
           </Card>
         </Col>
@@ -193,7 +193,7 @@ const Dashboard = () => {
               title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'}
               value={isTeamLead() ? stats.worksheets?.pending_verification || 0 : stats.worksheets?.pending_approval || 0}
               prefix={<AlertOutlined />}
-              valueStyle={{ color: '#cf1322' }}
+              styles={{ value: { color: '#cf1322' } }}
             />
           </Card>
         </Col>

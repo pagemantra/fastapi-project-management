@@ -119,3 +119,26 @@ exports.getMyTasks = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.getTaskSummary = async (req, res, next) => {
+  try {
+    const totalTasks = await Task.countDocuments();
+    const pendingTasks = await Task.countDocuments({ status: 'pending' });
+    const inProgressTasks = await Task.countDocuments({ status: 'in_progress' });
+    const completedTasks = await Task.countDocuments({ status: 'completed' });
+    const overdueTasks = await Task.countDocuments({
+      due_date: { $lt: new Date() },
+      status: { $ne: 'completed' }
+    });
+
+    res.json({
+      total: totalTasks,
+      pending: pendingTasks,
+      in_progress: inProgressTasks,
+      completed: completedTasks,
+      overdue: overdueTasks
+    });
+  } catch (error) {
+    next(error);
+  }
+};

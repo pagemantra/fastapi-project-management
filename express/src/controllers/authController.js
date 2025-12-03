@@ -9,11 +9,16 @@ const generateToken = (userId) => {
 
 exports.login = async (req, res, next) => {
   try {
-    const { username, password } = req.body;
+    const { username, email, password } = req.body;
+    const loginIdentifier = username || email;
+
+    if (!loginIdentifier || !password) {
+      return res.status(400).json({ detail: 'Email/username and password are required' });
+    }
 
     // Find user by email or employee_id
     const user = await User.findOne({
-      $or: [{ email: username }, { employee_id: username }],
+      $or: [{ email: loginIdentifier }, { employee_id: loginIdentifier }],
       is_active: true
     });
 
