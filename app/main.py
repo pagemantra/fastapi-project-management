@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.APP_NAME,
+    redirect_slashes=False,
     description="""
     Associate Work Tracking System API
 
