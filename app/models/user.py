@@ -27,7 +27,7 @@ class PyObjectId(str):
 
 
 class UserBase(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None  # Made optional
     full_name: str = Field(..., min_length=2, max_length=100)
     employee_id: str = Field(..., min_length=3, max_length=20)
     role: UserRole = UserRole.ASSOCIATE
@@ -67,7 +67,7 @@ class UserInDB(UserBase):
 
 class UserResponse(BaseModel):
     id: str
-    email: EmailStr
+    email: Optional[EmailStr] = None
     full_name: str
     employee_id: str
     role: UserRole
@@ -84,7 +84,8 @@ class UserResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: Optional[EmailStr] = None  # Can login with email
+    employee_id: Optional[str] = None  # Or login with employee_id
     password: str
 
 

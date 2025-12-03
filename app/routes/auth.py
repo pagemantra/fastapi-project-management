@@ -22,16 +22,17 @@ async def register_admin(user: UserCreate):
             detail="Admin already exists. Please contact existing admin.",
         )
 
-    # Check if email already exists (case-insensitive)
-    existing_user = await db.users.find_one({"email": user.email.lower()})
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
+    # Check if email already exists (case-insensitive) - only if email provided
+    if user.email:
+        existing_user = await db.users.find_one({"email": user.email.lower()})
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
 
     # Check if employee_id already exists
-    existing_emp = await db.users.find_one({"employee_id": user.employee_id})
+    existing_emp = await db.users.find_one({"employee_id": user.employee_id.upper()})
     if existing_emp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -40,9 +41,9 @@ async def register_admin(user: UserCreate):
 
     now = datetime.utcnow()
     user_dict = {
-        "email": user.email.lower(),  # Store email in lowercase
+        "email": user.email.lower() if user.email else None,  # Store email in lowercase
         "full_name": user.full_name,
-        "employee_id": user.employee_id,
+        "employee_id": user.employee_id.upper(),  # Store employee_id in uppercase
         "role": UserRole.ADMIN.value,  # Force admin role
         "phone": user.phone,
         "department": user.department,
@@ -76,21 +77,35 @@ async def register_admin(user: UserCreate):
 
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin):
-    """Login and get access token"""
+    """Login with email or employee_id and get access token"""
     db = get_database()
 
-    # Case-insensitive email lookup
-    user = await db.users.find_one({"email": user_credentials.email.lower()})
+    # Must provide either email or employee_id
+    if not user_credentials.email and not user_credentials.employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide email or employee ID",
+        )
+
+    # Find user by email or employee_id
+    user = None
+    if user_credentials.employee_id:
+        # Login with employee_id (case-insensitive)
+        user = await db.users.find_one({"employee_id": user_credentials.employee_id.upper()})
+    elif user_credentials.email:
+        # Login with email (case-insensitive)
+        user = await db.users.find_one({"email": user_credentials.email.lower()})
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Invalid credentials",
         )
 
     if not verify_password(user_credentials.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Invalid credentials",
         )
 
     if not user.get("is_active", False):
@@ -102,7 +117,8 @@ async def login(user_credentials: UserLogin):
     access_token = create_access_token(
         data={
             "sub": str(user["_id"]),
-            "email": user["email"],
+            "email": user.get("email"),
+            "employee_id": user["employee_id"],
             "role": user["role"],
         }
     )
