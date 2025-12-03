@@ -2,10 +2,10 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
-from ..database import get_database
-from ..models.user import UserCreate, UserUpdate, UserResponse, UserRole
-from ..utils.security import get_password_hash
-from ..utils.dependencies import get_current_active_user, require_roles
+from database import get_database
+from models.user import UserCreate, UserUpdate, UserResponse, UserRole
+from utils.security import get_password_hash
+from utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/users", tags=["Users"])
 

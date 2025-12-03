@@ -2,10 +2,10 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
-from ..database import get_database
-from ..models.team import TeamCreate, TeamUpdate, TeamResponse, AddTeamMember
-from ..models.user import UserRole
-from ..utils.dependencies import get_current_active_user, require_roles
+from database import get_database
+from models.team import TeamCreate, TeamUpdate, TeamResponse, AddTeamMember
+from models.user import UserRole
+from utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/teams", tags=["Teams"])
 

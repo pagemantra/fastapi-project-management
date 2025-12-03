@@ -2,14 +2,14 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime, date
 from typing import List, Optional
 from bson import ObjectId
-from ..database import get_database
-from ..models.worksheet import (
+from database import get_database
+from models.worksheet import (
     WorksheetCreate, WorksheetUpdate, WorksheetResponse, WorksheetStatus,
     WorksheetSubmit, WorksheetVerify, WorksheetApprove, WorksheetReject,
     BulkApprove, FormFieldResponse, WorksheetSummary
 )
-from ..models.user import UserRole
-from ..utils.dependencies import get_current_active_user, require_roles
+from models.user import UserRole
+from utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/worksheets", tags=["Worksheets"])
 

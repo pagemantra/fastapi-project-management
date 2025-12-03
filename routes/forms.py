@@ -3,13 +3,13 @@ from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
 import uuid
-from ..database import get_database
-from ..models.form import (
+from database import get_database
+from models.form import (
     FormCreate, FormUpdate, FormResponse, FormField, FormAssignment,
     FieldType, FieldValidation
 )
-from ..models.user import UserRole
-from ..utils.dependencies import get_current_active_user, require_roles
+from models.user import UserRole
+from utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/forms", tags=["Forms"])
 

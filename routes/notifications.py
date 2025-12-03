@@ -2,11 +2,11 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
-from ..database import get_database
-from ..models.notification import (
+from database import get_database
+from models.notification import (
     NotificationResponse, NotificationCount, NotificationType
 )
-from ..utils.dependencies import get_current_active_user
+from utils.dependencies import get_current_active_user
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
