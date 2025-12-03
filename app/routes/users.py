@@ -13,7 +13,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 def user_to_response(user: dict) -> UserResponse:
     return UserResponse(
         id=str(user["_id"]),
-        email=user["email"],
+        email=user.get("email"),  # Email is now optional
         full_name=user["full_name"],
         employee_id=user["employee_id"],
         role=user["role"],

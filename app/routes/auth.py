@@ -131,7 +131,7 @@ async def get_me(current_user: dict = Depends(get_current_active_user)):
     """Get current logged-in user details"""
     return UserResponse(
         id=str(current_user["_id"]),
-        email=current_user["email"],
+        email=current_user.get("email"),  # Email is optional
         full_name=current_user["full_name"],
         employee_id=current_user["employee_id"],
         role=current_user["role"],
