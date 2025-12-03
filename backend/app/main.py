@@ -26,11 +26,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     description="""
-    Employee Work Tracking System API
+    Associate Work Tracking System API
 
     ## Features
     - **Authentication**: JWT-based authentication
-    - **Role-based Access Control**: Admin, Manager, Team Lead, Employee
+    - **Role-based Access Control**: Admin, Manager, Team Lead, Associate
     - **User Management**: CRUD operations with hierarchical permissions
     - **Team Management**: Create and manage teams
     - **Task Management**: Assign, track, and manage tasks
@@ -41,10 +41,10 @@ app = FastAPI(
     - **Reports**: Analytics and export capabilities
 
     ## Role Hierarchy
-    - **Admin**: Full access, creates managers, team leads, and employees
-    - **Manager**: Manages team leads and employees, bulk approves worksheets
+    - **Admin**: Full access, creates managers, team leads, and associates
+    - **Manager**: Manages team leads and associates, bulk approves worksheets
     - **Team Lead**: Manages team, individually verifies worksheets
-    - **Employee**: Tracks time, submits worksheets, views tasks
+    - **Associate**: Tracks time, submits worksheets, views tasks
     """,
     version="2.0.0",
     lifespan=lifespan,
@@ -92,7 +92,7 @@ app.include_router(reports_router)
 @app.get("/", tags=["Health"])
 async def root():
     return {
-        "message": "Employee Work Tracking System API",
+        "message": "Associate Work Tracking System API",
         "version": "1.0.0",
         "docs": "/docs",
     }

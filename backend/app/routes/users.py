@@ -34,9 +34,9 @@ async def create_user(
 ):
     """
     Create a new user.
-    - Admin can create: managers, team leads, employees
-    - Manager can create: team leads, employees (under them)
-    - Team Lead can create: employees (under them)
+    - Admin can create: managers, team leads, associates
+    - Manager can create: team leads, associates (under them)
+    - Team Lead can create: associates (under them)
     """
     db = get_database()
     creator_role = current_user["role"]
@@ -49,18 +49,18 @@ async def create_user(
                 detail="Cannot create another admin",
             )
     elif creator_role == UserRole.MANAGER.value:
-        if user.role not in [UserRole.TEAM_LEAD, UserRole.EMPLOYEE]:
+        if user.role not in [UserRole.TEAM_LEAD, UserRole.ASSOCIATE]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Managers can only create team leads and employees",
+                detail="Managers can only create team leads and associates",
             )
         # Set manager_id to current manager
         user.manager_id = str(current_user["_id"])
     elif creator_role == UserRole.TEAM_LEAD.value:
-        if user.role != UserRole.EMPLOYEE:
+        if user.role != UserRole.ASSOCIATE:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Team leads can only create employees",
+                detail="Team leads can only create associates",
             )
         # Set team_lead_id to current team lead
         user.team_lead_id = str(current_user["_id"])
@@ -79,7 +79,7 @@ async def create_user(
     if existing_emp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Employee ID already exists",
+            detail="Associate ID already exists",
         )
 
     # Validate manager_id if provided
@@ -140,9 +140,9 @@ async def get_users(
     """
     Get users based on role permissions.
     - Admin: sees all users
-    - Manager: sees their team leads and employees
+    - Manager: sees their team leads and associates
     - Team Lead: sees their team members
-    - Employee: sees only themselves
+    - Associate: sees only themselves
     """
     db = get_database()
     query = {}
@@ -154,7 +154,7 @@ async def get_users(
         query["manager_id"] = str(current_user["_id"])
     elif user_role == UserRole.TEAM_LEAD.value:
         query["team_lead_id"] = str(current_user["_id"])
-    else:  # Employee
+    else:  # Associate
         query["_id"] = current_user["_id"]
 
     if role:
@@ -199,9 +199,9 @@ async def get_team_leads(
 async def get_employees(
     current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]))
 ):
-    """Get employees (filtered by hierarchy)"""
+    """Get associates (filtered by hierarchy)"""
     db = get_database()
-    query = {"role": UserRole.EMPLOYEE.value, "is_active": True}
+    query = {"role": UserRole.ASSOCIATE.value, "is_active": True}
 
     if current_user["role"] == UserRole.MANAGER.value:
         query["manager_id"] = str(current_user["_id"])
@@ -236,7 +236,7 @@ async def get_user(
 
     # Check access permissions
     user_role = current_user["role"]
-    if user_role == UserRole.EMPLOYEE.value:
+    if user_role == UserRole.ASSOCIATE.value:
         if str(user["_id"]) != str(current_user["_id"]):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -3,7 +3,7 @@ import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col, List, Avatar
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, TeamOutlined, UserAddOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { teamService, userService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -35,9 +35,10 @@ const Teams = () => {
     try {
       setLoading(true);
       const response = await teamService.getTeams({});
-      setTeams(response.data);
+      setTeams(response.data || []);
     } catch (error) {
-      message.error('Failed to fetch teams');
+      console.error('Failed to fetch teams:', error);
+      setTeams([]);
     } finally {
       setLoading(false);
     }
@@ -47,28 +48,31 @@ const Teams = () => {
     try {
       if (isAdmin()) {
         const response = await userService.getManagers();
-        setManagers(response.data);
+        setManagers(response.data || []);
       }
     } catch (error) {
       console.error('Failed to fetch managers');
+      setManagers([]);
     }
   };
 
   const fetchTeamLeads = async () => {
     try {
       const response = await userService.getTeamLeads();
-      setTeamLeads(response.data);
+      setTeamLeads(response.data || []);
     } catch (error) {
       console.error('Failed to fetch team leads');
+      setTeamLeads([]);
     }
   };
 
   const fetchEmployees = async () => {
     try {
       const response = await userService.getEmployees();
-      setEmployees(response.data);
+      setEmployees(response.data || []);
     } catch (error) {
       console.error('Failed to fetch employees');
+      setEmployees([]);
     }
   };
 
@@ -107,6 +111,28 @@ const Teams = () => {
       fetchTeams();
     } catch (error) {
       message.error(error.response?.data?.detail || 'Operation failed');
+    }
+  };
+
+  // Handle modal close with confirmation
+  const handleModalClose = () => {
+    const formValues = form.getFieldsValue();
+    const hasData = formValues.name || formValues.description;
+
+    if (hasData && !editingTeam) {
+      Modal.confirm({
+        title: 'Unsaved Changes',
+        icon: <ExclamationCircleOutlined />,
+        content: 'You have unsaved data. Are you sure you want to close without saving?',
+        okText: 'Yes, Close',
+        cancelText: 'No, Continue Editing',
+        onOk: () => {
+          setModalVisible(false);
+          form.resetFields();
+        },
+      });
+    } else {
+      setModalVisible(false);
     }
   };
 
@@ -155,7 +181,7 @@ const Teams = () => {
 
   const columns = [
     {
-      title: 'Team Name',
+      title: 'Project Name',
       dataIndex: 'name',
       key: 'name',
       render: (text, record) => (
@@ -253,15 +279,16 @@ const Teams = () => {
       <Modal
         title={editingTeam ? 'Edit Team' : 'Create Team'}
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={handleModalClose}
+        maskClosable={false}
         footer={null}
         width={500}
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Form.Item
             name="name"
-            label="Team Name"
-            rules={[{ required: true, message: 'Please enter team name' }]}
+            label="Project Name"
+            rules={[{ required: true, message: 'Please enter project name' }]}
           >
             <Input />
           </Form.Item>
@@ -310,7 +337,7 @@ const Teams = () => {
               <Button type="primary" htmlType="submit">
                 {editingTeam ? 'Update' : 'Create'}
               </Button>
-              <Button onClick={() => setModalVisible(false)}>Cancel</Button>
+              <Button onClick={handleModalClose}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>
@@ -320,6 +347,7 @@ const Teams = () => {
       <Modal
         title={`Manage Members - ${selectedTeam?.name}`}
         open={memberModalVisible}
+        maskClosable={false}
         onCancel={() => setMemberModalVisible(false)}
         footer={null}
         width={500}
@@ -327,10 +355,10 @@ const Teams = () => {
         <Form form={memberForm} layout="inline" onFinish={handleAddMember} style={{ marginBottom: 16 }}>
           <Form.Item
             name="employee_id"
-            rules={[{ required: true, message: 'Select employee' }]}
+            rules={[{ required: true, message: 'Select associate' }]}
             style={{ flex: 1 }}
           >
-            <Select placeholder="Select employee to add">
+            <Select placeholder="Select associate to add">
               {employees
                 .filter(e => !selectedTeam?.members?.includes(e.id))
                 .map((emp) => (

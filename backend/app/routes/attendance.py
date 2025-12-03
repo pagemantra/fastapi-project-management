@@ -359,7 +359,7 @@ async def get_attendance_history(
     query = {}
 
     # Role-based filtering
-    if user_role == UserRole.EMPLOYEE.value:
+    if user_role == UserRole.ASSOCIATE.value:
         query["employee_id"] = user_id
     elif user_role == UserRole.TEAM_LEAD.value:
         if employee_id:

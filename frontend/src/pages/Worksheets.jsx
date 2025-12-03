@@ -3,7 +3,7 @@ import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   message, Typography, Row, Col, DatePicker, Tabs, Checkbox, Popconfirm
 } from 'antd';
-import { CheckOutlined, CloseOutlined, FileTextOutlined, EyeOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, FileTextOutlined, EyeOutlined, DownloadOutlined, FilterOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { worksheetService, formService, taskService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
@@ -11,6 +11,7 @@ import dayjs from 'dayjs';
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { TabPane } = Tabs;
+const { RangePicker } = DatePicker;
 
 const Worksheets = () => {
   const [worksheets, setWorksheets] = useState([]);
@@ -24,6 +25,8 @@ const Worksheets = () => {
   const [selectedRows, setSelectedRows] = useState([]);
   const [forms, setForms] = useState([]);
   const [myTasks, setMyTasks] = useState([]);
+  const [dateRange, setDateRange] = useState(null);
+  const [filteredWorksheets, setFilteredWorksheets] = useState([]);
   const [form] = Form.useForm();
   const [rejectForm] = Form.useForm();
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
@@ -48,9 +51,10 @@ const Worksheets = () => {
       const response = isEmployee()
         ? await worksheetService.getMyWorksheets({})
         : await worksheetService.getWorksheets({});
-      setWorksheets(response.data);
+      setWorksheets(response.data || []);
     } catch (error) {
-      message.error('Failed to fetch worksheets');
+      console.error('Failed to fetch worksheets:', error);
+      setWorksheets([]);
     } finally {
       setLoading(false);
     }
@@ -59,42 +63,49 @@ const Worksheets = () => {
   const fetchPendingVerification = async () => {
     try {
       const response = await worksheetService.getPendingVerification();
-      setPendingVerification(response.data);
+      setPendingVerification(response.data || []);
     } catch (error) {
       console.error('Failed to fetch pending verification');
+      setPendingVerification([]);
     }
   };
 
   const fetchPendingApproval = async () => {
     try {
       const response = await worksheetService.getPendingApproval();
-      setPendingApproval(response.data);
+      setPendingApproval(response.data || []);
     } catch (error) {
       console.error('Failed to fetch pending approval');
+      setPendingApproval([]);
     }
   };
 
   const fetchForms = async () => {
     try {
       const response = await formService.getForms({ is_active: true });
-      setForms(response.data);
+      setForms(response.data || []);
     } catch (error) {
       console.error('Failed to fetch forms');
+      setForms([]);
     }
   };
 
   const fetchMyTasks = async () => {
     try {
-      const response = await taskService.getMyTasks({ status: 'completed' });
-      setMyTasks(response.data);
+      const response = await taskService.getMyTasks({});
+      setMyTasks(response.data || []);
     } catch (error) {
       console.error('Failed to fetch tasks');
+      setMyTasks([]);
     }
   };
 
   const handleCreateWorksheet = () => {
     form.resetFields();
-    form.setFieldsValue({ date: dayjs() });
+    form.setFieldsValue({
+      date: dayjs(),
+      submit_now: true,  // Auto-check submit for verification
+    });
     setModalVisible(true);
   };
 
@@ -221,6 +232,114 @@ const Worksheets = () => {
     return colors[status] || 'default';
   };
 
+  // Handle modal close with confirmation
+  const handleModalClose = () => {
+    const formValues = form.getFieldsValue();
+    const hasData = formValues.form_id || formValues.notes || formValues.tasks_completed?.length > 0;
+
+    if (hasData) {
+      Modal.confirm({
+        title: 'Unsaved Changes',
+        icon: <ExclamationCircleOutlined />,
+        content: 'You have unsaved data. Are you sure you want to close without saving?',
+        okText: 'Yes, Close',
+        cancelText: 'No, Continue Editing',
+        onOk: () => {
+          setModalVisible(false);
+          form.resetFields();
+        },
+      });
+    } else {
+      setModalVisible(false);
+    }
+  };
+
+  // Handle reject modal close with confirmation
+  const handleRejectModalClose = () => {
+    const reason = rejectForm.getFieldValue('rejection_reason');
+
+    if (reason && reason.trim()) {
+      Modal.confirm({
+        title: 'Unsaved Changes',
+        icon: <ExclamationCircleOutlined />,
+        content: 'You have entered a rejection reason. Are you sure you want to close without saving?',
+        okText: 'Yes, Close',
+        cancelText: 'No, Continue Editing',
+        onOk: () => {
+          setRejectModalVisible(false);
+          rejectForm.resetFields();
+        },
+      });
+    } else {
+      setRejectModalVisible(false);
+    }
+  };
+
+  // Filter worksheets by date range
+  const handleDateFilter = (dates) => {
+    setDateRange(dates);
+    if (!dates || dates.length !== 2) {
+      setFilteredWorksheets(worksheets);
+      return;
+    }
+    const [startDate, endDate] = dates;
+    const filtered = worksheets.filter(ws => {
+      const wsDate = dayjs(ws.date);
+      return wsDate.isAfter(startDate.subtract(1, 'day')) && wsDate.isBefore(endDate.add(1, 'day'));
+    });
+    setFilteredWorksheets(filtered);
+  };
+
+  // Clear date filter
+  const handleClearFilter = () => {
+    setDateRange(null);
+    setFilteredWorksheets(worksheets);
+  };
+
+  // Get the data to display (filtered or all)
+  const getDisplayData = () => {
+    if (dateRange && dateRange.length === 2) {
+      return filteredWorksheets;
+    }
+    return worksheets;
+  };
+
+  // Export worksheets to CSV - same columns as displayed in table
+  const handleExportCSV = () => {
+    const dataToExport = getDisplayData();
+    if (dataToExport.length === 0) {
+      message.warning('No data to export');
+      return;
+    }
+
+    // Build CSV content - same columns as table: Date, Associate, Form, Hours, Status
+    const headers = ['Date', 'Associate', 'Form', 'Hours', 'Status'];
+    const csvRows = [headers.join(',')];
+
+    dataToExport.forEach(ws => {
+      const row = [
+        ws.date,
+        `"${ws.employee_name || ''}"`,
+        `"${ws.form_name || ''}"`,
+        `${ws.total_hours || 0} hrs`,
+        ws.status?.replace('_', ' ').toUpperCase() || '',
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `worksheets_${dayjs().format('YYYY-MM-DD')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    message.success('Worksheets exported successfully');
+  };
+
   const columns = [
     {
       title: 'Date',
@@ -229,7 +348,7 @@ const Worksheets = () => {
       sorter: (a, b) => dayjs(a.date).unix() - dayjs(b.date).unix(),
     },
     ...(isEmployee() ? [] : [{
-      title: 'Employee',
+      title: 'Associate',
       dataIndex: 'employee_name',
       key: 'employee_name',
     }]),
@@ -286,7 +405,7 @@ const Worksheets = () => {
 
   const verificationColumns = [
     { title: 'Date', dataIndex: 'date', key: 'date' },
-    { title: 'Employee', dataIndex: 'employee_name', key: 'employee_name' },
+    { title: 'Associate', dataIndex: 'employee_name', key: 'employee_name' },
     { title: 'Form', dataIndex: 'form_name', key: 'form_name' },
     {
       title: 'Actions',
@@ -309,7 +428,7 @@ const Worksheets = () => {
 
   const approvalColumns = [
     { title: 'Date', dataIndex: 'date', key: 'date' },
-    { title: 'Employee', dataIndex: 'employee_name', key: 'employee_name' },
+    { title: 'Associate', dataIndex: 'employee_name', key: 'employee_name' },
     { title: 'Form', dataIndex: 'form_name', key: 'form_name' },
     { title: 'Verified By', dataIndex: 'tl_verified_by', key: 'tl_verified_by' },
     {
@@ -426,8 +545,38 @@ const Worksheets = () => {
       <Tabs defaultActiveKey="all">
         <TabPane tab="All Worksheets" key="all">
           <Card>
+            {/* Filter and Export Options - Only for Admin, Manager, Team Lead */}
+            {(isAdmin() || isManager() || isTeamLead()) && (
+              <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
+                <Col>
+                  <Space>
+                    <FilterOutlined />
+                    <Text>Filter by Date:</Text>
+                    <RangePicker
+                      value={dateRange}
+                      onChange={handleDateFilter}
+                      format="YYYY-MM-DD"
+                    />
+                    {dateRange && (
+                      <Button size="small" onClick={handleClearFilter}>
+                        Clear Filter
+                      </Button>
+                    )}
+                  </Space>
+                </Col>
+                <Col flex="auto" style={{ textAlign: 'right' }}>
+                  <Button
+                    type="primary"
+                    icon={<DownloadOutlined />}
+                    onClick={handleExportCSV}
+                  >
+                    Export Data
+                  </Button>
+                </Col>
+              </Row>
+            )}
             <Table
-              dataSource={worksheets}
+              dataSource={getDisplayData()}
               columns={columns}
               rowKey="id"
               loading={loading}
@@ -476,7 +625,8 @@ const Worksheets = () => {
       <Modal
         title="Create Daily Worksheet"
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={handleModalClose}
+        maskClosable={false}
         footer={null}
         width={700}
       >
@@ -506,6 +656,27 @@ const Worksheets = () => {
             </Col>
           </Row>
 
+          {/* Auto-filled Associate Details - shown when form is selected */}
+          <Form.Item
+            noStyle
+            shouldUpdate={(prev, curr) => prev.form_id !== curr.form_id}
+          >
+            {({ getFieldValue }) => getFieldValue('form_id') && (
+              <Row gutter={16} style={{ marginBottom: 16 }}>
+                <Col span={12}>
+                  <Form.Item label="Associate Name">
+                    <Input value={user?.full_name} disabled style={{ backgroundColor: '#f5f5f5' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item label="Associate ID">
+                    <Input value={user?.employee_id} disabled style={{ backgroundColor: '#f5f5f5' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            )}
+          </Form.Item>
+
           <Form.Item
             noStyle
             shouldUpdate={(prev, curr) => prev.form_id !== curr.form_id}
@@ -534,7 +705,7 @@ const Worksheets = () => {
               <Button type="primary" htmlType="submit">
                 Save Worksheet
               </Button>
-              <Button onClick={() => setModalVisible(false)}>Cancel</Button>
+              <Button onClick={handleModalClose}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>
@@ -551,7 +722,7 @@ const Worksheets = () => {
         {selectedWorksheet && (
           <div>
             <p><strong>Date:</strong> {selectedWorksheet.date}</p>
-            <p><strong>Employee:</strong> {selectedWorksheet.employee_name}</p>
+            <p><strong>Associate:</strong> {selectedWorksheet.employee_name}</p>
             <p><strong>Form:</strong> {selectedWorksheet.form_name}</p>
             <p><strong>Status:</strong> <Tag color={getStatusColor(selectedWorksheet.status)}>
               {selectedWorksheet.status.replace('_', ' ').toUpperCase()}
@@ -584,7 +755,8 @@ const Worksheets = () => {
       <Modal
         title="Reject Worksheet"
         open={rejectModalVisible}
-        onCancel={() => setRejectModalVisible(false)}
+        onCancel={handleRejectModalClose}
+        maskClosable={false}
         footer={null}
       >
         <Form form={rejectForm} layout="vertical" onFinish={handleRejectSubmit}>
@@ -600,7 +772,7 @@ const Worksheets = () => {
               <Button type="primary" danger htmlType="submit">
                 Reject
               </Button>
-              <Button onClick={() => setRejectModalVisible(false)}>Cancel</Button>
+              <Button onClick={handleRejectModalClose}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>

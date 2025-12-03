@@ -9,7 +9,7 @@ class UserRole(str, Enum):
     ADMIN = "admin"
     MANAGER = "manager"
     TEAM_LEAD = "team_lead"
-    EMPLOYEE = "employee"
+    ASSOCIATE = "employee"
 
 
 class PyObjectId(str):
@@ -30,7 +30,7 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=100)
     employee_id: str = Field(..., min_length=3, max_length=20)
-    role: UserRole = UserRole.EMPLOYEE
+    role: UserRole = UserRole.ASSOCIATE
     phone: Optional[str] = None
     department: Optional[str] = None
     is_active: bool = True

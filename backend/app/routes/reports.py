@@ -38,7 +38,7 @@ async def get_productivity_report(
 
     employees = await db.users.find({
         **employee_query,
-        "role": UserRole.EMPLOYEE.value
+        "role": UserRole.ASSOCIATE.value
     }).to_list(length=1000)
 
     # Date range

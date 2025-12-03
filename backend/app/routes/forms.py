@@ -162,7 +162,7 @@ async def get_team_forms(
     user_id = str(current_user["_id"])
 
     # Check access
-    if user_role == UserRole.EMPLOYEE.value:
+    if user_role == UserRole.ASSOCIATE.value:
         if user_id not in team.get("members", []):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     elif user_role == UserRole.TEAM_LEAD.value:

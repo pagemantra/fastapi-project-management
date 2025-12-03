@@ -3,7 +3,7 @@ import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col, DatePicker, InputNumber
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { taskService, userService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
@@ -34,9 +34,10 @@ const Tasks = () => {
       const response = isEmployee()
         ? await taskService.getMyTasks({})
         : await taskService.getTasks({});
-      setTasks(response.data);
+      setTasks(response.data || []);
     } catch (error) {
-      message.error('Failed to fetch tasks');
+      console.error('Failed to fetch tasks:', error);
+      setTasks([]);
     } finally {
       setLoading(false);
     }
@@ -45,9 +46,10 @@ const Tasks = () => {
   const fetchEmployees = async () => {
     try {
       const response = await userService.getEmployees();
-      setEmployees(response.data);
+      setEmployees(response.data || []);
     } catch (error) {
       console.error('Failed to fetch employees');
+      setEmployees([]);
     }
   };
 
@@ -104,6 +106,28 @@ const Tasks = () => {
       fetchTasks();
     } catch (error) {
       message.error('Failed to update status');
+    }
+  };
+
+  // Handle modal close with confirmation
+  const handleModalClose = () => {
+    const formValues = form.getFieldsValue();
+    const hasData = formValues.title || formValues.description;
+
+    if (hasData && !editingTask) {
+      Modal.confirm({
+        title: 'Unsaved Changes',
+        icon: <ExclamationCircleOutlined />,
+        content: 'You have unsaved data. Are you sure you want to close without saving?',
+        okText: 'Yes, Close',
+        cancelText: 'No, Continue Editing',
+        onOk: () => {
+          setModalVisible(false);
+          form.resetFields();
+        },
+      });
+    } else {
+      setModalVisible(false);
     }
   };
 
@@ -261,7 +285,8 @@ const Tasks = () => {
       <Modal
         title={editingTask ? 'Edit Task' : 'Create Task'}
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={handleModalClose}
+        maskClosable={false}
         footer={null}
         width={600}
       >
@@ -282,9 +307,9 @@ const Tasks = () => {
             <Form.Item
               name="assigned_to"
               label="Assign To"
-              rules={[{ required: true, message: 'Please select employee' }]}
+              rules={[{ required: true, message: 'Please select associate' }]}
             >
-              <Select placeholder="Select employee">
+              <Select placeholder="Select associate">
                 {employees.map((emp) => (
                   <Option key={emp.id} value={emp.id}>{emp.full_name}</Option>
                 ))}
@@ -334,7 +359,7 @@ const Tasks = () => {
               <Button type="primary" htmlType="submit">
                 {editingTask ? 'Update' : 'Create'}
               </Button>
-              <Button onClick={() => setModalVisible(false)}>Cancel</Button>
+              <Button onClick={handleModalClose}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>

@@ -3,7 +3,7 @@ import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { userService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -30,9 +30,10 @@ const Users = () => {
     try {
       setLoading(true);
       const response = await userService.getUsers({});
-      setUsers(response.data);
+      setUsers(response.data || []);
     } catch (error) {
-      message.error('Failed to fetch users');
+      console.error('Failed to fetch users:', error);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -42,19 +43,21 @@ const Users = () => {
     try {
       if (isAdmin()) {
         const response = await userService.getManagers();
-        setManagers(response.data);
+        setManagers(response.data || []);
       }
     } catch (error) {
       console.error('Failed to fetch managers');
+      setManagers([]);
     }
   };
 
   const fetchTeamLeads = async () => {
     try {
       const response = await userService.getTeamLeads();
-      setTeamLeads(response.data);
+      setTeamLeads(response.data || []);
     } catch (error) {
       console.error('Failed to fetch team leads');
+      setTeamLeads([]);
     }
   };
 
@@ -99,20 +102,42 @@ const Users = () => {
     }
   };
 
+  // Handle modal close with confirmation
+  const handleModalClose = () => {
+    const formValues = form.getFieldsValue();
+    const hasData = formValues.full_name || formValues.email || formValues.employee_id || formValues.password;
+
+    if (hasData && !editingUser) {
+      Modal.confirm({
+        title: 'Unsaved Changes',
+        icon: <ExclamationCircleOutlined />,
+        content: 'You have unsaved data. Are you sure you want to close without saving?',
+        okText: 'Yes, Close',
+        cancelText: 'No, Continue Editing',
+        onOk: () => {
+          setModalVisible(false);
+          form.resetFields();
+        },
+      });
+    } else {
+      setModalVisible(false);
+    }
+  };
+
   const getRoleOptions = () => {
     if (isAdmin()) {
       return [
         { value: 'manager', label: 'Manager' },
         { value: 'team_lead', label: 'Team Lead' },
-        { value: 'employee', label: 'Employee' },
+        { value: 'employee', label: 'Associate' },
       ];
     } else if (isManager()) {
       return [
         { value: 'team_lead', label: 'Team Lead' },
-        { value: 'employee', label: 'Employee' },
+        { value: 'employee', label: 'Associate' },
       ];
     }
-    return [{ value: 'employee', label: 'Employee' }];
+    return [{ value: 'employee', label: 'Associate' }];
   };
 
   const columns = [
@@ -128,7 +153,7 @@ const Users = () => {
       key: 'email',
     },
     {
-      title: 'Employee ID',
+      title: 'Associate ID',
       dataIndex: 'employee_id',
       key: 'employee_id',
     },
@@ -143,12 +168,13 @@ const Users = () => {
           team_lead: 'green',
           employee: 'default',
         };
-        return <Tag color={colors[role]}>{role.replace('_', ' ').toUpperCase()}</Tag>;
+        const displayName = role === 'employee' ? 'ASSOCIATE' : role.replace('_', ' ').toUpperCase();
+        return <Tag color={colors[role]}>{displayName}</Tag>;
       },
       filters: [
         { text: 'Manager', value: 'manager' },
         { text: 'Team Lead', value: 'team_lead' },
-        { text: 'Employee', value: 'employee' },
+        { text: 'Associate', value: 'employee' },
       ],
       onFilter: (value, record) => record.role === value,
     },
@@ -220,7 +246,8 @@ const Users = () => {
       <Modal
         title={editingUser ? 'Edit User' : 'Create User'}
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={handleModalClose}
+        maskClosable={false}
         footer={null}
         width={600}
       >
@@ -257,8 +284,8 @@ const Users = () => {
             <Col span={12}>
               <Form.Item
                 name="employee_id"
-                label="Employee ID"
-                rules={[{ required: true, message: 'Please enter employee ID' }]}
+                label="Associate ID"
+                rules={[{ required: true, message: 'Please enter associate ID' }]}
               >
                 <Input disabled={!!editingUser} />
               </Form.Item>
@@ -342,7 +369,7 @@ const Users = () => {
               <Button type="primary" htmlType="submit">
                 {editingUser ? 'Update' : 'Create'}
               </Button>
-              <Button onClick={() => setModalVisible(false)}>Cancel</Button>
+              <Button onClick={handleModalClose}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>

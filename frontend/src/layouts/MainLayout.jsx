@@ -10,10 +10,10 @@ import {
   BarChartOutlined,
   BellOutlined,
   LogoutOutlined,
-  SettingOutlined,
   CheckSquareOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  ProfileOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -31,20 +31,21 @@ const MainLayout = () => {
 
   useEffect(() => {
     fetchNotificationCount();
-    const interval = setInterval(fetchNotificationCount, 30000); // Poll every 30s
+    const interval = setInterval(fetchNotificationCount, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const fetchNotificationCount = async () => {
     try {
       const response = await notificationService.getCount();
-      setUnreadCount(response.data.unread);
+      setUnreadCount(response.data?.unread || 0);
     } catch (error) {
-      console.error('Failed to fetch notification count');
+      // Silently fail
     }
   };
 
   const getMenuItems = () => {
+    const role = user?.role;
     const items = [
       {
         key: '/dashboard',
@@ -53,18 +54,23 @@ const MainLayout = () => {
       },
     ];
 
-    // Admin & Manager menu items
-    if (user?.role === 'admin' || user?.role === 'manager') {
+    // Admin menu items
+    if (role === 'admin') {
       items.push(
         {
           key: '/users',
           icon: <UserOutlined />,
-          label: 'Users',
+          label: 'Master Data',
         },
         {
           key: '/teams',
           icon: <TeamOutlined />,
           label: 'Teams',
+        },
+        {
+          key: '/tasks',
+          icon: <CheckSquareOutlined />,
+          label: 'All Tasks',
         },
         {
           key: '/forms',
@@ -77,6 +83,52 @@ const MainLayout = () => {
           label: 'Worksheets',
         },
         {
+          key: '/attendance',
+          icon: <ClockCircleOutlined />,
+          label: 'Attendance',
+        },
+        {
+          key: '/reports',
+          icon: <BarChartOutlined />,
+          label: 'Reports',
+        }
+      );
+    }
+
+    // Manager menu items
+    if (role === 'manager') {
+      items.push(
+        {
+          key: '/users',
+          icon: <UserOutlined />,
+          label: 'Master Data',
+        },
+        {
+          key: '/teams',
+          icon: <TeamOutlined />,
+          label: 'Teams',
+        },
+        {
+          key: '/tasks',
+          icon: <CheckSquareOutlined />,
+          label: 'All Tasks',
+        },
+        {
+          key: '/forms',
+          icon: <FormOutlined />,
+          label: 'Forms',
+        },
+        {
+          key: '/worksheets',
+          icon: <FileTextOutlined />,
+          label: 'Worksheets',
+        },
+        {
+          key: '/attendance',
+          icon: <ClockCircleOutlined />,
+          label: 'Attendance',
+        },
+        {
           key: '/reports',
           icon: <BarChartOutlined />,
           label: 'Reports',
@@ -85,7 +137,7 @@ const MainLayout = () => {
     }
 
     // Team Lead menu items
-    if (user?.role === 'team_lead') {
+    if (role === 'team_lead') {
       items.push(
         {
           key: '/my-team',
@@ -93,42 +145,50 @@ const MainLayout = () => {
           label: 'My Team',
         },
         {
-          key: '/verify-worksheets',
+          key: '/tasks',
           icon: <CheckSquareOutlined />,
-          label: 'Verify Worksheets',
+          label: 'Tasks',
+        },
+        {
+          key: '/worksheets',
+          icon: <FileTextOutlined />,
+          label: 'Worksheets',
+        },
+        {
+          key: '/attendance',
+          icon: <ClockCircleOutlined />,
+          label: 'Attendance',
         }
       );
     }
 
-    // Employee menu items
-    if (user?.role === 'employee') {
+    // Associate menu items
+    if (role === 'employee') {
       items.push(
         {
-          key: '/my-tasks',
+          key: '/tasks',
           icon: <CheckSquareOutlined />,
           label: 'My Tasks',
         },
         {
-          key: '/my-worksheets',
+          key: '/worksheets',
           icon: <FileTextOutlined />,
           label: 'My Worksheets',
+        },
+        {
+          key: '/attendance',
+          icon: <ClockCircleOutlined />,
+          label: 'Attendance',
         }
       );
     }
 
-    // Common items for all roles
-    items.push(
-      {
-        key: '/attendance',
-        icon: <ClockCircleOutlined />,
-        label: 'Attendance',
-      },
-      {
-        key: '/tasks',
-        icon: <CheckSquareOutlined />,
-        label: 'Tasks',
-      }
-    );
+    // Notifications for all roles
+    items.push({
+      key: '/notifications',
+      icon: <BellOutlined />,
+      label: 'Notifications',
+    });
 
     return items;
   };
@@ -136,15 +196,9 @@ const MainLayout = () => {
   const userMenuItems = [
     {
       key: 'profile',
-      icon: <UserOutlined />,
+      icon: <ProfileOutlined />,
       label: 'Profile',
       onClick: () => navigate('/profile'),
-    },
-    {
-      key: 'notifications',
-      icon: <BellOutlined />,
-      label: 'Notifications',
-      onClick: () => navigate('/notifications'),
     },
     {
       type: 'divider',
@@ -165,7 +219,7 @@ const MainLayout = () => {
       admin: '#f50',
       manager: '#2db7f5',
       team_lead: '#87d068',
-      employee: '#108ee9',
+      associate: '#108ee9',
     };
     return colors[role] || '#108ee9';
   };

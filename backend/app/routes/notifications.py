@@ -12,10 +12,12 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
 def notification_to_response(notification: dict) -> NotificationResponse:
+    # Convert type to lowercase to match enum values
+    notification_type = notification["type"].lower() if notification.get("type") else "task_assigned"
     return NotificationResponse(
         id=str(notification["_id"]),
         recipient_id=notification["recipient_id"],
-        type=notification["type"],
+        type=notification_type,
         title=notification["title"],
         message=notification["message"],
         related_id=notification.get("related_id"),

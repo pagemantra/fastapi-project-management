@@ -177,7 +177,7 @@ async def seed_all():
         team_lead_ids.append(str(result.inserted_id))
         print(f"  Team Lead: {tl['email']} / teamlead123")
 
-    # ============ EMPLOYEES ============
+    # ============ ASSOCIATES ============
     print("\nCreating Employees...")
     employees_data = [
         # Team 1 - Frontend (TL1)

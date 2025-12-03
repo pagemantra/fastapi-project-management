@@ -156,7 +156,7 @@ async def get_team(
     elif user_role == UserRole.TEAM_LEAD.value:
         if team["team_lead_id"] != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    elif user_role == UserRole.EMPLOYEE.value:
+    elif user_role == UserRole.ASSOCIATE.value:
         if user_id not in team.get("members", []):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
@@ -241,7 +241,7 @@ async def add_team_member(
     # Validate employee exists and is an employee
     employee = await db.users.find_one({
         "_id": ObjectId(member.employee_id),
-        "role": UserRole.EMPLOYEE.value
+        "role": UserRole.ASSOCIATE.value
     })
     if not employee:
         raise HTTPException(

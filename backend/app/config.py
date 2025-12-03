@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "Employee Work Tracking System"
+    APP_NAME: str = "Associate Work Tracking System"
     DEBUG: bool = True
 
     # MongoDB

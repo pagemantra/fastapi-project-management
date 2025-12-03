@@ -122,7 +122,7 @@ const Attendance = () => {
       sorter: (a, b) => dayjs(a.date).unix() - dayjs(b.date).unix(),
     },
     ...(isEmployee() ? [] : [{
-      title: 'Employee',
+      title: 'Associate',
       key: 'employee',
       render: (_, record) => record.employee_name || record.employee_id,
     }]),
@@ -186,7 +186,7 @@ const Attendance = () => {
     <div>
       <Title level={3}>Attendance</Title>
 
-      {/* Time Tracker for employees */}
+      {/* Time Tracker for associates */}
       {isEmployee() && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col span={24}>

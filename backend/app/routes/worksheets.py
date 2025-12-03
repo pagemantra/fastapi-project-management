@@ -526,7 +526,7 @@ async def get_worksheets(
     query = {}
 
     # Role-based filtering
-    if user_role == UserRole.EMPLOYEE.value:
+    if user_role == UserRole.ASSOCIATE.value:
         query["employee_id"] = user_id
     elif user_role == UserRole.TEAM_LEAD.value:
         # Get team members
@@ -710,7 +710,7 @@ async def get_worksheet(
     user_role = current_user["role"]
     user_id = str(current_user["_id"])
 
-    if user_role == UserRole.EMPLOYEE.value:
+    if user_role == UserRole.ASSOCIATE.value:
         if worksheet["employee_id"] != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     elif user_role == UserRole.TEAM_LEAD.value:

@@ -54,7 +54,7 @@ async def create_task(
 
     employee = await db.users.find_one({
         "_id": ObjectId(task.assigned_to),
-        "role": UserRole.EMPLOYEE.value
+        "role": UserRole.ASSOCIATE.value
     })
     if not employee:
         raise HTTPException(
@@ -127,14 +127,14 @@ async def get_tasks(
     elif user_role == UserRole.MANAGER.value:
         # Get all employees under this manager
         employees = await db.users.find(
-            {"manager_id": user_id, "role": UserRole.EMPLOYEE.value}
+            {"manager_id": user_id, "role": UserRole.ASSOCIATE.value}
         ).to_list(length=1000)
         employee_ids = [str(e["_id"]) for e in employees]
         query["assigned_to"] = {"$in": employee_ids}
     elif user_role == UserRole.TEAM_LEAD.value:
         # Get all employees in their team
         employees = await db.users.find(
-            {"team_lead_id": user_id, "role": UserRole.EMPLOYEE.value}
+            {"team_lead_id": user_id, "role": UserRole.ASSOCIATE.value}
         ).to_list(length=1000)
         employee_ids = [str(e["_id"]) for e in employees]
         query["assigned_to"] = {"$in": employee_ids}
@@ -213,7 +213,7 @@ async def get_task(
     user_role = current_user["role"]
     user_id = str(current_user["_id"])
 
-    if user_role == UserRole.EMPLOYEE.value:
+    if user_role == UserRole.ASSOCIATE.value:
         if task["assigned_to"] != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     elif user_role == UserRole.TEAM_LEAD.value:
@@ -258,7 +258,7 @@ async def update_task(
     user_id = str(current_user["_id"])
 
     # Permission checks
-    if user_role == UserRole.EMPLOYEE.value:
+    if user_role == UserRole.ASSOCIATE.value:
         if task["assigned_to"] != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
         # Employees can only update status

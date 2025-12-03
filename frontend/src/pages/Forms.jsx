@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined,
-  ArrowUpOutlined, ArrowDownOutlined
+  ArrowUpOutlined, ArrowDownOutlined, ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { formService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
@@ -155,6 +155,29 @@ const Forms = () => {
     setFields(newFields.map((f, i) => ({ ...f, order: i })));
   };
 
+  // Handle modal close with confirmation
+  const handleModalClose = () => {
+    const formValues = form.getFieldsValue();
+    const hasData = formValues.name || formValues.description || fields.length > 0;
+
+    if (hasData) {
+      Modal.confirm({
+        title: 'Unsaved Changes',
+        icon: <ExclamationCircleOutlined />,
+        content: 'You have unsaved data. Are you sure you want to close without saving?',
+        okText: 'Yes, Close',
+        cancelText: 'No, Continue Editing',
+        onOk: () => {
+          setModalVisible(false);
+          form.resetFields();
+          setFields([]);
+        },
+      });
+    } else {
+      setModalVisible(false);
+    }
+  };
+
   const columns = [
     {
       title: 'Form Name',
@@ -174,7 +197,7 @@ const Forms = () => {
       render: (fields) => <Tag color="blue">{fields?.length || 0} fields</Tag>,
     },
     {
-      title: 'Assigned Teams',
+      title: 'Assigned Projects',
       dataIndex: 'assigned_teams',
       key: 'assigned_teams',
       render: (teamIds) => (
@@ -244,7 +267,8 @@ const Forms = () => {
       <Modal
         title={editingForm ? 'Edit Form' : 'Create Form'}
         open={modalVisible}
-        onCancel={() => setModalVisible(false)}
+        onCancel={handleModalClose}
+        maskClosable={false}
         footer={null}
         width={800}
       >
@@ -260,8 +284,8 @@ const Forms = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="assigned_teams" label="Assign to Teams">
-                <Select mode="multiple" placeholder="Select teams">
+              <Form.Item name="assigned_teams" label="Assign to Projects">
+                <Select mode="multiple" placeholder="Select projects">
                   {teams.map(team => (
                     <Select.Option key={team.id} value={team.id}>{team.name}</Select.Option>
                   ))}
@@ -399,7 +423,7 @@ const Forms = () => {
               <Button type="primary" htmlType="submit">
                 {editingForm ? 'Update Form' : 'Create Form'}
               </Button>
-              <Button onClick={() => setModalVisible(false)}>Cancel</Button>
+              <Button onClick={handleModalClose}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>
