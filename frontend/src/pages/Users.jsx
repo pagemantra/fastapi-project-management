@@ -98,7 +98,14 @@ const Users = () => {
       setModalVisible(false);
       fetchUsers();
     } catch (error) {
-      message.error(error.response?.data?.detail || 'Operation failed');
+      const detail = error.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        // Handle Pydantic validation errors
+        const errorMessages = detail.map(err => `${err.loc?.join('.')}: ${err.msg}`).join(', ');
+        message.error(errorMessages);
+      } else {
+        message.error(detail || 'Operation failed');
+      }
     }
   };
 
@@ -261,7 +268,11 @@ const Users = () => {
               <Form.Item
                 name="full_name"
                 label="Full Name"
-                rules={[{ required: true, message: 'Please enter full name' }]}
+                rules={[
+                  { required: true, message: 'Please enter full name' },
+                  { min: 2, message: 'Name must be at least 2 characters' },
+                  { max: 100, message: 'Name must not exceed 100 characters' }
+                ]}
               >
                 <Input />
               </Form.Item>
@@ -285,7 +296,11 @@ const Users = () => {
               <Form.Item
                 name="employee_id"
                 label="Associate ID"
-                rules={[{ required: true, message: 'Please enter associate ID' }]}
+                rules={[
+                  { required: true, message: 'Please enter associate ID' },
+                  { min: 3, message: 'ID must be at least 3 characters' },
+                  { max: 20, message: 'ID must not exceed 20 characters' }
+                ]}
               >
                 <Input disabled={!!editingUser} />
               </Form.Item>
@@ -305,7 +320,10 @@ const Users = () => {
             <Form.Item
               name="password"
               label="Password"
-              rules={[{ required: true, message: 'Please enter password' }]}
+              rules={[
+                { required: true, message: 'Please enter password' },
+                { min: 6, message: 'Password must be at least 6 characters' }
+              ]}
             >
               <Input.Password />
             </Form.Item>

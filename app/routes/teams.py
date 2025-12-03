@@ -238,6 +238,13 @@ async def add_team_member(
         if team["team_lead_id"] != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
+    # Validate employee_id format
+    if not ObjectId.is_valid(member.employee_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid employee ID format",
+        )
+
     # Validate employee exists and is an employee
     employee = await db.users.find_one({
         "_id": ObjectId(member.employee_id),

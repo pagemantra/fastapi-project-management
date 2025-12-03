@@ -66,8 +66,8 @@ async def create_user(
         user.team_lead_id = str(current_user["_id"])
         user.manager_id = current_user.get("manager_id")
 
-    # Check if email already exists
-    existing_user = await db.users.find_one({"email": user.email})
+    # Check if email already exists (case-insensitive)
+    existing_user = await db.users.find_one({"email": user.email.lower()})
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,7 +108,7 @@ async def create_user(
 
     now = datetime.utcnow()
     user_dict = {
-        "email": user.email,
+        "email": user.email.lower(),  # Store email in lowercase
         "full_name": user.full_name,
         "employee_id": user.employee_id,
         "role": user.role.value,

@@ -22,8 +22,8 @@ async def register_admin(user: UserCreate):
             detail="Admin already exists. Please contact existing admin.",
         )
 
-    # Check if email already exists
-    existing_user = await db.users.find_one({"email": user.email})
+    # Check if email already exists (case-insensitive)
+    existing_user = await db.users.find_one({"email": user.email.lower()})
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -40,7 +40,7 @@ async def register_admin(user: UserCreate):
 
     now = datetime.utcnow()
     user_dict = {
-        "email": user.email,
+        "email": user.email.lower(),  # Store email in lowercase
         "full_name": user.full_name,
         "employee_id": user.employee_id,
         "role": UserRole.ADMIN.value,  # Force admin role
@@ -79,7 +79,8 @@ async def login(user_credentials: UserLogin):
     """Login and get access token"""
     db = get_database()
 
-    user = await db.users.find_one({"email": user_credentials.email})
+    # Case-insensitive email lookup
+    user = await db.users.find_one({"email": user_credentials.email.lower()})
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
