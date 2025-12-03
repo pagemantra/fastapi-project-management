@@ -4,14 +4,14 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .config import settings
-from .database import connect_to_mongo, close_mongo_connection
-from .routes import auth_router, users_router, teams_router, tasks_router
-from .routes.attendance import router as attendance_router
-from .routes.forms import router as forms_router
-from .routes.worksheets import router as worksheets_router
-from .routes.notifications import router as notifications_router
-from .routes.reports import router as reports_router
+from config import settings
+from database import connect_to_mongo, close_mongo_connection
+from routes import auth_router, users_router, teams_router, tasks_router
+from routes.attendance import router as attendance_router
+from routes.forms import router as forms_router
+from routes.worksheets import router as worksheets_router
+from routes.notifications import router as notifications_router
+from routes.reports import router as reports_router
 
 
 @asynccontextmanager
