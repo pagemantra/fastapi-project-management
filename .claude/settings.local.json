@@ -1,28 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(del \"d:\\Development\\fastapi-project-management\\backend\\server.js\")",
-      "Bash(del \"d:\\Development\\fastapi-project-management\\backend\\README.md\")",
-      "Bash(npm create:*)",
-      "Bash(npm install:*)",
-      "Bash(pip install:*)",
-      "Bash(python:*)",
-      "Bash(npm run dev:*)",
-      "Bash(pushd:*)",
-      "Bash(curl:*)",
-      "Bash(taskkill:*)",
-      "Bash(cat:*)",
-      "Bash(netstat:*)",
-      "Bash(xargs:*)",
-      "Bash(while read pid)",
-      "Bash(do taskkill //F //PID $pid)",
-      "Bash(done)",
-      "Bash(dir:*)",
-      "Bash(tree:*)",
-      "Bash(git rm:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTI4NTZmZDBiYjI3M2JiZGQ4YzEzODIiLCJlbWFpbCI6ImFkbWluQGNvbXBhbnkuY29tIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzY0ODQ5NjM3fQ.Z1ytrIgbfawyyQA78mulBKmlDdJ4U7K1M6sAGhzeQYo\":*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTI4NTZmZDBiYjI3M2JiZGQ4YzEzODIiLCJlbWFpbCI6ImFkbWluQGNvbXBhbnkuY29tIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzY0ODQ5NjUwfQ.ehOHBreVT3L3LZnZ6LMK76jb7oczKjE7BAtPy1bS_3M:*)"
     ],
     "deny": [],
     "ask": []
