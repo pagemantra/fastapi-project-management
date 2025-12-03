@@ -16,7 +16,9 @@
       "Bash(xargs:*)",
       "Bash(while read pid)",
       "Bash(do taskkill //F //PID $pid)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(dir:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

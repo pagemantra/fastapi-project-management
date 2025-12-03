@@ -1,12 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider, App as AntApp } from 'antd';
+import { ConfigProvider } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import MainLayout from './layouts/MainLayout';
 
 // Auth pages
 import Login from './pages/auth/Login';
-import Unauthorized from './pages/Unauthorized';
 
 // Main pages
 import Dashboard from './pages/Dashboard';
@@ -18,12 +17,8 @@ import Forms from './pages/Forms';
 import Reports from './pages/Reports';
 import Notifications from './pages/Notifications';
 import Attendance from './pages/Attendance';
-
-// Role-specific pages
-import MyTasks from './pages/MyTasks';
-import MyWorksheets from './pages/MyWorksheets';
+import Profile from './pages/Profile';
 import MyTeam from './pages/MyTeam';
-import VerifyWorksheets from './pages/VerifyWorksheets';
 
 function App() {
   return (
@@ -35,13 +30,11 @@ function App() {
         },
       }}
     >
-      <AntApp>
-        <AuthProvider>
-          <BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
 
             {/* Protected routes with layout */}
             <Route
@@ -53,65 +46,17 @@ function App() {
               }
             >
               <Route index element={<Navigate to="/dashboard" replace />} />
-
-              {/* Common routes - accessible to all authenticated users */}
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="attendance" element={<Attendance />} />
-              <Route path="notifications" element={<Notifications />} />
-
-              {/* Tasks route - shows different view based on role */}
               <Route path="tasks" element={<Tasks />} />
-
-              {/* Admin & Manager routes */}
-              <Route path="users" element={
-                <ProtectedRoute allowedRoles={['admin', 'manager']}>
-                  <Users />
-                </ProtectedRoute>
-              } />
-              <Route path="teams" element={
-                <ProtectedRoute allowedRoles={['admin', 'manager']}>
-                  <Teams />
-                </ProtectedRoute>
-              } />
-              <Route path="forms" element={
-                <ProtectedRoute allowedRoles={['admin', 'manager']}>
-                  <Forms />
-                </ProtectedRoute>
-              } />
-              <Route path="worksheets" element={
-                <ProtectedRoute allowedRoles={['admin', 'manager']}>
-                  <Worksheets />
-                </ProtectedRoute>
-              } />
-              <Route path="reports" element={
-                <ProtectedRoute allowedRoles={['admin', 'manager']}>
-                  <Reports />
-                </ProtectedRoute>
-              } />
-
-              {/* Employee role routes */}
-              <Route path="my-tasks" element={
-                <ProtectedRoute allowedRoles={['employee']}>
-                  <MyTasks />
-                </ProtectedRoute>
-              } />
-              <Route path="my-worksheets" element={
-                <ProtectedRoute allowedRoles={['employee']}>
-                  <MyWorksheets />
-                </ProtectedRoute>
-              } />
-
-              {/* Team Lead role routes */}
-              <Route path="my-team" element={
-                <ProtectedRoute allowedRoles={['team_lead']}>
-                  <MyTeam />
-                </ProtectedRoute>
-              } />
-              <Route path="verify-worksheets" element={
-                <ProtectedRoute allowedRoles={['team_lead']}>
-                  <VerifyWorksheets />
-                </ProtectedRoute>
-              } />
+              <Route path="worksheets" element={<Worksheets />} />
+              <Route path="forms" element={<Forms />} />
+              <Route path="teams" element={<Teams />} />
+              <Route path="users" element={<Users />} />
+              <Route path="reports" element={<Reports />} />
+              <Route path="notifications" element={<Notifications />} />
+              <Route path="profile" element={<Profile />} />
+              <Route path="my-team" element={<MyTeam />} />
             </Route>
 
             {/* Fallback route */}
@@ -119,7 +64,6 @@ function App() {
           </Routes>
         </BrowserRouter>
       </AuthProvider>
-      </AntApp>
     </ConfigProvider>
   );
 }

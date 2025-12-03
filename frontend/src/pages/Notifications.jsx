@@ -85,11 +85,11 @@ const Notifications = () => {
       case 'worksheet_submitted':
       case 'worksheet_verified':
       case 'worksheet_rejected':
-        navigate('/worksheets');
+        navigate(`/worksheets/${notification.related_id}`);
         break;
       case 'task_assigned':
       case 'task_updated':
-        navigate('/tasks');
+        navigate(`/tasks/${notification.related_id}`);
         break;
       case 'overtime_alert':
         navigate('/reports');

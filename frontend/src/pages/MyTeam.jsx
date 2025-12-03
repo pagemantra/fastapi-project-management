@@ -1,97 +1,124 @@
 import { useState, useEffect } from 'react';
 import {
-  Table, Card, message, Typography, Row, Col, Tag, Avatar, Space, Statistic
+  Card, Table, Typography, Row, Col, Statistic, Tag, Avatar, Space,
+  message, Spin, Tabs, Button
 } from 'antd';
-import { TeamOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
-import { teamService, taskService } from '../api/services';
+import {
+  TeamOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined,
+  FileTextOutlined
+} from '@ant-design/icons';
+import { userService, taskService, worksheetService, attendanceService } from '../api/services';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 
 const MyTeam = () => {
-  const [team, setTeam] = useState(null);
-  const [members, setMembers] = useState([]);
-  const [teamTasks, setTeamTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [teamTasks, setTeamTasks] = useState([]);
+  const [pendingWorksheets, setPendingWorksheets] = useState([]);
+  const [teamAttendance, setTeamAttendance] = useState([]);
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
-  const fetchMyTeam = async () => {
+  useEffect(() => {
+    fetchTeamData();
+  }, []);
+
+  const fetchTeamData = async () => {
     try {
       setLoading(true);
-      const response = await teamService.getMyTeam();
-      setTeam(response.data);
-      // Fetch member details
-      if (response.data.members) {
-        fetchMemberDetails(response.data.members);
+      // Fetch employees under this team lead
+      const usersResponse = await userService.getUsers({ team_lead_id: user.id });
+      setTeamMembers(usersResponse.data || []);
+
+      // Fetch tasks assigned to team members
+      const tasksResponse = await taskService.getTasks({});
+      setTeamTasks(tasksResponse.data || []);
+
+      // Fetch pending worksheets for verification
+      try {
+        const worksheetsResponse = await worksheetService.getPendingVerification();
+        setPendingWorksheets(worksheetsResponse.data || []);
+      } catch (e) {
+        setPendingWorksheets([]);
       }
-    } catch {
-      message.error('Failed to fetch team information');
+
+      // Fetch today's attendance
+      try {
+        const today = dayjs().format('YYYY-MM-DD');
+        const attendanceResponse = await attendanceService.getHistory({
+          start_date: today,
+          end_date: today,
+        });
+        setTeamAttendance(attendanceResponse.data || []);
+      } catch (e) {
+        setTeamAttendance([]);
+      }
+    } catch (error) {
+      message.error('Failed to fetch team data');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchMemberDetails = async (memberIds) => {
-    try {
-      // This would need a backend endpoint to fetch multiple users
-      // For now, we'll set the member IDs
-      setMembers(memberIds.map(id => ({ id, name: `User ${id}` })));
-    } catch {
-      console.error('Failed to fetch member details');
-    }
-  };
-
-  const fetchTeamTasks = async () => {
-    try {
-      const response = await taskService.getTasks({});
-      setTeamTasks(response.data);
-    } catch {
-      console.error('Failed to fetch team tasks');
-    }
-  };
-
-  useEffect(() => {
-    fetchMyTeam();
-    fetchTeamTasks();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const memberColumns = [
     {
-      title: 'Name',
-      dataIndex: 'name',
-      key: 'name',
-      render: (text) => (
+      title: 'Associate',
+      key: 'employee',
+      render: (_, record) => (
         <Space>
-          <Avatar icon={<UserOutlined />} />
-          <Text>{text}</Text>
+          <Avatar style={{ backgroundColor: '#87d068' }}>
+            {record.full_name?.charAt(0)?.toUpperCase()}
+          </Avatar>
+          <div>
+            <Text strong>{record.full_name}</Text>
+            <br />
+            <Text type="secondary" style={{ fontSize: 12 }}>{record.email}</Text>
+          </div>
         </Space>
       ),
     },
     {
-      title: 'Tasks Assigned',
-      key: 'tasks',
-      render: (_, record) => {
-        const count = teamTasks.filter(t => t.assigned_to === record.id).length;
-        return <Tag>{count} tasks</Tag>;
-      },
+      title: 'Associate ID',
+      dataIndex: 'employee_id',
+      key: 'employee_id',
     },
     {
-      title: 'Completed',
-      key: 'completed',
-      render: (_, record) => {
-        const count = teamTasks.filter(
-          t => t.assigned_to === record.id && t.status === 'completed'
-        ).length;
-        return <Tag color="green">{count}</Tag>;
-      },
+      title: 'Department',
+      dataIndex: 'department',
+      key: 'department',
     },
     {
-      title: 'In Progress',
-      key: 'in_progress',
+      title: 'Status',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      render: (active) => (
+        <Tag color={active ? 'green' : 'red'}>
+          {active ? 'Active' : 'Inactive'}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Today',
+      key: 'attendance',
       render: (_, record) => {
-        const count = teamTasks.filter(
-          t => t.assigned_to === record.id && t.status === 'in_progress'
-        ).length;
-        return <Tag color="blue">{count}</Tag>;
+        const todayAttendance = teamAttendance.find(a => a.employee_id === record.id);
+        if (!todayAttendance) {
+          return <Tag color="default">Not Logged In</Tag>;
+        }
+        const statusColors = {
+          active: 'green',
+          on_break: 'orange',
+          completed: 'blue',
+        };
+        return (
+          <Tag color={statusColors[todayAttendance.status] || 'default'}>
+            {todayAttendance.status?.replace('_', ' ').toUpperCase()}
+          </Tag>
+        );
       },
     },
   ];
@@ -104,11 +131,19 @@ const MyTeam = () => {
     },
     {
       title: 'Assigned To',
-      dataIndex: 'assigned_to',
       key: 'assigned_to',
-      render: (id) => {
-        const member = members.find(m => m.id === id);
-        return member?.name || id;
+      render: (_, record) => {
+        const member = teamMembers.find(m => m.id === record.assigned_to);
+        return member?.full_name || record.assigned_to;
+      },
+    },
+    {
+      title: 'Priority',
+      dataIndex: 'priority',
+      key: 'priority',
+      render: (priority) => {
+        const colors = { low: 'green', medium: 'blue', high: 'orange', urgent: 'red' };
+        return <Tag color={colors[priority]}>{priority?.toUpperCase()}</Tag>;
       },
     },
     {
@@ -121,102 +156,177 @@ const MyTeam = () => {
           in_progress: 'blue',
           completed: 'green',
           on_hold: 'orange',
-          cancelled: 'red',
         };
-        return <Tag color={colors[status]}>{status.replace('_', ' ').toUpperCase()}</Tag>;
+        return <Tag color={colors[status]}>{status?.replace('_', ' ').toUpperCase()}</Tag>;
       },
     },
     {
-      title: 'Priority',
-      dataIndex: 'priority',
-      key: 'priority',
-      render: (priority) => {
-        const colors = {
-          low: 'green',
-          medium: 'blue',
-          high: 'orange',
-          urgent: 'red',
-        };
-        return <Tag color={colors[priority]}>{priority.toUpperCase()}</Tag>;
-      },
+      title: 'Due Date',
+      dataIndex: 'due_date',
+      key: 'due_date',
+      render: (date) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
     },
   ];
 
+  const worksheetColumns = [
+    {
+      title: 'Associate',
+      dataIndex: 'employee_name',
+      key: 'employee_name',
+    },
+    {
+      title: 'Date',
+      dataIndex: 'date',
+      key: 'date',
+    },
+    {
+      title: 'Form',
+      dataIndex: 'form_name',
+      key: 'form_name',
+    },
+    {
+      title: 'Action',
+      key: 'action',
+      render: (_, record) => (
+        <Button type="primary" size="small" onClick={() => navigate('/worksheets')}>
+          Review
+        </Button>
+      ),
+    },
+  ];
+
+  // Stats
+  const activeMembers = teamMembers.filter(m => m.is_active).length;
+  const loggedInToday = teamAttendance.filter(a => a.status === 'active' || a.status === 'completed').length;
+  const pendingTasks = teamTasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
   const completedTasks = teamTasks.filter(t => t.status === 'completed').length;
-  const inProgressTasks = teamTasks.filter(t => t.status === 'in_progress').length;
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: 100 }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Col>
-          <Title level={3}>
-            <TeamOutlined /> My Team
-          </Title>
-          {team && <Text type="secondary">{team.name}</Text>}
+      <Title level={3}>
+        <TeamOutlined /> My Team
+      </Title>
+
+      {/* Statistics */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Col xs={24} sm={12} md={6}>
+          <Card>
+            <Statistic
+              title="Team Members"
+              value={activeMembers}
+              prefix={<UserOutlined />}
+              valueStyle={{ color: '#3f8600' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card>
+            <Statistic
+              title="Logged In Today"
+              value={loggedInToday}
+              suffix={`/ ${activeMembers}`}
+              prefix={<ClockCircleOutlined />}
+              valueStyle={{ color: '#1890ff' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card>
+            <Statistic
+              title="Pending Tasks"
+              value={pendingTasks}
+              prefix={<CheckCircleOutlined />}
+              valueStyle={{ color: '#faad14' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card>
+            <Statistic
+              title="Worksheets to Verify"
+              value={pendingWorksheets.length}
+              prefix={<FileTextOutlined />}
+              valueStyle={{ color: pendingWorksheets.length > 0 ? '#cf1322' : '#3f8600' }}
+            />
+          </Card>
         </Col>
       </Row>
 
-      {team && (
-        <Row gutter={16} style={{ marginBottom: 24 }}>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="Team Members"
-                value={team.members?.length || 0}
-                prefix={<UserOutlined />}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="Total Tasks"
-                value={teamTasks.length}
-                prefix={<CheckCircleOutlined />}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="Completed"
-                value={completedTasks}
-                valueStyle={{ color: '#3f8600' }}
-                prefix={<CheckCircleOutlined />}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="In Progress"
-                value={inProgressTasks}
-                valueStyle={{ color: '#1890ff' }}
-                prefix={<ClockCircleOutlined />}
-              />
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      <Card title="Team Members" style={{ marginBottom: 16 }}>
-        <Table
-          dataSource={members}
-          columns={memberColumns}
-          rowKey="id"
-          loading={loading}
-          pagination={false}
-        />
-      </Card>
-
-      <Card title="Team Tasks">
-        <Table
-          dataSource={teamTasks}
-          columns={taskColumns}
-          rowKey="id"
-          pagination={{ pageSize: 10 }}
-        />
-      </Card>
+      <Tabs
+        defaultActiveKey="members"
+        items={[
+          {
+            key: 'members',
+            label: `Team Members (${teamMembers.length})`,
+            children: (
+              <Card>
+                <Table
+                  dataSource={teamMembers}
+                  columns={memberColumns}
+                  rowKey="id"
+                  pagination={false}
+                />
+              </Card>
+            ),
+          },
+          {
+            key: 'tasks',
+            label: `Tasks (${teamTasks.length})`,
+            children: (
+              <Card
+                extra={
+                  <Button type="primary" onClick={() => navigate('/tasks')}>
+                    Manage Tasks
+                  </Button>
+                }
+              >
+                <Table
+                  dataSource={teamTasks}
+                  columns={taskColumns}
+                  rowKey="id"
+                  pagination={{ pageSize: 10 }}
+                />
+              </Card>
+            ),
+          },
+          {
+            key: 'worksheets',
+            label: (
+              <span>
+                Pending Verification
+                {pendingWorksheets.length > 0 && (
+                  <Tag color="red" style={{ marginLeft: 8 }}>{pendingWorksheets.length}</Tag>
+                )}
+              </span>
+            ),
+            children: (
+              <Card
+                extra={
+                  <Button type="primary" onClick={() => navigate('/worksheets')}>
+                    View All Worksheets
+                  </Button>
+                }
+              >
+                <Table
+                  dataSource={pendingWorksheets}
+                  columns={worksheetColumns}
+                  rowKey="id"
+                  pagination={false}
+                  locale={{ emptyText: 'No worksheets pending verification' }}
+                />
+              </Card>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 };

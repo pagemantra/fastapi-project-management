@@ -1,19 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Row, Col, Card, Statistic, Table, Tag, Typography, Spin, Space, Button } from 'antd';
+import { Row, Col, Card, Statistic, Table, Tag, Typography, Spin, Empty, message } from 'antd';
 import {
   ClockCircleOutlined,
   CheckCircleOutlined,
-  TeamOutlined,
   FileTextOutlined,
   AlertOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
-import { taskService, worksheetService, attendanceService, userService } from '../api/services';
+import { taskService, worksheetService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
 import TimeTracker from '../components/TimeTracker';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 const Dashboard = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
@@ -30,32 +28,84 @@ const Dashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      const promises = [];
 
-      // Fetch task summary
-      const taskSummary = await taskService.getTaskSummary();
+      // Fetch task summary - only for non-employees or use my-tasks for employees
+      if (!isEmployee()) {
+        promises.push(
+          taskService.getTaskSummary().catch(() => ({ data: {} }))
+        );
+      } else {
+        promises.push(
+          taskService.getMyTasks({}).then(res => ({
+            data: {
+              total_tasks: res.data?.length || 0,
+              by_status: {
+                pending: res.data?.filter(t => t.status === 'pending').length || 0,
+                in_progress: res.data?.filter(t => t.status === 'in_progress').length || 0,
+                completed: res.data?.filter(t => t.status === 'completed').length || 0,
+              }
+            }
+          })).catch(() => ({ data: {} }))
+        );
+      }
 
-      // Fetch worksheet summary
-      const worksheetSummary = await worksheetService.getSummary();
+      // Fetch worksheet summary - only for non-employees
+      if (!isEmployee()) {
+        promises.push(
+          worksheetService.getSummary().catch(() => ({ data: {} }))
+        );
+      } else {
+        promises.push(
+          worksheetService.getMyWorksheets({}).then(res => ({
+            data: {
+              total_worksheets: res.data?.length || 0,
+              submitted: res.data?.filter(w => w.status === 'submitted').length || 0,
+              tl_verified: res.data?.filter(w => w.status === 'tl_verified').length || 0,
+              manager_approved: res.data?.filter(w => w.status === 'manager_approved').length || 0,
+            }
+          })).catch(() => ({ data: {} }))
+        );
+      }
 
       // Fetch recent tasks
-      const tasks = await taskService.getTasks({ limit: 5 });
+      if (isEmployee()) {
+        promises.push(
+          taskService.getMyTasks({ limit: 5 }).catch(() => ({ data: [] }))
+        );
+      } else {
+        promises.push(
+          taskService.getTasks({ limit: 5 }).catch(() => ({ data: [] }))
+        );
+      }
+
+      const [taskSummary, worksheetSummary, tasks] = await Promise.all(promises);
 
       setStats({
         tasks: taskSummary.data,
         worksheets: worksheetSummary.data,
       });
-      setRecentTasks(tasks.data);
+      setRecentTasks(tasks.data || []);
 
       // Fetch pending worksheets for TL/Manager
       if (isTeamLead()) {
-        const pending = await worksheetService.getPendingVerification();
-        setPendingWorksheets(pending.data);
+        try {
+          const pending = await worksheetService.getPendingVerification();
+          setPendingWorksheets(pending.data || []);
+        } catch (e) {
+          setPendingWorksheets([]);
+        }
       } else if (isManager() || isAdmin()) {
-        const pending = await worksheetService.getPendingApproval();
-        setPendingWorksheets(pending.data);
+        try {
+          const pending = await worksheetService.getPendingApproval();
+          setPendingWorksheets(pending.data || []);
+        } catch (e) {
+          setPendingWorksheets([]);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
+      message.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
@@ -66,9 +116,7 @@ const Dashboard = () => {
       title: 'Title',
       dataIndex: 'title',
       key: 'title',
-      render: (text, record) => (
-        <a onClick={() => navigate(`/tasks/${record.id}`)}>{text}</a>
-      ),
+      render: (text) => text,
     },
     {
       title: 'Status',
@@ -103,7 +151,7 @@ const Dashboard = () => {
 
   const worksheetColumns = [
     {
-      title: 'Employee',
+      title: 'Associate',
       dataIndex: 'employee_name',
       key: 'employee_name',
     },
@@ -127,10 +175,8 @@ const Dashboard = () => {
     {
       title: 'Action',
       key: 'action',
-      render: (_, record) => (
-        <Button type="link" onClick={() => navigate(`/worksheets/${record.id}`)}>
-          Review
-        </Button>
+      render: () => (
+        <a onClick={() => navigate('/worksheets')}>Review</a>
       ),
     },
   ];
@@ -147,7 +193,7 @@ const Dashboard = () => {
     <div>
       <Title level={3}>Welcome, {user?.full_name}!</Title>
 
-      {/* Time Tracker for Employees */}
+      {/* Time Tracker for Associates */}
       {isEmployee() && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col span={24}>
@@ -162,9 +208,9 @@ const Dashboard = () => {
           <Card>
             <Statistic
               title="Total Tasks"
-              value={stats.tasks?.total || 0}
+              value={stats.tasks?.total_tasks || 0}
               prefix={<CheckCircleOutlined />}
-              styles={{ value: { color: '#3f8600' } }}
+              valueStyle={{ color: '#3f8600' }}
             />
           </Card>
         </Col>
@@ -172,9 +218,9 @@ const Dashboard = () => {
           <Card>
             <Statistic
               title="Pending Tasks"
-              value={stats.tasks?.pending || 0}
+              value={stats.tasks?.by_status?.pending || 0}
               prefix={<ClockCircleOutlined />}
-              styles={{ value: { color: '#faad14' } }}
+              valueStyle={{ color: '#faad14' }}
             />
           </Card>
         </Col>
@@ -193,7 +239,7 @@ const Dashboard = () => {
               title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'}
               value={isTeamLead() ? stats.worksheets?.pending_verification || 0 : stats.worksheets?.pending_approval || 0}
               prefix={<AlertOutlined />}
-              styles={{ value: { color: '#cf1322' } }}
+              valueStyle={{ color: '#cf1322' }}
             />
           </Card>
         </Col>

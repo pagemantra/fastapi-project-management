@@ -102,7 +102,7 @@ const Reports = () => {
   };
 
   const productivityColumns = [
-    { title: 'Employee', dataIndex: 'employee_name', key: 'employee_name' },
+    { title: 'Associate', dataIndex: 'employee_name', key: 'employee_name' },
     { title: 'Department', dataIndex: 'department', key: 'department' },
     { title: 'Tasks Completed', dataIndex: 'tasks_completed', key: 'tasks_completed' },
     { title: 'Total Tasks', dataIndex: 'total_tasks', key: 'total_tasks' },
@@ -130,7 +130,7 @@ const Reports = () => {
 
   const attendanceColumns = [
     { title: 'Date', dataIndex: 'date', key: 'date' },
-    { title: 'Employee', dataIndex: 'employee_name', key: 'employee_name' },
+    { title: 'Associate', dataIndex: 'employee_name', key: 'employee_name' },
     { title: 'Login', dataIndex: 'login_time', key: 'login_time', render: (v) => v ? dayjs(v).format('HH:mm') : '-' },
     { title: 'Logout', dataIndex: 'logout_time', key: 'logout_time', render: (v) => v ? dayjs(v).format('HH:mm') : '-' },
     { title: 'Work Hours', dataIndex: 'total_work_hours', key: 'total_work_hours' },
@@ -140,7 +140,7 @@ const Reports = () => {
   ];
 
   const overtimeColumns = [
-    { title: 'Employee', dataIndex: 'employee_name', key: 'employee_name' },
+    { title: 'Associate', dataIndex: 'employee_name', key: 'employee_name' },
     { title: 'Department', dataIndex: 'department', key: 'department' },
     {
       title: 'Total Overtime',
@@ -252,7 +252,7 @@ const Reports = () => {
         <Tabs defaultActiveKey="productivity">
           <TabPane tab="Productivity" key="productivity">
             <Card
-              title="Employee Productivity Report"
+              title="Associate Productivity Report"
               extra={
                 <Button icon={<DownloadOutlined />} onClick={() => handleExport('productivity')}>
                   Export CSV

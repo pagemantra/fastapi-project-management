@@ -36,7 +36,7 @@ const Login = () => {
     }}>
       <Card style={{ width: 400, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Title level={2} style={{ marginBottom: 8 }}>Employee Work Tracker</Title>
+          <Title level={2} style={{ marginBottom: 8 }}>Associate Work Tracker</Title>
           <Text type="secondary">Sign in to your account</Text>
         </div>
         <Form
