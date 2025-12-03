@@ -9,9 +9,9 @@ export const authService = {
 
 // User Services
 export const userService = {
-  getUsers: (params) => api.get('/users', { params }),
+  getUsers: (params) => api.get('/users/', { params }),
   getUser: (id) => api.get(`/users/${id}`),
-  createUser: (data) => api.post('/users', data),
+  createUser: (data) => api.post('/users/', data),
   updateUser: (id, data) => api.put(`/users/${id}`, data),
   deleteUser: (id) => api.delete(`/users/${id}`),
   getManagers: () => api.get('/users/managers'),
@@ -21,9 +21,9 @@ export const userService = {
 
 // Team Services
 export const teamService = {
-  getTeams: (params) => api.get('/teams', { params }),
+  getTeams: (params) => api.get('/teams/', { params }),
   getTeam: (id) => api.get(`/teams/${id}`),
-  createTeam: (data) => api.post('/teams', data),
+  createTeam: (data) => api.post('/teams/', data),
   updateTeam: (id, data) => api.put(`/teams/${id}`, data),
   deleteTeam: (id) => api.delete(`/teams/${id}`),
   addMember: (teamId, data) => api.post(`/teams/${teamId}/members`, data),
@@ -32,9 +32,9 @@ export const teamService = {
 
 // Task Services
 export const taskService = {
-  getTasks: (params) => api.get('/tasks', { params }),
+  getTasks: (params) => api.get('/tasks/', { params }),
   getTask: (id) => api.get(`/tasks/${id}`),
-  createTask: (data) => api.post('/tasks', data),
+  createTask: (data) => api.post('/tasks/', data),
   updateTask: (id, data) => api.put(`/tasks/${id}`, data),
   deleteTask: (id) => api.delete(`/tasks/${id}`),
   getMyTasks: (params) => api.get('/tasks/my-tasks', { params }),
@@ -58,9 +58,9 @@ export const attendanceService = {
 
 // Form Services
 export const formService = {
-  getForms: (params) => api.get('/forms', { params }),
+  getForms: (params) => api.get('/forms/', { params }),
   getForm: (id) => api.get(`/forms/${id}`),
-  createForm: (data) => api.post('/forms', data),
+  createForm: (data) => api.post('/forms/', data),
   updateForm: (id, data) => api.put(`/forms/${id}`, data),
   deleteForm: (id) => api.delete(`/forms/${id}`),
   getTeamForms: (teamId) => api.get(`/forms/team/${teamId}`),
@@ -70,9 +70,9 @@ export const formService = {
 
 // Worksheet Services
 export const worksheetService = {
-  getWorksheets: (params) => api.get('/worksheets', { params }),
+  getWorksheets: (params) => api.get('/worksheets/', { params }),
   getWorksheet: (id) => api.get(`/worksheets/${id}`),
-  createWorksheet: (data) => api.post('/worksheets', data),
+  createWorksheet: (data) => api.post('/worksheets/', data),
   updateWorksheet: (id, data) => api.put(`/worksheets/${id}`, data),
   submitWorksheet: (id) => api.post(`/worksheets/${id}/submit`),
   verifyWorksheet: (id) => api.post(`/worksheets/${id}/verify`),
@@ -87,7 +87,7 @@ export const worksheetService = {
 
 // Notification Services
 export const notificationService = {
-  getNotifications: (params) => api.get('/notifications', { params }),
+  getNotifications: (params) => api.get('/notifications/', { params }),
   getUnread: (params) => api.get('/notifications/unread', { params }),
   getCount: () => api.get('/notifications/count'),
   markAsRead: (id) => api.put(`/notifications/${id}/read`),
