@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
+from pymongo.errors import DuplicateKeyError
 from ..database import get_database
 from ..models.user import UserCreate, UserUpdate, UserResponse, UserRole
 from ..utils.security import get_password_hash
@@ -120,7 +121,6 @@ async def create_user(
 
     now = datetime.utcnow()
     user_dict = {
-        "email": user.email.lower() if user.email else None,  # Store email in lowercase
         "full_name": user.full_name,
         "employee_id": user.employee_id,
         "role": user.role.value,
@@ -135,7 +135,31 @@ async def create_user(
         "created_by": str(current_user["_id"]),
     }
 
-    result = await db.users.insert_one(user_dict)
+    # Only include email if provided (sparse index allows multiple docs without email field)
+    if user.email:
+        user_dict["email"] = user.email.lower()
+
+    try:
+        result = await db.users.insert_one(user_dict)
+    except DuplicateKeyError as e:
+        # Handle duplicate key errors (email or employee_id)
+        error_msg = str(e)
+        if "email" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
+        elif "employee_id" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Associate ID already exists",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Duplicate entry detected",
+            )
+
     user_dict["_id"] = result.inserted_id
 
     return user_to_response(user_dict)

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from bson.errors import InvalidId
+from pymongo.errors import DuplicateKeyError
 
 from .config import settings
 from .database import connect_to_mongo, close_mongo_connection
@@ -94,6 +95,22 @@ async def invalid_objectid_handler(request: Request, exc: InvalidId):
     return JSONResponse(
         status_code=400,
         content={"detail": "Invalid ID format"},
+    )
+
+
+@app.exception_handler(DuplicateKeyError)
+async def duplicate_key_handler(request: Request, exc: DuplicateKeyError):
+    """Handle MongoDB duplicate key errors"""
+    error_msg = str(exc)
+    if "email" in error_msg:
+        detail = "Email already registered"
+    elif "employee_id" in error_msg:
+        detail = "Associate ID already exists"
+    else:
+        detail = "Duplicate entry detected"
+    return JSONResponse(
+        status_code=400,
+        content={"detail": detail},
     )
 
 
