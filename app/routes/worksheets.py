@@ -106,12 +106,14 @@ async def create_worksheet(
             detail="Form not found",
         )
 
-    # Get total hours from today's time session
-    time_session = await db.time_sessions.find_one({
-        "employee_id": user_id,
-        "date": worksheet.date.isoformat(),
-    })
-    total_hours = time_session.get("total_work_hours", 0) if time_session else 0
+    # Use total_hours from request if provided, otherwise get from time_session
+    total_hours = worksheet.total_hours or 0
+    if not total_hours:
+        time_session = await db.time_sessions.find_one({
+            "employee_id": user_id,
+            "date": worksheet.date.isoformat(),
+        })
+        total_hours = time_session.get("total_work_hours", 0) if time_session else 0
 
     now = datetime.utcnow()
     worksheet_dict = {

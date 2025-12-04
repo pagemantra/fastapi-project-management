@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
-  message, Typography, Row, Col, DatePicker, Tabs, Checkbox, Popconfirm
+  message, Typography, Row, Col, DatePicker, Tabs, Checkbox, Popconfirm, TimePicker
 } from 'antd';
 import { CheckOutlined, CloseOutlined, FileTextOutlined, EyeOutlined, DownloadOutlined, FilterOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { worksheetService, formService, taskService } from '../api/services';
+import { worksheetService, formService, taskService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 
@@ -24,9 +24,12 @@ const Worksheets = () => {
   const [selectedWorksheet, setSelectedWorksheet] = useState(null);
   const [selectedRows, setSelectedRows] = useState([]);
   const [forms, setForms] = useState([]);
+  const [teamForm, setTeamForm] = useState(null);  // Default form from team
+  const [myTeam, setMyTeam] = useState(null);  // User's team info
   const [myTasks, setMyTasks] = useState([]);
   const [dateRange, setDateRange] = useState(null);
   const [filteredWorksheets, setFilteredWorksheets] = useState([]);
+  const [totalHours, setTotalHours] = useState(0);  // Calculated total hours
   const [form] = Form.useForm();
   const [rejectForm] = Form.useForm();
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
@@ -40,7 +43,7 @@ const Worksheets = () => {
       fetchPendingApproval();
     }
     if (isEmployee()) {
-      fetchForms();
+      fetchTeamAndForm();
       fetchMyTasks();
     }
   }, []);
@@ -80,12 +83,31 @@ const Worksheets = () => {
     }
   };
 
-  const fetchForms = async () => {
+  const fetchTeamAndForm = async () => {
     try {
-      const response = await formService.getForms({ is_active: true });
-      setForms(response.data || []);
+      // Get user's team
+      const teamsResponse = await teamService.getTeams({});
+      const teams = teamsResponse.data || [];
+
+      if (teams.length > 0) {
+        const team = teams[0];  // User's team
+        setMyTeam(team);
+
+        // Get forms assigned to this team
+        const formsResponse = await formService.getTeamForms(team.id);
+        const teamForms = formsResponse.data || [];
+        setForms(teamForms);
+
+        if (teamForms.length > 0) {
+          setTeamForm(teamForms[0]);  // Default form for the team
+        }
+      } else {
+        // Fallback: get all active forms if no team found
+        const response = await formService.getForms({ is_active: true });
+        setForms(response.data || []);
+      }
     } catch (error) {
-      console.error('Failed to fetch forms');
+      console.error('Failed to fetch team/forms:', error);
       setForms([]);
     }
   };
@@ -102,11 +124,27 @@ const Worksheets = () => {
 
   const handleCreateWorksheet = () => {
     form.resetFields();
+    setTotalHours(0);
     form.setFieldsValue({
       date: dayjs(),
       submit_now: true,  // Auto-check submit for verification
+      form_id: teamForm?.id,  // Auto-set team's default form
     });
     setModalVisible(true);
+  };
+
+  // Calculate total hours when login/logout time changes
+  const handleTimeChange = () => {
+    const loginTime = form.getFieldValue('login_time');
+    const logoutTime = form.getFieldValue('logout_time');
+
+    if (loginTime && logoutTime) {
+      const diffMinutes = logoutTime.diff(loginTime, 'minute');
+      const hours = Math.max(0, diffMinutes / 60);
+      setTotalHours(parseFloat(hours.toFixed(2)));
+    } else {
+      setTotalHours(0);
+    }
   };
 
   const handleViewWorksheet = (record) => {
@@ -118,24 +156,46 @@ const Worksheets = () => {
     try {
       // Build form responses
       const formResponses = [];
-      const selectedForm = forms.find(f => f.id === values.form_id);
+      const selectedForm = forms.find(f => f.id === values.form_id) || teamForm;
       if (selectedForm) {
         selectedForm.fields.forEach(field => {
-          if (values[`field_${field.field_id}`] !== undefined) {
+          let fieldValue = values[`field_${field.field_id}`];
+          // Format time values to HH:mm string
+          if (field.field_type === 'time' && fieldValue) {
+            fieldValue = fieldValue.format('HH:mm');
+          }
+          if (fieldValue !== undefined) {
             formResponses.push({
               field_id: field.field_id,
               field_label: field.label,
-              value: values[`field_${field.field_id}`],
+              value: fieldValue,
             });
           }
         });
       }
 
+      // Add login/logout times to form responses
+      if (values.login_time) {
+        formResponses.push({
+          field_id: 'login_time',
+          field_label: 'Login Time',
+          value: values.login_time.format('HH:mm'),
+        });
+      }
+      if (values.logout_time) {
+        formResponses.push({
+          field_id: 'logout_time',
+          field_label: 'Logout Time',
+          value: values.logout_time.format('HH:mm'),
+        });
+      }
+
       const data = {
         date: values.date.format('YYYY-MM-DD'),
-        form_id: values.form_id,
+        form_id: values.form_id || teamForm?.id,
         form_responses: formResponses,
         tasks_completed: values.tasks_completed || [],
+        total_hours: totalHours,  // Include calculated total hours
         notes: values.notes,
       };
 
@@ -235,7 +295,7 @@ const Worksheets = () => {
   // Handle modal close with confirmation
   const handleModalClose = () => {
     const formValues = form.getFieldsValue();
-    const hasData = formValues.form_id || formValues.notes || formValues.tasks_completed?.length > 0;
+    const hasData = formValues.login_time || formValues.logout_time || formValues.notes || formValues.tasks_completed?.length > 0;
 
     if (hasData) {
       Modal.confirm({
@@ -247,10 +307,12 @@ const Worksheets = () => {
         onOk: () => {
           setModalVisible(false);
           form.resetFields();
+          setTotalHours(0);
         },
       });
     } else {
       setModalVisible(false);
+      setTotalHours(0);
     }
   };
 
@@ -456,7 +518,7 @@ const Worksheets = () => {
   };
 
   const renderFormFields = (selectedFormId) => {
-    const selectedForm = forms.find(f => f.id === selectedFormId);
+    const selectedForm = forms.find(f => f.id === selectedFormId) || teamForm;
     if (!selectedForm) return null;
 
     return selectedForm.fields.map(field => {
@@ -505,6 +567,16 @@ const Worksheets = () => {
           return (
             <Form.Item key={field.field_id} name={fieldName} label={field.label} rules={rules}>
               <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+          );
+        case 'time':
+          return (
+            <Form.Item key={field.field_id} name={fieldName} label={field.label} rules={rules}>
+              <TimePicker
+                format="HH:mm"
+                style={{ width: '100%' }}
+                placeholder={field.placeholder || 'Select time (24-hour)'}
+              />
             </Form.Item>
           );
         case 'rating':
@@ -631,6 +703,11 @@ const Worksheets = () => {
         width={700}
       >
         <Form form={form} layout="vertical" onFinish={handleSubmitWorksheet}>
+          {/* Hidden form_id field */}
+          <Form.Item name="form_id" hidden>
+            <Input />
+          </Form.Item>
+
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
@@ -642,47 +719,73 @@ const Worksheets = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item
-                name="form_id"
-                label="Form Template"
-                rules={[{ required: true, message: 'Please select a form' }]}
-              >
-                <Select placeholder="Select form">
-                  {forms.map(f => (
-                    <Select.Option key={f.id} value={f.id}>{f.name}</Select.Option>
-                  ))}
-                </Select>
+              <Form.Item label="Project / Form Template">
+                <Input
+                  value={teamForm?.name || myTeam?.name || 'No form assigned'}
+                  disabled
+                  style={{ backgroundColor: '#f5f5f5' }}
+                />
               </Form.Item>
             </Col>
           </Row>
 
-          {/* Auto-filled Associate Details - shown when form is selected */}
-          <Form.Item
-            noStyle
-            shouldUpdate={(prev, curr) => prev.form_id !== curr.form_id}
-          >
-            {({ getFieldValue }) => getFieldValue('form_id') && (
-              <Row gutter={16} style={{ marginBottom: 16 }}>
-                <Col span={12}>
-                  <Form.Item label="Associate Name">
-                    <Input value={user?.full_name} disabled style={{ backgroundColor: '#f5f5f5' }} />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item label="Associate ID">
-                    <Input value={user?.employee_id} disabled style={{ backgroundColor: '#f5f5f5' }} />
-                  </Form.Item>
-                </Col>
-              </Row>
-            )}
-          </Form.Item>
+          {/* Auto-filled Associate Details */}
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Associate Name">
+                <Input value={user?.full_name} disabled style={{ backgroundColor: '#f5f5f5' }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Associate ID">
+                <Input value={user?.employee_id} disabled style={{ backgroundColor: '#f5f5f5' }} />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            noStyle
-            shouldUpdate={(prev, curr) => prev.form_id !== curr.form_id}
-          >
-            {({ getFieldValue }) => renderFormFields(getFieldValue('form_id'))}
-          </Form.Item>
+          {/* Login/Logout Time and Total Hours */}
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                name="login_time"
+                label="Login Time"
+                rules={[{ required: true, message: 'Please select login time' }]}
+              >
+                <TimePicker
+                  format="HH:mm"
+                  style={{ width: '100%' }}
+                  placeholder="Select login time"
+                  onChange={handleTimeChange}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                name="logout_time"
+                label="Logout Time"
+                rules={[{ required: true, message: 'Please select logout time' }]}
+              >
+                <TimePicker
+                  format="HH:mm"
+                  style={{ width: '100%' }}
+                  placeholder="Select logout time"
+                  onChange={handleTimeChange}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="Total Hours">
+                <Input
+                  value={`${totalHours} hrs`}
+                  disabled
+                  style={{ backgroundColor: '#e6f7ff', fontWeight: 'bold' }}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* Dynamic Form Fields */}
+          {teamForm && renderFormFields(teamForm.id)}
 
           <Form.Item name="tasks_completed" label="Tasks Completed Today">
             <Select mode="multiple" placeholder="Select completed tasks">
@@ -702,7 +805,7 @@ const Worksheets = () => {
 
           <Form.Item>
             <Space>
-              <Button type="primary" htmlType="submit">
+              <Button type="primary" htmlType="submit" disabled={!teamForm}>
                 Save Worksheet
               </Button>
               <Button onClick={handleModalClose}>Cancel</Button>

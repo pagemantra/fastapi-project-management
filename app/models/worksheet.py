@@ -27,6 +27,7 @@ class WorksheetCreate(WorksheetBase):
     form_id: str
     form_responses: List[FormFieldResponse] = []
     tasks_completed: List[str] = []  # Task IDs
+    total_hours: Optional[float] = 0  # Calculated from login/logout time
 
 
 class WorksheetUpdate(BaseModel):
