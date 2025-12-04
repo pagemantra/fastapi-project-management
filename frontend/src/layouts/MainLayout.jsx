@@ -209,7 +209,7 @@ const MainLayout = () => {
       label: 'Logout',
       onClick: () => {
         logout();
-        navigate('/login');
+        navigate('/login', { replace: true, state: null });
       },
     },
   ];
