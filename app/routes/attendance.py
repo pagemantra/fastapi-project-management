@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 from bson import ObjectId
+from bson.errors import InvalidId
 import uuid
 from ..database import get_database
 from ..models.attendance import (

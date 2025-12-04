@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
+from bson.errors import InvalidId
 from ..database import get_database
 from ..models.notification import (
     NotificationResponse, NotificationCount, NotificationType

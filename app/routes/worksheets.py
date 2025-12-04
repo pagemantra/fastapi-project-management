@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime, date
 from typing import List, Optional
 from bson import ObjectId
+from bson.errors import InvalidId
 from ..database import get_database
 from ..models.worksheet import (
     WorksheetCreate, WorksheetUpdate, WorksheetResponse, WorksheetStatus,
@@ -16,12 +17,16 @@ router = APIRouter(prefix="/worksheets", tags=["Worksheets"])
 
 async def worksheet_to_response(db, worksheet: dict) -> WorksheetResponse:
     # Get employee name
-    employee = await db.users.find_one({"_id": ObjectId(worksheet["employee_id"])})
-    employee_name = employee["full_name"] if employee else None
+    employee_name = None
+    if worksheet.get("employee_id") and ObjectId.is_valid(worksheet["employee_id"]):
+        employee = await db.users.find_one({"_id": ObjectId(worksheet["employee_id"])})
+        employee_name = employee["full_name"] if employee else None
 
     # Get form name
-    form = await db.forms.find_one({"_id": ObjectId(worksheet["form_id"])})
-    form_name = form["name"] if form else None
+    form_name = None
+    if worksheet.get("form_id") and ObjectId.is_valid(worksheet["form_id"]):
+        form = await db.forms.find_one({"_id": ObjectId(worksheet["form_id"])})
+        form_name = form["name"] if form else None
 
     # Convert form_responses to FormFieldResponse objects
     form_responses = []

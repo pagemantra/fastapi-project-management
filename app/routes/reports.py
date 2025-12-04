@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 from bson import ObjectId
+from bson.errors import InvalidId
 import io
 import csv
 from ..database import get_database
@@ -34,6 +35,11 @@ async def get_productivity_report(
         employee_query["manager_id"] = user_id
 
     if employee_id:
+        if not ObjectId.is_valid(employee_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid employee ID format",
+            )
         employee_query["_id"] = ObjectId(employee_id)
 
     employees = await db.users.find({
@@ -101,7 +107,7 @@ async def get_productivity_report(
         report_data.append({
             "employee_id": emp_id,
             "employee_name": emp["full_name"],
-            "employee_email": emp["email"],
+            "employee_email": emp.get("email", ""),
             "department": emp.get("department", ""),
             "tasks_completed": tasks_completed,
             "total_tasks": total_tasks,
@@ -170,8 +176,11 @@ async def get_attendance_report(
     for session in sessions:
         emp_id = session["employee_id"]
         if emp_id not in employee_cache:
-            emp = await db.users.find_one({"_id": ObjectId(emp_id)})
-            employee_cache[emp_id] = emp["full_name"] if emp else "Unknown"
+            if ObjectId.is_valid(emp_id):
+                emp = await db.users.find_one({"_id": ObjectId(emp_id)})
+                employee_cache[emp_id] = emp["full_name"] if emp else "Unknown"
+            else:
+                employee_cache[emp_id] = "Unknown"
 
         report_data.append({
             "date": session["date"],
@@ -245,6 +254,8 @@ async def get_overtime_report(
     # Enrich with employee data
     report_data = []
     for r in results:
+        if not ObjectId.is_valid(r["_id"]):
+            continue
         emp = await db.users.find_one({"_id": ObjectId(r["_id"])})
         if emp:
             report_data.append({
@@ -288,6 +299,11 @@ async def get_team_performance_report(
     # Get teams
     team_query = {}
     if team_id:
+        if not ObjectId.is_valid(team_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid team ID format",
+            )
         team_query["_id"] = ObjectId(team_id)
     elif user_role == UserRole.MANAGER.value:
         team_query["manager_id"] = user_id
@@ -351,8 +367,10 @@ async def get_team_performance_report(
         attendance_data = attendance_result[0] if attendance_result else {"total_work_hours": 0, "total_overtime": 0, "sessions": 0}
 
         # Get team lead name
-        team_lead = await db.users.find_one({"_id": ObjectId(team["team_lead_id"])})
-        team_lead_name = team_lead["full_name"] if team_lead else "Unknown"
+        team_lead_name = "Unknown"
+        if team.get("team_lead_id") and ObjectId.is_valid(team["team_lead_id"]):
+            team_lead = await db.users.find_one({"_id": ObjectId(team["team_lead_id"])})
+            team_lead_name = team_lead["full_name"] if team_lead else "Unknown"
 
         report_data.append({
             "team_id": team_id_str,

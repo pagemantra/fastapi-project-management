@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
+from bson.errors import InvalidId
 from ..database import get_database
 from ..models.team import TeamCreate, TeamUpdate, TeamResponse, AddTeamMember
 from ..models.user import UserRole
@@ -41,6 +42,11 @@ async def create_team(
     if user_role == UserRole.MANAGER.value:
         team.manager_id = str(current_user["_id"])
     else:
+        if not ObjectId.is_valid(team.manager_id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid manager ID format",
+            )
         manager = await db.users.find_one({
             "_id": ObjectId(team.manager_id),
             "role": UserRole.MANAGER.value
@@ -52,6 +58,11 @@ async def create_team(
             )
 
     # Validate team lead
+    if not ObjectId.is_valid(team.team_lead_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid team lead ID format",
+        )
     team_lead = await db.users.find_one({
         "_id": ObjectId(team.team_lead_id),
         "role": UserRole.TEAM_LEAD.value
