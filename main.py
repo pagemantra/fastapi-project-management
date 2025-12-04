@@ -1,6 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+from bson.errors import InvalidId
 
 from config import settings
 from database import connect_to_mongo, close_mongo_connection
@@ -83,3 +85,23 @@ async def root():
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "healthy"}
+
+
+# Global exception handlers
+@app.exception_handler(InvalidId)
+async def invalid_objectid_handler(request: Request, exc: InvalidId):
+    """Handle invalid MongoDB ObjectId errors"""
+    return JSONResponse(
+        status_code=400,
+        content={"detail": "Invalid ID format"},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all exception handler to prevent 500 errors from leaking details"""
+    print(f"Unhandled exception: {type(exc).__name__}: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal error occurred. Please try again later."},
+    )

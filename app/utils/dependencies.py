@@ -5,6 +5,7 @@ from ..database import get_database
 from ..models.user import UserRole, TokenData
 from .security import decode_token
 from bson import ObjectId
+from bson.errors import InvalidId
 
 security = HTTPBearer()
 
@@ -27,8 +28,27 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="Invalid token payload",
         )
 
+    # Validate ObjectId format before querying
+    if not ObjectId.is_valid(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token format",
+        )
+
     db = get_database()
-    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection unavailable",
+        )
+
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+    except InvalidId:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token format",
+        )
 
     if user is None:
         raise HTTPException(
