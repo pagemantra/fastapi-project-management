@@ -4,7 +4,7 @@ import {
   message, Typography, Row, Col, DatePicker, Tabs, Checkbox, Popconfirm, TimePicker
 } from 'antd';
 import { CheckOutlined, CloseOutlined, FileTextOutlined, EyeOutlined, DownloadOutlined, FilterOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { worksheetService, formService, taskService, teamService } from '../api/services';
+import { worksheetService, formService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 
@@ -26,7 +26,6 @@ const Worksheets = () => {
   const [forms, setForms] = useState([]);
   const [teamForm, setTeamForm] = useState(null);  // Default form from team
   const [myTeam, setMyTeam] = useState(null);  // User's team info
-  const [myTasks, setMyTasks] = useState([]);
   const [dateRange, setDateRange] = useState(null);
   const [filteredWorksheets, setFilteredWorksheets] = useState([]);
   const [totalHours, setTotalHours] = useState(0);  // Calculated total hours
@@ -44,7 +43,6 @@ const Worksheets = () => {
     }
     if (isEmployee()) {
       fetchTeamAndForm();
-      fetchMyTasks();
     }
   }, []);
 
@@ -109,16 +107,6 @@ const Worksheets = () => {
     } catch (error) {
       console.error('Failed to fetch team/forms:', error);
       setForms([]);
-    }
-  };
-
-  const fetchMyTasks = async () => {
-    try {
-      const response = await taskService.getMyTasks({});
-      setMyTasks(response.data || []);
-    } catch (error) {
-      console.error('Failed to fetch tasks');
-      setMyTasks([]);
     }
   };
 
@@ -194,7 +182,7 @@ const Worksheets = () => {
         date: values.date.format('YYYY-MM-DD'),
         form_id: values.form_id || teamForm?.id,
         form_responses: formResponses,
-        tasks_completed: values.tasks_completed || [],
+        tasks_completed: [],
         total_hours: totalHours,  // Include calculated total hours
         notes: values.notes,
       };
@@ -295,7 +283,7 @@ const Worksheets = () => {
   // Handle modal close with confirmation
   const handleModalClose = () => {
     const formValues = form.getFieldsValue();
-    const hasData = formValues.login_time || formValues.logout_time || formValues.notes || formValues.tasks_completed?.length > 0;
+    const hasData = formValues.login_time || formValues.logout_time || formValues.notes;
 
     if (hasData) {
       Modal.confirm({
@@ -786,14 +774,6 @@ const Worksheets = () => {
 
           {/* Dynamic Form Fields */}
           {teamForm && renderFormFields(teamForm.id)}
-
-          <Form.Item name="tasks_completed" label="Tasks Completed Today">
-            <Select mode="multiple" placeholder="Select completed tasks">
-              {myTasks.map(task => (
-                <Select.Option key={task.id} value={task.id}>{task.title}</Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
 
           <Form.Item name="notes" label="Additional Notes">
             <TextArea rows={3} />
