@@ -7,6 +7,7 @@ import {
   CoffeeOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../api/services';
 import dayjs from 'dayjs';
 import duration from 'dayjs/plugin/duration';
@@ -16,6 +17,7 @@ dayjs.extend(duration);
 const { Title, Text } = Typography;
 
 const TimeTracker = () => {
+  const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -72,7 +74,7 @@ const TimeTracker = () => {
         okText: 'Go to Worksheet',
         cancelText: 'Cancel',
         onOk: () => {
-          window.location.href = '/my-worksheets';
+          navigate('/worksheets');
         },
       });
       return;
