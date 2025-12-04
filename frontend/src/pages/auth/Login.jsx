@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Form, Input, Button, Card, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined, IdcardOutlined } from '@ant-design/icons';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 const { Title, Text } = Typography;
@@ -9,16 +9,15 @@ const { Title, Text } = Typography;
 const Login = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const location = useLocation();
   const { login } = useAuth();
-
-  const from = location.state?.from?.pathname || '/dashboard';
 
   const onFinish = async (values) => {
     setLoading(true);
     try {
       await login(values.employee_id, values.password);
-      navigate(from, { replace: true });
+      // Always redirect to dashboard after login - don't use previous location
+      // as it may belong to a different user who logged out
+      navigate('/dashboard', { replace: true });
     } catch (error) {
       // Error handled in AuthContext
     } finally {
