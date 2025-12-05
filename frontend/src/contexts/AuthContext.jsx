@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }) => {
   const isAdmin = () => user?.role === 'admin';
   const isManager = () => user?.role === 'manager';
   const isTeamLead = () => user?.role === 'team_lead';
-  const isEmployee = () => user?.role === 'employee';
+  const isEmployee = () => user?.role === 'employee' || user?.role === 'associate';
 
   const hasRole = (roles) => {
     if (!user) return false;

@@ -1,5 +1,6 @@
-/frontend
 __pycache__/
 *.pyc
 *.pyo
 .vercel
+node_modules/
+.env
