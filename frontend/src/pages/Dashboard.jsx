@@ -23,6 +23,8 @@ const Dashboard = () => {
   const [recentTasks, setRecentTasks] = useState([]);
   const [pendingWorksheets, setPendingWorksheets] = useState([]);
   const [teamStats, setTeamStats] = useState({ teamMembers: 0, loggedInToday: 0 });
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [teamAttendance, setTeamAttendance] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -118,24 +120,26 @@ const Dashboard = () => {
             end_date: today,
           });
           const todayAttendance = attendanceResponse.data || [];
+          setTeamAttendance(todayAttendance);
           const loggedIn = todayAttendance.filter(a => a.status === 'active' || a.status === 'completed').length;
 
           // Fetch team members based on role
-          let teamMembersCount = 0;
+          let members = [];
           if (isTeamLead()) {
             const usersResponse = await userService.getUsers({ team_lead_id: user.id });
-            teamMembersCount = usersResponse.data?.length || 0;
+            members = usersResponse.data || [];
           } else if (isManager()) {
             const usersResponse = await userService.getUsers({ manager_id: user.id });
-            teamMembersCount = usersResponse.data?.length || 0;
+            members = usersResponse.data || [];
           } else if (isAdmin()) {
             const usersResponse = await userService.getUsers({});
-            // Count all users except admin
-            teamMembersCount = usersResponse.data?.filter(u => u.role !== 'admin').length || 0;
+            // All users except admin
+            members = usersResponse.data?.filter(u => u.role !== 'admin') || [];
           }
 
+          setTeamMembers(members);
           setTeamStats({
-            teamMembers: teamMembersCount,
+            teamMembers: members.length,
             loggedInToday: loggedIn,
           });
         } catch (e) {
@@ -217,6 +221,62 @@ const Dashboard = () => {
       render: () => (
         <a onClick={() => navigate('/worksheets')}>Review</a>
       ),
+    },
+  ];
+
+  // Team members columns with attendance status
+  const teamMemberColumns = [
+    {
+      title: 'Associate',
+      key: 'name',
+      render: (_, record) => record.full_name,
+    },
+    {
+      title: 'Role',
+      dataIndex: 'role',
+      key: 'role',
+      render: (role) => (
+        <Tag color={role === 'team_lead' ? 'purple' : role === 'manager' ? 'blue' : 'default'}>
+          {role?.replace('_', ' ').toUpperCase()}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Today Status',
+      key: 'attendance',
+      render: (_, record) => {
+        const todayAttendance = teamAttendance.find(a => a.employee_id === record.id);
+        if (!todayAttendance) {
+          return <Tag color="default">Not Logged In</Tag>;
+        }
+        const statusColors = {
+          active: 'green',
+          on_break: 'orange',
+          completed: 'blue',
+          incomplete: 'red',
+        };
+        return (
+          <Tag color={statusColors[todayAttendance.status] || 'default'}>
+            {todayAttendance.status?.replace('_', ' ').toUpperCase()}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: 'Login Time',
+      key: 'login_time',
+      render: (_, record) => {
+        const todayAttendance = teamAttendance.find(a => a.employee_id === record.id);
+        return todayAttendance?.login_time ? dayjs(todayAttendance.login_time).format('HH:mm') : '-';
+      },
+    },
+    {
+      title: 'Logout Time',
+      key: 'logout_time',
+      render: (_, record) => {
+        const todayAttendance = teamAttendance.find(a => a.employee_id === record.id);
+        return todayAttendance?.logout_time ? dayjs(todayAttendance.logout_time).format('HH:mm') : '-';
+      },
     },
   ];
 
@@ -351,6 +411,26 @@ const Dashboard = () => {
           </Col>
         )}
       </Row>
+
+      {/* Team Members Attendance Table for Admin/Manager/Team Lead */}
+      {!isEmployee() && teamMembers.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Card
+              title={`Today's Attendance (${teamStats.loggedInToday} / ${teamStats.teamMembers} logged in)`}
+              extra={<a onClick={() => navigate('/attendance')}>View Full Attendance</a>}
+            >
+              <Table
+                dataSource={teamMembers}
+                columns={teamMemberColumns}
+                rowKey="id"
+                pagination={{ pageSize: 10 }}
+                size="small"
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
     </div>
   );
 };
