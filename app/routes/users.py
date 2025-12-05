@@ -170,7 +170,7 @@ async def get_users(
     role: Optional[UserRole] = Query(None),
     is_active: Optional[bool] = Query(None),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=1000),
     current_user: dict = Depends(get_current_active_user)
 ):
     """

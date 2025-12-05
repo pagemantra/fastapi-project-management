@@ -118,6 +118,7 @@ const Dashboard = () => {
           const attendanceResponse = await attendanceService.getHistory({
             start_date: today,
             end_date: today,
+            limit: 1000,
           });
           const todayAttendance = attendanceResponse.data || [];
           setTeamAttendance(todayAttendance);
@@ -126,13 +127,13 @@ const Dashboard = () => {
           // Fetch team members based on role
           let members = [];
           if (isTeamLead()) {
-            const usersResponse = await userService.getUsers({ team_lead_id: user.id });
+            const usersResponse = await userService.getUsers({ team_lead_id: user.id, limit: 1000 });
             members = usersResponse.data || [];
           } else if (isManager()) {
-            const usersResponse = await userService.getUsers({ manager_id: user.id });
+            const usersResponse = await userService.getUsers({ manager_id: user.id, limit: 1000 });
             members = usersResponse.data || [];
           } else if (isAdmin()) {
-            const usersResponse = await userService.getUsers({});
+            const usersResponse = await userService.getUsers({ limit: 1000 });
             // All users except admin
             members = usersResponse.data?.filter(u => u.role !== 'admin') || [];
           }
