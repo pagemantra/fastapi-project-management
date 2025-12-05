@@ -17,6 +17,7 @@ export const userService = {
   getManagers: () => api.get('/users/managers'),
   getTeamLeads: () => api.get('/users/team-leads'),
   getEmployees: () => api.get('/users/employees'),
+  getAllForDashboard: () => api.get('/users/all-for-dashboard'),
 };
 
 // Team Services
@@ -49,6 +50,7 @@ export const attendanceService = {
   clockOut: (data) => api.post('/attendance/clock-out', data),
   getCurrentSession: () => api.get('/attendance/current'),
   getHistory: (params) => api.get('/attendance/history', { params }),
+  getTodayAll: () => api.get('/attendance/today-all'),
   startBreak: (data) => api.post('/attendance/break/start', data),
   endBreak: () => api.post('/attendance/break/end'),
   getBreakSettings: (teamId) => api.get(`/attendance/break-settings/${teamId}`),

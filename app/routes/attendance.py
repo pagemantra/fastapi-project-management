@@ -344,6 +344,29 @@ async def get_current_session(current_user: dict = Depends(get_current_active_us
     return session_to_response(session)
 
 
+@router.get("/today-all", response_model=List[TimeSessionResponse])
+async def get_all_today_attendance(
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]))
+):
+    """Get all attendance sessions for today (Admin, Manager, Team Lead only)"""
+    db = get_database()
+    today = date.today().isoformat()
+
+    cursor = db.time_sessions.find({"date": today}).limit(1000)
+    sessions = await cursor.to_list(length=1000)
+
+    # Fetch employee names
+    employee_ids = list(set(s["employee_id"] for s in sessions))
+    employee_cache = {}
+    for emp_id in employee_ids:
+        if ObjectId.is_valid(emp_id):
+            emp = await db.users.find_one({"_id": ObjectId(emp_id)})
+            if emp:
+                employee_cache[emp_id] = emp.get("full_name", "Unknown")
+
+    return [session_to_response(s, employee_cache.get(s["employee_id"])) for s in sessions]
+
+
 @router.get("/history", response_model=List[TimeSessionResponse])
 async def get_attendance_history(
     start_date: Optional[date] = Query(None),

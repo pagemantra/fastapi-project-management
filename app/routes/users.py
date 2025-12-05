@@ -204,6 +204,17 @@ async def get_users(
     return [user_to_response(user) for user in users]
 
 
+@router.get("/all-for-dashboard", response_model=List[UserResponse])
+async def get_all_users_for_dashboard(
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]))
+):
+    """Get all non-admin users for dashboard display (Admin, Manager, Team Lead only)"""
+    db = get_database()
+    cursor = db.users.find({"role": {"$ne": UserRole.ADMIN.value}}).limit(1000)
+    users = await cursor.to_list(length=1000)
+    return [user_to_response(user) for user in users]
+
+
 @router.get("/managers", response_model=List[UserResponse])
 async def get_managers(
     current_user: dict = Depends(require_roles([UserRole.ADMIN]))

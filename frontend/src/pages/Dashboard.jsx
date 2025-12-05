@@ -113,30 +113,15 @@ const Dashboard = () => {
       // Fetch team stats for Admin, Manager, Team Lead (Logged In Today, Team Members)
       if (!isEmployee()) {
         try {
-          // Fetch today's attendance
-          const today = dayjs().format('YYYY-MM-DD');
-          const attendanceResponse = await attendanceService.getHistory({
-            start_date: today,
-            end_date: today,
-            limit: 1000,
-          });
+          // Fetch ALL today's attendance (new endpoint that bypasses role filtering)
+          const attendanceResponse = await attendanceService.getTodayAll();
           const todayAttendance = attendanceResponse.data || [];
           setTeamAttendance(todayAttendance);
           const loggedIn = todayAttendance.filter(a => a.status === 'active' || a.status === 'completed').length;
 
-          // Fetch team members based on role
-          let members = [];
-          if (isTeamLead()) {
-            const usersResponse = await userService.getUsers({ team_lead_id: user.id, limit: 1000 });
-            members = usersResponse.data || [];
-          } else if (isManager()) {
-            const usersResponse = await userService.getUsers({ manager_id: user.id, limit: 1000 });
-            members = usersResponse.data || [];
-          } else if (isAdmin()) {
-            const usersResponse = await userService.getUsers({ limit: 1000 });
-            // All users except admin
-            members = usersResponse.data?.filter(u => u.role !== 'admin') || [];
-          }
+          // Fetch ALL team members (new endpoint that bypasses role filtering)
+          const usersResponse = await userService.getAllForDashboard();
+          const members = usersResponse.data || [];
 
           setTeamMembers(members);
           setTeamStats({
