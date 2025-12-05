@@ -190,7 +190,7 @@ async def start_break(
     break_id = str(uuid.uuid4())
     new_break = {
         "break_id": break_id,
-        "start_time": now.isoformat(),
+        "start_time": now,
         "end_time": None,
         "break_type": break_data.break_type.value,
         "duration_minutes": 0,
@@ -250,7 +250,7 @@ async def end_current_break(db, session: dict):
         if b.get("break_id") == current_break_id:
             start_time = datetime.fromisoformat(b["start_time"]) if isinstance(b["start_time"], str) else b["start_time"]
             duration = int((now - start_time).total_seconds() / 60)
-            breaks[i]["end_time"] = now.isoformat()
+            breaks[i]["end_time"] = now
             breaks[i]["duration_minutes"] = duration
             break
 

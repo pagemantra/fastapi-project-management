@@ -130,13 +130,13 @@ const Attendance = () => {
       title: 'Login',
       dataIndex: 'login_time',
       key: 'login_time',
-      render: (time) => time ? dayjs(time).format('HH:mm:ss') : '-',
+      render: (time) => time ? dayjs(time).format('hh:mm:ss A') : '-',
     },
     {
       title: 'Logout',
       dataIndex: 'logout_time',
       key: 'logout_time',
-      render: (time) => time ? dayjs(time).format('HH:mm:ss') : '-',
+      render: (time) => time ? dayjs(time).format('hh:mm:ss A') : '-',
     },
     {
       title: 'Work Hours',
@@ -149,6 +149,28 @@ const Attendance = () => {
       title: 'Break (min)',
       dataIndex: 'total_break_minutes',
       key: 'total_break_minutes',
+      render: (minutes) => <Text type={minutes > 0 ? 'success' : 'secondary'}>{minutes || 0} min</Text>,
+    },
+    {
+      title: 'Break Details',
+      dataIndex: 'breaks',
+      key: 'breaks',
+      render: (breaks) => {
+        if (!breaks || breaks.length === 0) return '-';
+        return (
+          <div>
+            {breaks.map((breakItem, idx) => (
+              <div key={idx} style={{ fontSize: '11px', marginBottom: '2px' }}>
+                <Tag color="cyan" style={{ fontSize: '10px' }}>
+                  {breakItem.break_type?.replace('_', ' ').toUpperCase()}
+                </Tag>
+                {dayjs(breakItem.start_time).format('hh:mm A')} - {breakItem.end_time ? dayjs(breakItem.end_time).format('hh:mm A') : 'ongoing'}
+                {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> ({breakItem.comment})</Text>}
+              </div>
+            ))}
+          </div>
+        );
+      },
     },
     {
       title: 'Overtime',

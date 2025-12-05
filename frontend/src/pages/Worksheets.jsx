@@ -705,9 +705,9 @@ const Worksheets = () => {
           return (
             <Form.Item key={field.field_id} name={fieldName} label={field.label} rules={rules}>
               <TimePicker
-                format="HH:mm"
+                format="hh:mm A"
                 style={{ width: '100%' }}
-                placeholder={field.placeholder || 'Select time (24-hour)'}
+                placeholder={field.placeholder || 'Select time'}
               />
             </Form.Item>
           );
@@ -927,7 +927,7 @@ const Worksheets = () => {
                 rules={[{ required: true, message: 'Please select login time' }]}
               >
                 <TimePicker
-                  format="HH:mm"
+                  format="hh:mm A"
                   style={{ width: '100%' }}
                   placeholder="Select login time"
                   onChange={handleTimeChange}
@@ -941,7 +941,7 @@ const Worksheets = () => {
                 rules={[{ required: true, message: 'Please select logout time' }]}
               >
                 <TimePicker
-                  format="HH:mm"
+                  format="hh:mm A"
                   style={{ width: '100%' }}
                   placeholder="Select logout time"
                   onChange={handleTimeChange}
@@ -1088,7 +1088,7 @@ const Worksheets = () => {
                     rules={[{ required: true, message: 'Please select login time' }]}
                   >
                     <TimePicker
-                      format="HH:mm"
+                      format="hh:mm A"
                       style={{ width: '100%' }}
                       placeholder="Select login time"
                       onChange={handleEditTimeChange}
@@ -1102,7 +1102,7 @@ const Worksheets = () => {
                     rules={[{ required: true, message: 'Please select logout time' }]}
                   >
                     <TimePicker
-                      format="HH:mm"
+                      format="hh:mm A"
                       style={{ width: '100%' }}
                       placeholder="Select logout time"
                       onChange={handleEditTimeChange}
