@@ -27,10 +27,11 @@ def calculate_work_hours(login_time: datetime, logout_time: datetime, total_brea
     return round(work_hours, 2), round(overtime_hours, 2)
 
 
-def session_to_response(session: dict) -> TimeSessionResponse:
+def session_to_response(session: dict, employee_name: str = None) -> TimeSessionResponse:
     return TimeSessionResponse(
         id=str(session["_id"]),
         employee_id=session["employee_id"],
+        employee_name=employee_name,
         date=session["date"],
         login_time=session["login_time"],
         logout_time=session.get("logout_time"),
@@ -397,7 +398,16 @@ async def get_attendance_history(
     cursor = db.time_sessions.find(query).sort("date", -1).skip(skip).limit(limit)
     sessions = await cursor.to_list(length=limit)
 
-    return [session_to_response(s) for s in sessions]
+    # Fetch employee names for all sessions
+    employee_ids = list(set(s["employee_id"] for s in sessions))
+    employee_cache = {}
+    for emp_id in employee_ids:
+        if ObjectId.is_valid(emp_id):
+            emp = await db.users.find_one({"_id": ObjectId(emp_id)})
+            if emp:
+                employee_cache[emp_id] = emp.get("full_name", "Unknown")
+
+    return [session_to_response(s, employee_cache.get(s["employee_id"])) for s in sessions]
 
 
 # ============ BREAK SETTINGS ============

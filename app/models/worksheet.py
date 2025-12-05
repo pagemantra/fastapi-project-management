@@ -34,6 +34,7 @@ class WorksheetUpdate(BaseModel):
     form_responses: Optional[List[FormFieldResponse]] = None
     tasks_completed: Optional[List[str]] = None
     notes: Optional[str] = None
+    total_hours: Optional[float] = None
 
 
 class WorksheetSubmit(BaseModel):

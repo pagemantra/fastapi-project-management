@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTI4NTZmZDBiYjI3M2JiZGQ4YzEzODIiLCJlbWFpbCI6ImFkbWluQGNvbXBhbnkuY29tIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzY0ODQ5NjM3fQ.Z1ytrIgbfawyyQA78mulBKmlDdJ4U7K1M6sAGhzeQYo\":*)",
-      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTI4NTZmZDBiYjI3M2JiZGQ4YzEzODIiLCJlbWFpbCI6ImFkbWluQGNvbXBhbnkuY29tIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzY0ODQ5NjUwfQ.ehOHBreVT3L3LZnZ6LMK76jb7oczKjE7BAtPy1bS_3M:*)"
+      "Bash(find:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": []

@@ -181,6 +181,8 @@ async def update_worksheet(
         update_data["tasks_completed"] = worksheet_update.tasks_completed
     if worksheet_update.notes is not None:
         update_data["notes"] = worksheet_update.notes
+    if worksheet_update.total_hours is not None:
+        update_data["total_hours"] = worksheet_update.total_hours
 
     # Reset rejection fields if updating after rejection
     if worksheet["status"] == WorksheetStatus.REJECTED.value:

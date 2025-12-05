@@ -94,6 +94,7 @@ class TimeSessionInDB(TimeSessionBase):
 class TimeSessionResponse(BaseModel):
     id: str
     employee_id: str
+    employee_name: Optional[str] = None
     date: date
     login_time: datetime
     logout_time: Optional[datetime] = None

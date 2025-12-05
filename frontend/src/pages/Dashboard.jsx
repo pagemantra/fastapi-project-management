@@ -5,11 +5,14 @@ import {
   CheckCircleOutlined,
   FileTextOutlined,
   AlertOutlined,
+  UserOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
-import { taskService, worksheetService } from '../api/services';
+import { taskService, worksheetService, attendanceService, userService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
 import TimeTracker from '../components/TimeTracker';
+import dayjs from 'dayjs';
 
 const { Title } = Typography;
 
@@ -19,6 +22,7 @@ const Dashboard = () => {
   const [stats, setStats] = useState({});
   const [recentTasks, setRecentTasks] = useState([]);
   const [pendingWorksheets, setPendingWorksheets] = useState([]);
+  const [teamStats, setTeamStats] = useState({ teamMembers: 0, loggedInToday: 0 });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -101,6 +105,41 @@ const Dashboard = () => {
           setPendingWorksheets(pending.data || []);
         } catch (e) {
           setPendingWorksheets([]);
+        }
+      }
+
+      // Fetch team stats for Admin, Manager, Team Lead (Logged In Today, Team Members)
+      if (!isEmployee()) {
+        try {
+          // Fetch today's attendance
+          const today = dayjs().format('YYYY-MM-DD');
+          const attendanceResponse = await attendanceService.getHistory({
+            start_date: today,
+            end_date: today,
+          });
+          const todayAttendance = attendanceResponse.data || [];
+          const loggedIn = todayAttendance.filter(a => a.status === 'active' || a.status === 'completed').length;
+
+          // Fetch team members based on role
+          let teamMembersCount = 0;
+          if (isTeamLead()) {
+            const usersResponse = await userService.getUsers({ team_lead_id: user.id });
+            teamMembersCount = usersResponse.data?.length || 0;
+          } else if (isManager()) {
+            const usersResponse = await userService.getUsers({ manager_id: user.id });
+            teamMembersCount = usersResponse.data?.length || 0;
+          } else if (isAdmin()) {
+            const usersResponse = await userService.getUsers({});
+            // Count all users except admin
+            teamMembersCount = usersResponse.data?.filter(u => u.role !== 'admin').length || 0;
+          }
+
+          setTeamStats({
+            teamMembers: teamMembersCount,
+            loggedInToday: loggedIn,
+          });
+        } catch (e) {
+          console.error('Failed to fetch team stats:', e);
         }
       }
     } catch (error) {
@@ -204,6 +243,32 @@ const Dashboard = () => {
 
       {/* Statistics Cards */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        {/* Team Stats for Admin, Manager, Team Lead */}
+        {!isEmployee() && (
+          <>
+            <Col xs={24} sm={12} lg={6}>
+              <Card>
+                <Statistic
+                  title="Team Members"
+                  value={teamStats.teamMembers}
+                  prefix={<TeamOutlined />}
+                  valueStyle={{ color: '#3f8600' }}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} lg={6}>
+              <Card>
+                <Statistic
+                  title="Logged In Today"
+                  value={teamStats.loggedInToday}
+                  suffix={`/ ${teamStats.teamMembers}`}
+                  prefix={<UserOutlined />}
+                  valueStyle={{ color: '#1890ff' }}
+                />
+              </Card>
+            </Col>
+          </>
+        )}
         <Col xs={24} sm={12} lg={6}>
           <Card>
             <Statistic
@@ -224,25 +289,31 @@ const Dashboard = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title="Worksheets Submitted"
-              value={stats.worksheets?.total_worksheets || 0}
-              prefix={<FileTextOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card>
-            <Statistic
-              title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'}
-              value={isTeamLead() ? stats.worksheets?.pending_verification || 0 : stats.worksheets?.pending_approval || 0}
-              prefix={<AlertOutlined />}
-              valueStyle={{ color: '#cf1322' }}
-            />
-          </Card>
-        </Col>
+        {/* For employees, show worksheets submitted */}
+        {isEmployee() && (
+          <Col xs={24} sm={12} lg={6}>
+            <Card>
+              <Statistic
+                title="Worksheets Submitted"
+                value={stats.worksheets?.total_worksheets || 0}
+                prefix={<FileTextOutlined />}
+              />
+            </Card>
+          </Col>
+        )}
+        {/* For non-employees, show pending verification/approval */}
+        {!isEmployee() && (
+          <Col xs={24} sm={12} lg={6}>
+            <Card>
+              <Statistic
+                title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'}
+                value={isTeamLead() ? stats.worksheets?.pending_verification || 0 : stats.worksheets?.pending_approval || 0}
+                prefix={<AlertOutlined />}
+                valueStyle={{ color: '#cf1322' }}
+              />
+            </Card>
+          </Col>
+        )}
       </Row>
 
       <Row gutter={[16, 16]}>
