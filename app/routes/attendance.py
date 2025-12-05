@@ -194,6 +194,7 @@ async def start_break(
         "end_time": None,
         "break_type": break_data.break_type.value,
         "duration_minutes": 0,
+        "comment": break_data.comment,
     }
 
     await db.time_sessions.update_one(

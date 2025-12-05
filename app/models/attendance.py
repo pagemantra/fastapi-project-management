@@ -8,6 +8,7 @@ class BreakType(str, Enum):
     SHORT_BREAK = "short_break"
     LUNCH_BREAK = "lunch_break"
     TEA_BREAK = "tea_break"
+    MEETING = "meeting"
     OTHER = "other"
 
 
@@ -24,6 +25,7 @@ class Break(BaseModel):
     end_time: Optional[datetime] = None
     break_type: BreakType = BreakType.SHORT_BREAK
     duration_minutes: int = 0
+    comment: Optional[str] = None
 
 
 class BreakSettingsBase(BaseModel):
@@ -71,6 +73,7 @@ class ClockOut(BaseModel):
 
 class StartBreak(BaseModel):
     break_type: BreakType = BreakType.SHORT_BREAK
+    comment: Optional[str] = None
 
 
 class TimeSessionInDB(TimeSessionBase):

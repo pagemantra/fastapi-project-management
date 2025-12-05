@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Card, Button, Space, Typography, Tag, Statistic, Row, Col, Select, message, Modal } from 'antd';
+import { Card, Button, Space, Typography, Tag, Statistic, Row, Col, Select, message, Modal, Input } from 'antd';
 import {
   PlayCircleOutlined,
   PauseCircleOutlined,
@@ -15,6 +15,7 @@ import duration from 'dayjs/plugin/duration';
 dayjs.extend(duration);
 
 const { Title, Text } = Typography;
+const { TextArea } = Input;
 
 const TimeTracker = () => {
   const navigate = useNavigate();
@@ -23,6 +24,8 @@ const TimeTracker = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [breakType, setBreakType] = useState('short_break');
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+  const [breakComment, setBreakComment] = useState('');
 
   useEffect(() => {
     fetchCurrentSession();
@@ -93,16 +96,38 @@ const TimeTracker = () => {
   };
 
   const handleStartBreak = async () => {
+    // If break type is meeting or other, require comment
+    if (breakType === 'meeting' || breakType === 'other') {
+      setCommentModalVisible(true);
+      return;
+    }
+    await startBreakWithComment(null);
+  };
+
+  const startBreakWithComment = async (comment) => {
     setActionLoading(true);
     try {
-      const response = await attendanceService.startBreak({ break_type: breakType });
+      const response = await attendanceService.startBreak({
+        break_type: breakType,
+        comment: comment
+      });
       setSession(response.data);
       message.success('Break started!');
+      setCommentModalVisible(false);
+      setBreakComment('');
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to start break');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleCommentSubmit = () => {
+    if (!breakComment.trim()) {
+      message.error('Please enter a comment for this break');
+      return;
+    }
+    startBreakWithComment(breakComment);
   };
 
   const handleEndBreak = async () => {
@@ -140,6 +165,7 @@ const TimeTracker = () => {
     { value: 'short_break', label: 'Short Break' },
     { value: 'lunch_break', label: 'Lunch Break' },
     { value: 'tea_break', label: 'Tea Break' },
+    { value: 'meeting', label: 'Meeting' },
     { value: 'other', label: 'Other' },
   ];
 
@@ -238,6 +264,32 @@ const TimeTracker = () => {
           )}
         </div>
       )}
+
+      {/* Comment Modal for Meeting/Other breaks */}
+      <Modal
+        title={`${breakType === 'meeting' ? 'Meeting' : 'Other'} Break - Enter Details`}
+        open={commentModalVisible}
+        onOk={handleCommentSubmit}
+        onCancel={() => {
+          setCommentModalVisible(false);
+          setBreakComment('');
+        }}
+        okText="Start Break"
+        cancelText="Cancel"
+        confirmLoading={actionLoading}
+      >
+        <div style={{ marginBottom: 8 }}>
+          <Text>Please provide details for this {breakType === 'meeting' ? 'meeting' : 'break'}:</Text>
+        </div>
+        <TextArea
+          rows={3}
+          placeholder={breakType === 'meeting' ? 'Enter meeting details...' : 'Enter reason for break...'}
+          value={breakComment}
+          onChange={(e) => setBreakComment(e.target.value)}
+          maxLength={500}
+          showCount
+        />
+      </Modal>
     </Card>
   );
 };
