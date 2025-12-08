@@ -251,12 +251,16 @@ async def end_current_break(db, session: dict):
     for i, b in enumerate(breaks):
         if b.get("break_id") == current_break_id:
             # Parse start_time and ensure it's IST-aware
-            if isinstance(b["start_time"], str):
-                start_time = datetime.fromisoformat(b["start_time"])
-                if start_time.tzinfo is None:
-                    start_time = IST.localize(start_time)
-            else:
-                start_time = b["start_time"]
+            start_time = b["start_time"]
+
+            # Handle both string and datetime objects
+            if isinstance(start_time, str):
+                start_time = datetime.fromisoformat(start_time)
+
+            # If timezone-naive, assume it's IST and localize it
+            if start_time.tzinfo is None:
+                start_time = IST.localize(start_time)
+
             duration = int((now - start_time).total_seconds() / 60)
             breaks[i]["end_time"] = now
             breaks[i]["duration_minutes"] = duration

@@ -76,10 +76,15 @@ async def register_admin(user: UserCreate):
 
 @router.post("/login", response_model=Token)
 async def login(user_credentials: UserLogin):
-    """Login and get access token"""
+    """Login and get access token - supports email or employee_id"""
     db = get_database()
 
+    # Try to find user by email first, then by employee_id
     user = await db.users.find_one({"email": user_credentials.email})
+    if not user:
+        # If not found by email, try by employee_id
+        user = await db.users.find_one({"employee_id": user_credentials.email})
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -101,7 +106,7 @@ async def login(user_credentials: UserLogin):
     access_token = create_access_token(
         data={
             "sub": str(user["_id"]),
-            "email": user["email"],
+            "email": user.get("email") or user.get("employee_id"),
             "role": user["role"],
         }
     )
@@ -114,7 +119,7 @@ async def get_me(current_user: dict = Depends(get_current_active_user)):
     """Get current logged-in user details"""
     return UserResponse(
         id=str(current_user["_id"]),
-        email=current_user["email"],
+        email=current_user.get("email") or current_user.get("employee_id"),
         full_name=current_user["full_name"],
         employee_id=current_user["employee_id"],
         role=current_user["role"],

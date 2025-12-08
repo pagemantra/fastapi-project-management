@@ -84,7 +84,7 @@ class UserResponse(BaseModel):
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str  # Can be email or employee_id
     password: str
 
 

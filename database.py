@@ -10,9 +10,9 @@ async def connect_to_mongo():
     client = AsyncIOMotorClient(settings.MONGODB_URL)
     db = client[settings.DATABASE_NAME]
 
-    # Create indexes
-    await db.users.create_index("email", unique=True)
-    await db.users.create_index("employee_id", unique=True)
+    # Create indexes (sparse=True allows multiple null values)
+    await db.users.create_index("email", unique=True, sparse=True)
+    await db.users.create_index("employee_id", unique=True, sparse=True)
 
     print("Connected to MongoDB")
 
