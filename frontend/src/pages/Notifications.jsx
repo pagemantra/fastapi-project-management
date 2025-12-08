@@ -6,7 +6,7 @@ import {
 } from '@ant-design/icons';
 import { notificationService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
-import dayjs from 'dayjs';
+import dayjs from '../utils/dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 
 dayjs.extend(relativeTime);

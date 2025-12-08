@@ -10,7 +10,7 @@ import {
 import { userService, taskService, worksheetService, attendanceService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import dayjs from 'dayjs';
+import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 

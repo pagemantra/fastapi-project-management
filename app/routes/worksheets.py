@@ -3,6 +3,7 @@ from datetime import datetime, date
 from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
+import pytz
 from ..database import get_database
 from ..models.worksheet import (
     WorksheetCreate, WorksheetUpdate, WorksheetResponse, WorksheetStatus,
@@ -13,6 +14,8 @@ from ..models.user import UserRole
 from ..utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/worksheets", tags=["Worksheets"])
+
+IST = pytz.timezone('Asia/Kolkata')
 
 
 async def worksheet_to_response(db, worksheet: dict) -> WorksheetResponse:
@@ -71,7 +74,7 @@ async def create_notification(db, recipient_id: str, notif_type: str, title: str
         "message": message,
         "related_id": related_id,
         "is_read": False,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(IST),
     })
 
 
@@ -115,7 +118,7 @@ async def create_worksheet(
         })
         total_hours = time_session.get("total_work_hours", 0) if time_session else 0
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     worksheet_dict = {
         "employee_id": user_id,
         "date": worksheet.date.isoformat(),
@@ -191,7 +194,7 @@ async def update_worksheet(
         update_data["rejected_by"] = None
         update_data["rejected_at"] = None
 
-    update_data["updated_at"] = datetime.utcnow()
+    update_data["updated_at"] = datetime.now(IST)
 
     await db.worksheets.update_one(
         {"_id": ObjectId(worksheet_id)},
@@ -232,7 +235,7 @@ async def submit_worksheet(
             detail="Worksheet already submitted",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     await db.worksheets.update_one(
         {"_id": ObjectId(worksheet_id)},
         {
@@ -302,7 +305,7 @@ async def verify_worksheet(
                 detail="Can only verify worksheets from your team members",
             )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     await db.worksheets.update_one(
         {"_id": ObjectId(worksheet_id)},
         {
@@ -374,7 +377,7 @@ async def approve_worksheet(
                 detail="Can only approve worksheets from employees under your management",
             )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     await db.worksheets.update_one(
         {"_id": ObjectId(worksheet_id)},
         {
@@ -409,7 +412,7 @@ async def bulk_approve_worksheets(
     """Manager bulk approves multiple TL-verified worksheets"""
     db = get_database()
     user_id = str(current_user["_id"])
-    now = datetime.utcnow()
+    now = datetime.now(IST)
 
     approved_worksheets = []
 
@@ -481,7 +484,7 @@ async def reject_worksheet(
             detail="Can only reject worksheets in SUBMITTED or TL_VERIFIED status",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     await db.worksheets.update_one(
         {"_id": ObjectId(worksheet_id)},
         {

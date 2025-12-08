@@ -6,11 +6,14 @@ from bson import ObjectId
 from bson.errors import InvalidId
 import io
 import csv
+import pytz
 from ..database import get_database
 from ..models.user import UserRole
 from ..utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
+
+IST = pytz.timezone('Asia/Kolkata')
 
 
 # ============ PRODUCTIVITY REPORT ============
@@ -124,7 +127,7 @@ async def get_productivity_report(
     return {
         "report_type": "productivity",
         "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(IST).isoformat(),
         "data": report_data
     }
 
@@ -198,7 +201,7 @@ async def get_attendance_report(
     return {
         "report_type": "attendance",
         "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(IST).isoformat(),
         "total_records": len(report_data),
         "data": report_data
     }
@@ -271,7 +274,7 @@ async def get_overtime_report(
     return {
         "report_type": "overtime",
         "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(IST).isoformat(),
         "total_employees_with_overtime": len(report_data),
         "data": report_data
     }
@@ -391,7 +394,7 @@ async def get_team_performance_report(
     return {
         "report_type": "team_performance",
         "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(IST).isoformat(),
         "total_teams": len(report_data),
         "data": report_data
     }
@@ -476,7 +479,7 @@ async def get_worksheet_analytics(
     return {
         "report_type": "worksheet_analytics",
         "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(IST).isoformat(),
         "summary": {
             "total_worksheets": total_worksheets,
             "pending_verification": status_distribution.get("submitted", 0),

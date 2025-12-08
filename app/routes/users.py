@@ -4,12 +4,15 @@ from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import DuplicateKeyError
+import pytz
 from ..database import get_database
 from ..models.user import UserCreate, UserUpdate, UserResponse, UserRole
 from ..utils.security import get_password_hash
 from ..utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+IST = pytz.timezone('Asia/Kolkata')
 
 
 def user_to_response(user: dict) -> UserResponse:
@@ -119,7 +122,7 @@ async def create_user(
                 detail="Invalid team lead ID",
             )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     user_dict = {
         "full_name": user.full_name,
         "employee_id": user.employee_id,
@@ -357,7 +360,7 @@ async def update_user(
             )
 
     update_data = {k: v for k, v in user_update.model_dump().items() if v is not None}
-    update_data["updated_at"] = datetime.utcnow()
+    update_data["updated_at"] = datetime.now(IST)
 
     await db.users.update_one(
         {"_id": ObjectId(user_id)},
@@ -390,7 +393,7 @@ async def delete_user(
 
     result = await db.users.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {"is_active": False, "updated_at": datetime.utcnow()}}
+        {"$set": {"is_active": False, "updated_at": datetime.now(IST)}}
     )
 
     if result.matched_count == 0:

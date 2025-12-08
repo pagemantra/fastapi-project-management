@@ -4,6 +4,7 @@ from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 import uuid
+import pytz
 from ..database import get_database
 from ..models.attendance import (
     TimeSessionResponse, TimeSessionCreate, ClockOut, StartBreak,
@@ -16,6 +17,7 @@ from ..utils.dependencies import get_current_active_user, require_roles
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 
 STANDARD_WORK_HOURS = 8.0
+IST = pytz.timezone('Asia/Kolkata')
 
 
 def calculate_work_hours(login_time: datetime, logout_time: datetime, total_break_minutes: int) -> tuple:
@@ -69,7 +71,7 @@ async def clock_in(current_user: dict = Depends(get_current_active_user)):
             detail="Already clocked in for today",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     session_dict = {
         "employee_id": user_id,
         "date": today.isoformat(),
@@ -133,7 +135,7 @@ async def clock_out(
             detail="Only admin can force clock out without worksheet",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     total_break_minutes = sum(b.get("duration_minutes", 0) for b in session.get("breaks", []))
     work_hours, overtime_hours = calculate_work_hours(session["login_time"], now, total_break_minutes)
 
@@ -186,7 +188,7 @@ async def start_break(
     # Check break limits if enforced
     await check_break_limits(db, current_user, session, break_data.break_type)
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     break_id = str(uuid.uuid4())
     new_break = {
         "break_id": break_id,
@@ -239,7 +241,7 @@ async def end_break(current_user: dict = Depends(get_current_active_user)):
 
 async def end_current_break(db, session: dict):
     """Helper to end current break"""
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     current_break_id = session.get("current_break_id")
 
     if not current_break_id:
@@ -291,7 +293,7 @@ async def check_break_limits(db, user: dict, session: dict, break_type: BreakTyp
                 "message": f"You have reached the maximum breaks ({settings['max_breaks_per_day']}) for today.",
                 "related_id": str(session["_id"]),
                 "is_read": False,
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(IST),
             })
 
     # Check total break duration
@@ -305,7 +307,7 @@ async def check_break_limits(db, user: dict, session: dict, break_type: BreakTyp
                 "message": f"You have exceeded the total break duration ({settings['max_break_duration_minutes']} minutes) for today.",
                 "related_id": str(session["_id"]),
                 "is_read": False,
-                "created_at": datetime.utcnow(),
+                "created_at": datetime.now(IST),
             })
 
 
@@ -320,7 +322,7 @@ async def create_overtime_notification(db, user: dict, overtime_hours: float):
             "message": f"{user['full_name']} worked {overtime_hours:.1f} hours overtime today.",
             "related_id": str(user["_id"]),
             "is_read": False,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(IST),
         })
 
 
@@ -485,7 +487,7 @@ async def create_break_settings(
             detail="Break settings already exist for this team. Use PUT to update.",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     settings_dict = {
         "team_id": settings.team_id,
         "max_breaks_per_day": settings.max_breaks_per_day,
@@ -564,7 +566,7 @@ async def update_break_settings(
             )
 
     update_data = {k: v for k, v in settings_update.model_dump().items() if v is not None}
-    update_data["updated_at"] = datetime.utcnow()
+    update_data["updated_at"] = datetime.now(IST)
 
     await db.break_settings.update_one(
         {"team_id": team_id},

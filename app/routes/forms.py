@@ -4,6 +4,7 @@ from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 import uuid
+import pytz
 from ..database import get_database
 from ..models.form import (
     FormCreate, FormUpdate, FormResponse, FormField, FormAssignment,
@@ -13,6 +14,8 @@ from ..models.user import UserRole
 from ..utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/forms", tags=["Forms"])
+
+IST = pytz.timezone('Asia/Kolkata')
 
 
 def form_to_response(form: dict) -> FormResponse:
@@ -76,7 +79,7 @@ async def create_form(
                     detail=f"Team {team_id} is not under your management",
                 )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     form_dict = {
         "name": form.name,
         "description": form.description,
@@ -267,7 +270,7 @@ async def update_form(
     if form_update.is_active is not None:
         update_data["is_active"] = form_update.is_active
 
-    update_data["updated_at"] = datetime.utcnow()
+    update_data["updated_at"] = datetime.now(IST)
 
     await db.forms.update_one(
         {"_id": ObjectId(form_id)},
@@ -321,7 +324,7 @@ async def assign_form_to_teams(
         {
             "$set": {
                 "assigned_teams": list(current_teams),
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(IST),
             }
         }
     )
@@ -356,7 +359,7 @@ async def unassign_form_from_team(
         {"_id": ObjectId(form_id)},
         {
             "$pull": {"assigned_teams": team_id},
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(IST)}
         }
     )
 
@@ -395,7 +398,7 @@ async def delete_form(
 
     await db.forms.update_one(
         {"_id": ObjectId(form_id)},
-        {"$set": {"is_active": False, "updated_at": datetime.utcnow()}}
+        {"$set": {"is_active": False, "updated_at": datetime.now(IST)}}
     )
 
     return {"message": "Form deactivated successfully"}

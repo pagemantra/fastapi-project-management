@@ -9,10 +9,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../api/services';
-import dayjs from 'dayjs';
-import duration from 'dayjs/plugin/duration';
-
-dayjs.extend(duration);
+import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -36,8 +33,8 @@ const TimeTracker = () => {
     let interval;
     if (session && (session.status === 'active' || session.status === 'on_break')) {
       interval = setInterval(() => {
-        const loginTime = dayjs(session.login_time);
-        const now = dayjs();
+        const loginTime = dayjs.tz(session.login_time, 'Asia/Kolkata');
+        const now = dayjs.tz(new Date(), 'Asia/Kolkata');
         const totalSeconds = now.diff(loginTime, 'second');
         const breakSeconds = session.total_break_minutes * 60;
         setElapsedTime(totalSeconds - breakSeconds);
@@ -46,7 +43,7 @@ const TimeTracker = () => {
     } else {
       // Update system time every second even when not clocked in
       interval = setInterval(() => {
-        setCurrentSystemTime(dayjs());
+        setCurrentSystemTime(dayjs.tz(new Date(), 'Asia/Kolkata'));
       }, 1000);
     }
     return () => clearInterval(interval);
@@ -268,7 +265,7 @@ const TimeTracker = () => {
         {session && (
           <>
             <Text type="secondary" style={{ marginLeft: 16 }}>
-              | Logged in at: {dayjs(session.login_time).format('hh:mm:ss A')}
+              | Logged in at: {dayjs.tz(session.login_time, 'Asia/Kolkata').format('hh:mm:ss A')}
             </Text>
             {session.worksheet_submitted && (
               <Tag color="green" style={{ marginLeft: 8 }}>Worksheet Submitted</Tag>

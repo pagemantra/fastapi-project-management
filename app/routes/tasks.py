@@ -3,12 +3,15 @@ from datetime import datetime, date
 from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
+import pytz
 from ..database import get_database
 from ..models.task import TaskCreate, TaskUpdate, TaskResponse, TaskStatus, TaskPriority, WorkLog
 from ..models.user import UserRole
 from ..utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
+
+IST = pytz.timezone('Asia/Kolkata')
 
 
 def task_to_response(task: dict) -> TaskResponse:
@@ -77,7 +80,7 @@ async def create_task(
                 detail="Can only assign tasks to employees in your team",
             )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     task_dict = {
         "title": task.title,
         "description": task.description,
@@ -273,7 +276,7 @@ async def update_task(
 
     # Handle status completion
     if update_dict.get("status") == TaskStatus.COMPLETED.value or update_dict.get("status") == TaskStatus.COMPLETED:
-        update_dict["completed_at"] = datetime.utcnow()
+        update_dict["completed_at"] = datetime.now(IST)
         update_dict["status"] = TaskStatus.COMPLETED.value
 
     if "status" in update_dict and hasattr(update_dict["status"], "value"):
@@ -281,7 +284,7 @@ async def update_task(
     if "priority" in update_dict and hasattr(update_dict["priority"], "value"):
         update_dict["priority"] = update_dict["priority"].value
 
-    update_dict["updated_at"] = datetime.utcnow()
+    update_dict["updated_at"] = datetime.now(IST)
 
     await db.tasks.update_one(
         {"_id": ObjectId(task_id)},
@@ -328,7 +331,7 @@ async def add_work_log(
         "hours_worked": work_log.hours_worked,
         "work_date": work_log.work_date.isoformat(),
         "notes": work_log.notes,
-        "logged_at": datetime.utcnow().isoformat(),
+        "logged_at": datetime.now(IST).isoformat(),
     }
 
     # Update task with new work log and increment actual_hours
@@ -337,7 +340,7 @@ async def add_work_log(
         {
             "$push": {"work_logs": log_entry},
             "$inc": {"actual_hours": work_log.hours_worked},
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(IST)}
         }
     )
 

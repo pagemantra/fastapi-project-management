@@ -3,12 +3,15 @@ from datetime import datetime
 from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
+import pytz
 from ..database import get_database
 from ..models.team import TeamCreate, TeamUpdate, TeamResponse, AddTeamMember
 from ..models.user import UserRole
 from ..utils.dependencies import get_current_active_user, require_roles
 
 router = APIRouter(prefix="/teams", tags=["Teams"])
+
+IST = pytz.timezone('Asia/Kolkata')
 
 
 def team_to_response(team: dict) -> TeamResponse:
@@ -81,7 +84,7 @@ async def create_team(
                 detail="Team lead must be under your management",
             )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     team_dict = {
         "name": team.name,
         "description": team.description,
@@ -205,7 +208,7 @@ async def update_team(
             )
 
     update_data = {k: v for k, v in team_update.model_dump().items() if v is not None}
-    update_data["updated_at"] = datetime.utcnow()
+    update_data["updated_at"] = datetime.now(IST)
 
     await db.teams.update_one(
         {"_id": ObjectId(team_id)},
@@ -279,7 +282,7 @@ async def add_team_member(
         {"_id": ObjectId(team_id)},
         {
             "$push": {"members": member.employee_id},
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(IST)}
         }
     )
 
@@ -289,7 +292,7 @@ async def add_team_member(
             "$set": {
                 "team_lead_id": team["team_lead_id"],
                 "manager_id": team["manager_id"],
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(IST)
             }
         }
     )
@@ -341,7 +344,7 @@ async def remove_team_member(
         {"_id": ObjectId(team_id)},
         {
             "$pull": {"members": employee_id},
-            "$set": {"updated_at": datetime.utcnow()}
+            "$set": {"updated_at": datetime.now(IST)}
         }
     )
 
@@ -351,7 +354,7 @@ async def remove_team_member(
         {
             "$set": {
                 "team_lead_id": None,
-                "updated_at": datetime.utcnow()
+                "updated_at": datetime.now(IST)
             }
         }
     )
@@ -376,7 +379,7 @@ async def delete_team(
 
     result = await db.teams.update_one(
         {"_id": ObjectId(team_id)},
-        {"$set": {"is_active": False, "updated_at": datetime.utcnow()}}
+        {"$set": {"is_active": False, "updated_at": datetime.now(IST)}}
     )
 
     if result.matched_count == 0:

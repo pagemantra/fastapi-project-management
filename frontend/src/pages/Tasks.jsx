@@ -6,7 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { taskService, userService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
-import dayjs from 'dayjs';
+import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { Option } = Select;

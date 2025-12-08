@@ -4,7 +4,7 @@ import { ClockCircleOutlined, CoffeeOutlined, FieldTimeOutlined, SettingOutlined
 import { attendanceService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import TimeTracker from '../components/TimeTracker';
-import dayjs from 'dayjs';
+import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -130,13 +130,13 @@ const Attendance = () => {
       title: 'Login',
       dataIndex: 'login_time',
       key: 'login_time',
-      render: (time) => time ? dayjs(time).format('hh:mm:ss A') : '-',
+      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm:ss A') : '-',
     },
     {
       title: 'Logout',
       dataIndex: 'logout_time',
       key: 'logout_time',
-      render: (time) => time ? dayjs(time).format('hh:mm:ss A') : '-',
+      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm:ss A') : '-',
     },
     {
       title: 'Work Hours',
@@ -164,7 +164,7 @@ const Attendance = () => {
                 <Tag color="cyan" style={{ fontSize: '10px' }}>
                   {breakItem.break_type?.replace('_', ' ').toUpperCase()}
                 </Tag>
-                {dayjs(breakItem.start_time).format('hh:mm A')} - {breakItem.end_time ? dayjs(breakItem.end_time).format('hh:mm A') : 'ongoing'}
+                {dayjs.tz(breakItem.start_time, 'Asia/Kolkata').format('hh:mm A')} - {breakItem.end_time ? dayjs.tz(breakItem.end_time, 'Asia/Kolkata').format('hh:mm A') : 'ongoing'}
                 {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> ({breakItem.comment})</Text>}
               </div>
             ))}

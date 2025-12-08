@@ -12,7 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { taskService, worksheetService, attendanceService, userService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
 import TimeTracker from '../components/TimeTracker';
-import dayjs from 'dayjs';
+import dayjs from '../utils/dayjs';
 
 const { Title } = Typography;
 

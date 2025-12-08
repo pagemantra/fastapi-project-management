@@ -7,7 +7,7 @@ import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Column, Pie } from '@ant-design/charts';
 import { reportService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
-import dayjs from 'dayjs';
+import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;

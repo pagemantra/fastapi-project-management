@@ -2,12 +2,15 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from datetime import datetime
 from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
+import pytz
 from ..database import get_database
 from ..models.user import UserCreate, UserLogin, UserResponse, UserRole, Token
 from ..utils.security import get_password_hash, verify_password, create_access_token
 from ..utils.dependencies import get_current_active_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+IST = pytz.timezone('Asia/Kolkata')
 
 
 @router.post("/register-admin", response_model=UserResponse)
@@ -40,7 +43,7 @@ async def register_admin(user: UserCreate):
             detail="Employee ID already exists",
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(IST)
     user_dict = {
         "full_name": user.full_name,
         "employee_id": user.employee_id.upper(),  # Store employee_id in uppercase
