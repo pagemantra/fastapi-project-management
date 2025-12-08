@@ -208,9 +208,23 @@ async def get_users(
 async def get_all_users_for_dashboard(
     current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]))
 ):
-    """Get all non-admin users for dashboard display (Admin, Manager, Team Lead only)"""
+    """Get users for dashboard display (filtered by role hierarchy)"""
     db = get_database()
-    cursor = db.users.find({"role": {"$ne": UserRole.ADMIN.value}}).limit(1000)
+    user_role = current_user["role"]
+    user_id = str(current_user["_id"])
+
+    query = {"role": {"$ne": UserRole.ADMIN.value}}
+
+    # Role-based filtering - only show team members assigned to this manager/team lead
+    if user_role == UserRole.TEAM_LEAD.value:
+        # Get team members under this team lead
+        query["team_lead_id"] = user_id
+    elif user_role == UserRole.MANAGER.value:
+        # Get all employees under this manager
+        query["manager_id"] = user_id
+    # Admin sees all non-admin users
+
+    cursor = db.users.find(query).limit(1000)
     users = await cursor.to_list(length=1000)
     return [user_to_response(user) for user in users]
 

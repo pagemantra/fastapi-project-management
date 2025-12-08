@@ -536,6 +536,7 @@ async def get_worksheets(
 
     # Role-based filtering
     if user_role == UserRole.ASSOCIATE.value:
+        # Associates see all their own worksheets including rejected
         query["employee_id"] = user_id
     elif user_role == UserRole.TEAM_LEAD.value:
         # Get team members
@@ -545,6 +546,9 @@ async def get_worksheets(
             query["employee_id"] = employee_id
         else:
             query["employee_id"] = {"$in": member_ids}
+        # TL should NOT see rejected worksheets (they go back to associate only)
+        if not status_filter:
+            query["status"] = {"$ne": WorksheetStatus.REJECTED.value}
     elif user_role == UserRole.MANAGER.value:
         employees = await db.users.find({"manager_id": user_id}).to_list(length=1000)
         employee_ids = [str(e["_id"]) for e in employees]
@@ -552,9 +556,16 @@ async def get_worksheets(
             query["employee_id"] = employee_id
         else:
             query["employee_id"] = {"$in": employee_ids}
+        # Manager should NOT see rejected worksheets (they go back to associate only)
+        # Manager should only see TL_VERIFIED and above
+        if not status_filter:
+            query["status"] = {"$in": [WorksheetStatus.TL_VERIFIED.value, WorksheetStatus.MANAGER_APPROVED.value]}
     else:  # Admin
         if employee_id:
             query["employee_id"] = employee_id
+        # Admin should NOT see rejected worksheets in main list (they go back to associate only)
+        if not status_filter:
+            query["status"] = {"$ne": WorksheetStatus.REJECTED.value}
 
     if status_filter:
         query["status"] = status_filter.value

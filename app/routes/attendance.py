@@ -349,11 +349,28 @@ async def get_current_session(current_user: dict = Depends(get_current_active_us
 async def get_all_today_attendance(
     current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]))
 ):
-    """Get all attendance sessions for today (Admin, Manager, Team Lead only)"""
+    """Get all attendance sessions for today (filtered by role hierarchy)"""
     db = get_database()
     today = date.today().isoformat()
+    user_role = current_user["role"]
+    user_id = str(current_user["_id"])
 
-    cursor = db.time_sessions.find({"date": today}).limit(1000)
+    query = {"date": today}
+
+    # Role-based filtering - only show team members assigned to this manager/team lead
+    if user_role == UserRole.TEAM_LEAD.value:
+        # Get team members under this team lead
+        team_members = await db.users.find({"team_lead_id": user_id}).to_list(length=1000)
+        member_ids = [str(m["_id"]) for m in team_members]
+        query["employee_id"] = {"$in": member_ids}
+    elif user_role == UserRole.MANAGER.value:
+        # Get all employees under this manager (including team leads and their members)
+        employees = await db.users.find({"manager_id": user_id}).to_list(length=1000)
+        employee_ids = [str(e["_id"]) for e in employees]
+        query["employee_id"] = {"$in": employee_ids}
+    # Admin sees all
+
+    cursor = db.time_sessions.find(query).limit(1000)
     sessions = await cursor.to_list(length=1000)
 
     # Fetch employee names

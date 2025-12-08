@@ -116,11 +116,17 @@ const Worksheets = () => {
   const handleCreateWorksheet = () => {
     form.resetFields();
     setTotalHours(0);
+    // Get current system time for default login/logout times
+    const currentTime = dayjs();
     form.setFieldsValue({
       date: dayjs(),
       submit_now: true,  // Auto-check submit for verification
       form_id: teamForm?.id,  // Auto-set team's default form
+      login_time: currentTime,  // Default to current system time
+      logout_time: currentTime,  // Default to current system time
     });
+    // Calculate initial total hours (will be 0 since same time)
+    setTotalHours(0);
     setModalVisible(true);
   };
 

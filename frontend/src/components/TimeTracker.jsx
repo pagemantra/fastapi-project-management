@@ -26,6 +26,7 @@ const TimeTracker = () => {
   const [breakType, setBreakType] = useState('short_break');
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [breakComment, setBreakComment] = useState('');
+  const [currentSystemTime, setCurrentSystemTime] = useState(dayjs());
 
   useEffect(() => {
     fetchCurrentSession();
@@ -40,6 +41,12 @@ const TimeTracker = () => {
         const totalSeconds = now.diff(loginTime, 'second');
         const breakSeconds = session.total_break_minutes * 60;
         setElapsedTime(totalSeconds - breakSeconds);
+        setCurrentSystemTime(now);
+      }, 1000);
+    } else {
+      // Update system time every second even when not clocked in
+      interval = setInterval(() => {
+        setCurrentSystemTime(dayjs());
       }, 1000);
     }
     return () => clearInterval(interval);
@@ -254,16 +261,21 @@ const TimeTracker = () => {
           </Space>
         </Col>
       </Row>
-      {session && (
-        <div style={{ marginTop: 16 }}>
-          <Text type="secondary">
-            Logged in at: {dayjs(session.login_time).format('HH:mm:ss')}
-          </Text>
-          {session.worksheet_submitted && (
-            <Tag color="green" style={{ marginLeft: 8 }}>Worksheet Submitted</Tag>
-          )}
-        </div>
-      )}
+      <div style={{ marginTop: 16 }}>
+        <Text type="secondary">
+          Current System Time: <Text strong>{currentSystemTime.format('hh:mm:ss A')}</Text>
+        </Text>
+        {session && (
+          <>
+            <Text type="secondary" style={{ marginLeft: 16 }}>
+              | Logged in at: {dayjs(session.login_time).format('hh:mm:ss A')}
+            </Text>
+            {session.worksheet_submitted && (
+              <Tag color="green" style={{ marginLeft: 8 }}>Worksheet Submitted</Tag>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Comment Modal for Meeting/Other breaks */}
       <Modal
