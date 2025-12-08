@@ -52,9 +52,9 @@ async def get_productivity_report(
 
     # Date range
     if not start_date:
-        start_date = date.today() - timedelta(days=30)
+        start_date = datetime.now(IST).date() - timedelta(days=30)
     if not end_date:
-        end_date = date.today()
+        end_date = datetime.now(IST).date()
 
     report_data = []
 
@@ -67,12 +67,12 @@ async def get_productivity_report(
             "status": "completed",
         }
         if start_date:
-            tasks_query["completed_at"] = {"$gte": datetime.combine(start_date, datetime.min.time())}
+            tasks_query["completed_at"] = {"$gte": IST.localize(datetime.combine(start_date, datetime.min.time()))}
         if end_date:
             if "completed_at" in tasks_query:
-                tasks_query["completed_at"]["$lte"] = datetime.combine(end_date, datetime.max.time())
+                tasks_query["completed_at"]["$lte"] = IST.localize(datetime.combine(end_date, datetime.max.time()))
             else:
-                tasks_query["completed_at"] = {"$lte": datetime.combine(end_date, datetime.max.time())}
+                tasks_query["completed_at"] = {"$lte": IST.localize(datetime.combine(end_date, datetime.max.time()))}
 
         tasks_completed = await db.tasks.count_documents(tasks_query)
 
@@ -147,9 +147,9 @@ async def get_attendance_report(
     user_id = str(current_user["_id"])
 
     if not start_date:
-        start_date = date.today() - timedelta(days=30)
+        start_date = datetime.now(IST).date() - timedelta(days=30)
     if not end_date:
-        end_date = date.today()
+        end_date = datetime.now(IST).date()
 
     # Build query based on role
     query = {
@@ -221,9 +221,9 @@ async def get_overtime_report(
     user_id = str(current_user["_id"])
 
     if not start_date:
-        start_date = date.today() - timedelta(days=30)
+        start_date = datetime.now(IST).date() - timedelta(days=30)
     if not end_date:
-        end_date = date.today()
+        end_date = datetime.now(IST).date()
 
     query = {
         "date": {
@@ -295,9 +295,9 @@ async def get_team_performance_report(
     user_id = str(current_user["_id"])
 
     if not start_date:
-        start_date = date.today() - timedelta(days=30)
+        start_date = datetime.now(IST).date() - timedelta(days=30)
     if not end_date:
-        end_date = date.today()
+        end_date = datetime.now(IST).date()
 
     # Get teams
     team_query = {}
@@ -327,8 +327,8 @@ async def get_team_performance_report(
             "assigned_to": {"$in": member_ids},
             "status": "completed",
             "completed_at": {
-                "$gte": datetime.combine(start_date, datetime.min.time()),
-                "$lte": datetime.combine(end_date, datetime.max.time())
+                "$gte": IST.localize(datetime.combine(start_date, datetime.min.time())),
+                "$lte": IST.localize(datetime.combine(end_date, datetime.max.time()))
             }
         })
 
@@ -414,9 +414,9 @@ async def get_worksheet_analytics(
     user_id = str(current_user["_id"])
 
     if not start_date:
-        start_date = date.today() - timedelta(days=30)
+        start_date = datetime.now(IST).date() - timedelta(days=30)
     if not end_date:
-        end_date = date.today()
+        end_date = datetime.now(IST).date()
 
     # Build employee filter
     employee_ids = None
@@ -517,7 +517,7 @@ async def export_productivity_report(
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=productivity_report_{date.today()}.csv"}
+            headers={"Content-Disposition": f"attachment; filename=productivity_report_{datetime.now(IST).date()}.csv"}
         )
     else:
         # For Excel, we'd use openpyxl - simplified CSV for now
@@ -531,7 +531,7 @@ async def export_productivity_report(
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=productivity_report_{date.today()}.csv"}
+            headers={"Content-Disposition": f"attachment; filename=productivity_report_{datetime.now(IST).date()}.csv"}
         )
 
 
@@ -555,7 +555,7 @@ async def export_attendance_report(
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=attendance_report_{date.today()}.csv"}
+        headers={"Content-Disposition": f"attachment; filename=attendance_report_{datetime.now(IST).date()}.csv"}
     )
 
 
@@ -586,5 +586,5 @@ async def export_overtime_report(
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=overtime_report_{date.today()}.csv"}
+        headers={"Content-Disposition": f"attachment; filename=overtime_report_{datetime.now(IST).date()}.csv"}
     )

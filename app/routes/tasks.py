@@ -371,12 +371,12 @@ async def get_task_summary(
         match_stage["assigned_to"] = {"$in": employee_ids}
 
     if start_date:
-        match_stage["created_at"] = {"$gte": datetime.combine(start_date, datetime.min.time())}
+        match_stage["created_at"] = {"$gte": IST.localize(datetime.combine(start_date, datetime.min.time()))}
     if end_date:
         if "created_at" in match_stage:
-            match_stage["created_at"]["$lte"] = datetime.combine(end_date, datetime.max.time())
+            match_stage["created_at"]["$lte"] = IST.localize(datetime.combine(end_date, datetime.max.time()))
         else:
-            match_stage["created_at"] = {"$lte": datetime.combine(end_date, datetime.max.time())}
+            match_stage["created_at"] = {"$lte": IST.localize(datetime.combine(end_date, datetime.max.time()))}
 
     pipeline = [
         {"$match": match_stage} if match_stage else {"$match": {}},

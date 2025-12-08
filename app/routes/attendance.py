@@ -56,7 +56,7 @@ async def clock_in(current_user: dict = Depends(get_current_active_user)):
     """Clock in - Start a new time session"""
     db = get_database()
     user_id = str(current_user["_id"])
-    today = date.today()
+    today = datetime.now(IST).date()
 
     # Check if already clocked in today
     existing_session = await db.time_sessions.find_one({
@@ -102,7 +102,7 @@ async def clock_out(
     """Clock out - End the current time session"""
     db = get_database()
     user_id = str(current_user["_id"])
-    today = date.today()
+    today = datetime.now(IST).date()
 
     session = await db.time_sessions.find_one({
         "employee_id": user_id,
@@ -171,7 +171,7 @@ async def start_break(
     """Start a break"""
     db = get_database()
     user_id = str(current_user["_id"])
-    today = date.today()
+    today = datetime.now(IST).date()
 
     session = await db.time_sessions.find_one({
         "employee_id": user_id,
@@ -220,7 +220,7 @@ async def end_break(current_user: dict = Depends(get_current_active_user)):
     """End the current break"""
     db = get_database()
     user_id = str(current_user["_id"])
-    today = date.today()
+    today = datetime.now(IST).date()
 
     session = await db.time_sessions.find_one({
         "employee_id": user_id,
@@ -250,7 +250,13 @@ async def end_current_break(db, session: dict):
     breaks = session.get("breaks", [])
     for i, b in enumerate(breaks):
         if b.get("break_id") == current_break_id:
-            start_time = datetime.fromisoformat(b["start_time"]) if isinstance(b["start_time"], str) else b["start_time"]
+            # Parse start_time and ensure it's IST-aware
+            if isinstance(b["start_time"], str):
+                start_time = datetime.fromisoformat(b["start_time"])
+                if start_time.tzinfo is None:
+                    start_time = IST.localize(start_time)
+            else:
+                start_time = b["start_time"]
             duration = int((now - start_time).total_seconds() / 60)
             breaks[i]["end_time"] = now
             breaks[i]["duration_minutes"] = duration
@@ -333,7 +339,7 @@ async def get_current_session(current_user: dict = Depends(get_current_active_us
     """Get current active session for today"""
     db = get_database()
     user_id = str(current_user["_id"])
-    today = date.today()
+    today = datetime.now(IST).date()
 
     session = await db.time_sessions.find_one({
         "employee_id": user_id,
@@ -353,7 +359,7 @@ async def get_all_today_attendance(
 ):
     """Get all attendance sessions for today (filtered by role hierarchy)"""
     db = get_database()
-    today = date.today().isoformat()
+    today = datetime.now(IST).date().isoformat()
     user_role = current_user["role"]
     user_id = str(current_user["_id"])
 
