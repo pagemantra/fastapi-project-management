@@ -38,6 +38,7 @@ const Teams = () => {
       setTeams(response.data || []);
     } catch (error) {
       console.error('Failed to fetch teams:', error);
+      message.error('Failed to load teams');
       setTeams([]);
     } finally {
       setLoading(false);
@@ -51,7 +52,8 @@ const Teams = () => {
         setManagers(response.data || []);
       }
     } catch (error) {
-      console.error('Failed to fetch managers');
+      console.error('Failed to fetch managers:', error);
+      message.error('Failed to load managers');
       setManagers([]);
     }
   };
@@ -61,7 +63,8 @@ const Teams = () => {
       const response = await userService.getTeamLeads();
       setTeamLeads(response.data || []);
     } catch (error) {
-      console.error('Failed to fetch team leads');
+      console.error('Failed to fetch team leads:', error);
+      message.error('Failed to load team leads');
       setTeamLeads([]);
     }
   };
@@ -71,7 +74,8 @@ const Teams = () => {
       const response = await userService.getEmployees();
       setEmployees(response.data || []);
     } catch (error) {
-      console.error('Failed to fetch employees');
+      console.error('Failed to fetch employees:', error);
+      message.error('Failed to load employees');
       setEmployees([]);
     }
   };

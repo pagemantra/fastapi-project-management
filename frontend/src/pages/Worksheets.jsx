@@ -58,6 +58,7 @@ const Worksheets = () => {
       setWorksheets(response.data || []);
     } catch (error) {
       console.error('Failed to fetch worksheets:', error);
+      message.error('Failed to load worksheets');
       setWorksheets([]);
     } finally {
       setLoading(false);
@@ -69,7 +70,8 @@ const Worksheets = () => {
       const response = await worksheetService.getPendingVerification();
       setPendingVerification(response.data || []);
     } catch (error) {
-      console.error('Failed to fetch pending verification');
+      console.error('Failed to fetch pending verification:', error);
+      message.error('Failed to load pending worksheets');
       setPendingVerification([]);
     }
   };
@@ -79,7 +81,8 @@ const Worksheets = () => {
       const response = await worksheetService.getPendingApproval();
       setPendingApproval(response.data || []);
     } catch (error) {
-      console.error('Failed to fetch pending approval');
+      console.error('Failed to fetch pending approval:', error);
+      message.error('Failed to load pending approvals');
       setPendingApproval([]);
     }
   };
@@ -109,6 +112,7 @@ const Worksheets = () => {
       }
     } catch (error) {
       console.error('Failed to fetch team/forms:', error);
+      message.error('Failed to load forms');
       setForms([]);
     }
   };

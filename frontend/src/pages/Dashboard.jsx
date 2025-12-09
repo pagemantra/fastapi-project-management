@@ -37,7 +37,11 @@ const Dashboard = () => {
       // Fetch task summary - only for non-employees or use my-tasks for employees
       if (!isEmployee()) {
         promises.push(
-          taskService.getTaskSummary().catch(() => ({ data: {} }))
+          taskService.getTaskSummary().catch((err) => {
+            console.error('Failed to fetch task summary:', err);
+            message.warning('Failed to load task statistics');
+            return { data: {} };
+          })
         );
       } else {
         promises.push(
@@ -50,14 +54,22 @@ const Dashboard = () => {
                 completed: res.data?.filter(t => t.status === 'completed').length || 0,
               }
             }
-          })).catch(() => ({ data: {} }))
+          })).catch((err) => {
+            console.error('Failed to fetch my tasks:', err);
+            message.warning('Failed to load your tasks');
+            return { data: {} };
+          })
         );
       }
 
       // Fetch worksheet summary - only for non-employees
       if (!isEmployee()) {
         promises.push(
-          worksheetService.getSummary().catch(() => ({ data: {} }))
+          worksheetService.getSummary().catch((err) => {
+            console.error('Failed to fetch worksheet summary:', err);
+            message.warning('Failed to load worksheet statistics');
+            return { data: {} };
+          })
         );
       } else {
         promises.push(
@@ -68,18 +80,30 @@ const Dashboard = () => {
               tl_verified: res.data?.filter(w => w.status === 'tl_verified').length || 0,
               manager_approved: res.data?.filter(w => w.status === 'manager_approved').length || 0,
             }
-          })).catch(() => ({ data: {} }))
+          })).catch((err) => {
+            console.error('Failed to fetch my worksheets:', err);
+            message.warning('Failed to load your worksheets');
+            return { data: {} };
+          })
         );
       }
 
       // Fetch recent tasks
       if (isEmployee()) {
         promises.push(
-          taskService.getMyTasks({ limit: 5 }).catch(() => ({ data: [] }))
+          taskService.getMyTasks({ limit: 5 }).catch((err) => {
+            console.error('Failed to fetch recent tasks:', err);
+            message.warning('Failed to load recent tasks');
+            return { data: [] };
+          })
         );
       } else {
         promises.push(
-          taskService.getTasks({ limit: 5 }).catch(() => ({ data: [] }))
+          taskService.getTasks({ limit: 5 }).catch((err) => {
+            console.error('Failed to fetch recent tasks:', err);
+            message.warning('Failed to load recent tasks');
+            return { data: [] };
+          })
         );
       }
 

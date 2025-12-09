@@ -1251,6 +1251,57 @@ app.get('/tasks/my-tasks', authenticate, async (req, res) => {
   }
 });
 
+// GET /tasks/summary
+app.get('/tasks/summary', authenticate, async (req, res) => {
+  try {
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+    const now = new Date();
+
+    // Get all tasks assigned to current user
+    const tasks = await db.collection('tasks')
+      .find({ assigned_to: userId })
+      .toArray();
+
+    // Calculate summary statistics
+    let total = tasks.length;
+    let pending = 0;
+    let in_progress = 0;
+    let completed = 0;
+    let overdue = 0;
+
+    tasks.forEach(task => {
+      // Count by status
+      if (task.status === 'PENDING') {
+        pending++;
+      } else if (task.status === 'IN_PROGRESS') {
+        in_progress++;
+      } else if (task.status === 'COMPLETED') {
+        completed++;
+      }
+
+      // Count overdue tasks (past due_date and not completed)
+      if (task.due_date && task.status !== 'COMPLETED') {
+        const dueDate = new Date(task.due_date);
+        if (dueDate < now) {
+          overdue++;
+        }
+      }
+    });
+
+    res.json({
+      total,
+      pending,
+      in_progress,
+      completed,
+      overdue
+    });
+  } catch (error) {
+    console.error('Get tasks summary error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
 // GET /tasks/assigned-by-me
 app.get('/tasks/assigned-by-me', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
@@ -2357,6 +2408,164 @@ app.delete('/forms/:id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MA
   }
 });
 
+// GET /forms/team/:teamId - Get forms assigned to a team
+app.get('/forms/team/:teamId', authenticate, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const db = getDatabase();
+
+    if (!ObjectId.isValid(teamId)) {
+      return res.status(400).json({ detail: 'Invalid team ID format' });
+    }
+
+    // Verify team exists
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(teamId) });
+    if (!team) {
+      return res.status(404).json({ detail: 'Team not found' });
+    }
+
+    // Find all forms assigned to this team
+    const forms = await db.collection('forms').find({
+      assigned_teams: teamId,
+      is_active: true
+    }).sort({ created_at: -1 }).toArray();
+
+    res.json(forms.map(form => ({
+      id: form._id.toString(),
+      name: form.name,
+      description: form.description,
+      fields: form.fields,
+      created_by: form.created_by,
+      assigned_teams: form.assigned_teams || [],
+      is_active: form.is_active,
+      version: form.version,
+      created_at: form.created_at,
+      updated_at: form.updated_at
+    })));
+  } catch (error) {
+    console.error('Get team forms error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /forms/:formId/assign - Assign form to teams
+app.post('/forms/:formId/assign', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+  try {
+    const { formId } = req.params;
+    const { team_ids } = req.body;
+    const db = getDatabase();
+
+    if (!ObjectId.isValid(formId)) {
+      return res.status(400).json({ detail: 'Invalid form ID format' });
+    }
+
+    if (!team_ids || !Array.isArray(team_ids) || team_ids.length === 0) {
+      return res.status(400).json({ detail: 'team_ids array is required' });
+    }
+
+    // Verify form exists
+    const form = await db.collection('forms').findOne({ _id: new ObjectId(formId) });
+    if (!form) {
+      return res.status(404).json({ detail: 'Form not found' });
+    }
+
+    // Verify all teams exist
+    for (const teamId of team_ids) {
+      if (!ObjectId.isValid(teamId)) {
+        return res.status(400).json({ detail: `Invalid team ID format: ${teamId}` });
+      }
+      const team = await db.collection('teams').findOne({ _id: new ObjectId(teamId) });
+      if (!team) {
+        return res.status(404).json({ detail: `Team not found: ${teamId}` });
+      }
+    }
+
+    // Get current assigned teams and add new ones (avoid duplicates)
+    const currentTeams = form.assigned_teams || [];
+    const updatedTeams = [...new Set([...currentTeams, ...team_ids])];
+
+    await db.collection('forms').updateOne(
+      { _id: new ObjectId(formId) },
+      {
+        $set: {
+          assigned_teams: updatedTeams,
+          updated_at: getNow()
+        }
+      }
+    );
+
+    const updated = await db.collection('forms').findOne({ _id: new ObjectId(formId) });
+    res.json({
+      id: updated._id.toString(),
+      name: updated.name,
+      description: updated.description,
+      fields: updated.fields,
+      created_by: updated.created_by,
+      assigned_teams: updated.assigned_teams,
+      is_active: updated.is_active,
+      version: updated.version,
+      created_at: updated.created_at,
+      updated_at: updated.updated_at
+    });
+  } catch (error) {
+    console.error('Assign form error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// DELETE /forms/:formId/unassign/:teamId - Unassign form from team
+app.delete('/forms/:formId/unassign/:teamId', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+  try {
+    const { formId, teamId } = req.params;
+    const db = getDatabase();
+
+    if (!ObjectId.isValid(formId)) {
+      return res.status(400).json({ detail: 'Invalid form ID format' });
+    }
+
+    if (!ObjectId.isValid(teamId)) {
+      return res.status(400).json({ detail: 'Invalid team ID format' });
+    }
+
+    // Verify form exists
+    const form = await db.collection('forms').findOne({ _id: new ObjectId(formId) });
+    if (!form) {
+      return res.status(404).json({ detail: 'Form not found' });
+    }
+
+    // Remove team from assigned_teams
+    const currentTeams = form.assigned_teams || [];
+    const updatedTeams = currentTeams.filter(tid => tid !== teamId);
+
+    await db.collection('forms').updateOne(
+      { _id: new ObjectId(formId) },
+      {
+        $set: {
+          assigned_teams: updatedTeams,
+          updated_at: getNow()
+        }
+      }
+    );
+
+    const updated = await db.collection('forms').findOne({ _id: new ObjectId(formId) });
+    res.json({
+      id: updated._id.toString(),
+      name: updated.name,
+      description: updated.description,
+      fields: updated.fields,
+      created_by: updated.created_by,
+      assigned_teams: updated.assigned_teams,
+      is_active: updated.is_active,
+      version: updated.version,
+      created_at: updated.created_at,
+      updated_at: updated.updated_at
+    });
+  } catch (error) {
+    console.error('Unassign form error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
 // POST /forms - Create form
 app.post('/forms', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
   try {
@@ -2745,6 +2954,265 @@ app.post('/worksheets/:worksheet_id/approve', authenticate, requireRoles([UserRo
     });
   } catch (error) {
     console.error('Approve worksheet error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /worksheets/:id/reject - Reject a worksheet (Team Lead/Manager)
+app.post('/worksheets/:id/reject', authenticate, requireRoles([UserRole.ADMIN, UserRole.TEAM_LEAD, UserRole.MANAGER]), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rejection_reason } = req.body;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ detail: 'Invalid worksheet ID format' });
+    }
+
+    if (!rejection_reason || rejection_reason.trim() === '') {
+      return res.status(400).json({ detail: 'Rejection reason is required' });
+    }
+
+    const worksheet = await db.collection('worksheets').findOne({ _id: new ObjectId(id) });
+    if (!worksheet) {
+      return res.status(404).json({ detail: 'Worksheet not found' });
+    }
+
+    // Check permissions based on role and worksheet status
+    if (userRole === UserRole.TEAM_LEAD) {
+      if (worksheet.status !== WorksheetStatus.SUBMITTED) {
+        return res.status(400).json({ detail: 'Worksheet must be in SUBMITTED status for Team Lead rejection' });
+      }
+      // Verify employee is in this team lead's team
+      const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
+      if (!employee || employee.team_lead_id !== userId) {
+        return res.status(403).json({ detail: 'Can only reject worksheets from employees in your team' });
+      }
+    } else if (userRole === UserRole.MANAGER) {
+      if (worksheet.status !== WorksheetStatus.SUBMITTED && worksheet.status !== WorksheetStatus.TL_VERIFIED) {
+        return res.status(400).json({ detail: 'Worksheet must be SUBMITTED or TL_VERIFIED for Manager rejection' });
+      }
+      // Verify employee is under this manager
+      const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
+      if (!employee || employee.manager_id !== userId) {
+        return res.status(403).json({ detail: 'Can only reject worksheets from employees under your management' });
+      }
+    }
+
+    const now = getNow();
+    await db.collection('worksheets').updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          status: WorksheetStatus.REJECTED,
+          rejection_reason: rejection_reason.trim(),
+          rejected_by: userId,
+          rejected_at: now,
+          updated_at: now
+        }
+      }
+    );
+
+    // Notify Employee
+    await createNotification(
+      worksheet.employee_id,
+      'WORKSHEET_REJECTED',
+      'Worksheet Rejected',
+      `Your worksheet for ${worksheet.date} has been rejected. Reason: ${rejection_reason.trim()}`,
+      id
+    );
+
+    const updated = await db.collection('worksheets').findOne({ _id: new ObjectId(id) });
+    res.json({
+      id: updated._id.toString(),
+      employee_id: updated.employee_id,
+      date: updated.date,
+      form_id: updated.form_id,
+      form_responses: updated.form_responses || [],
+      tasks_completed: updated.tasks_completed || [],
+      total_hours: updated.total_hours || 0,
+      notes: updated.notes,
+      status: updated.status,
+      submitted_at: updated.submitted_at,
+      tl_verified_by: updated.tl_verified_by,
+      tl_verified_at: updated.tl_verified_at,
+      manager_approved_by: updated.manager_approved_by,
+      manager_approved_at: updated.manager_approved_at,
+      rejection_reason: updated.rejection_reason,
+      rejected_by: updated.rejected_by,
+      rejected_at: updated.rejected_at,
+      created_at: updated.created_at,
+      updated_at: updated.updated_at,
+      employee_name: null,
+      form_name: null
+    });
+  } catch (error) {
+    console.error('Reject worksheet error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /worksheets/bulk-approve - Bulk approve multiple worksheets (Manager)
+app.post('/worksheets/bulk-approve', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+  try {
+    const { worksheet_ids } = req.body;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+
+    if (!worksheet_ids || !Array.isArray(worksheet_ids) || worksheet_ids.length === 0) {
+      return res.status(400).json({ detail: 'worksheet_ids array is required' });
+    }
+
+    // Validate all IDs
+    for (const id of worksheet_ids) {
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ detail: `Invalid worksheet ID format: ${id}` });
+      }
+    }
+
+    const objectIds = worksheet_ids.map(id => new ObjectId(id));
+    const worksheets = await db.collection('worksheets').find({
+      _id: { $in: objectIds },
+      status: WorksheetStatus.TL_VERIFIED
+    }).toArray();
+
+    if (worksheets.length === 0) {
+      return res.status(400).json({ detail: 'No worksheets found with TL_VERIFIED status' });
+    }
+
+    // Verify all employees are under this manager
+    if (req.user.role === UserRole.MANAGER) {
+      const employeeIds = worksheets.map(w => new ObjectId(w.employee_id));
+      const employees = await db.collection('users').find({
+        _id: { $in: employeeIds }
+      }).toArray();
+
+      const unauthorized = employees.some(emp => emp.manager_id !== userId);
+      if (unauthorized) {
+        return res.status(403).json({ detail: 'Can only approve worksheets from employees under your management' });
+      }
+    }
+
+    const now = getNow();
+    const result = await db.collection('worksheets').updateMany(
+      {
+        _id: { $in: objectIds },
+        status: WorksheetStatus.TL_VERIFIED
+      },
+      {
+        $set: {
+          status: WorksheetStatus.MANAGER_APPROVED,
+          manager_approved_by: userId,
+          manager_approved_at: now,
+          updated_at: now
+        }
+      }
+    );
+
+    // Notify all employees
+    for (const worksheet of worksheets) {
+      await createNotification(
+        worksheet.employee_id,
+        'WORKSHEET_VERIFIED',
+        'Worksheet Approved',
+        `Your worksheet for ${worksheet.date} has been approved by Manager`,
+        worksheet._id.toString()
+      );
+    }
+
+    res.json({
+      message: `Successfully approved ${result.modifiedCount} worksheets`,
+      approved_count: result.modifiedCount,
+      requested_count: worksheet_ids.length
+    });
+  } catch (error) {
+    console.error('Bulk approve worksheets error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /worksheets/summary - Get worksheet summary statistics
+app.get('/worksheets/summary', authenticate, async (req, res) => {
+  try {
+    const { start_date, end_date, employee_id } = req.query;
+    const db = getDatabase();
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+
+    // Build employee filter
+    let employeeFilter = {};
+    if (userRole === UserRole.ASSOCIATE) {
+      employeeFilter = { employee_id: userId };
+    } else if (userRole === UserRole.TEAM_LEAD) {
+      const teamMembers = await db.collection('users').find({ team_lead_id: userId }).toArray();
+      const memberIds = teamMembers.map(m => m._id.toString());
+      if (employee_id && memberIds.includes(employee_id)) {
+        employeeFilter = { employee_id };
+      } else {
+        employeeFilter = { employee_id: { $in: memberIds } };
+      }
+    } else if (userRole === UserRole.MANAGER) {
+      const managedEmployees = await db.collection('users').find({ manager_id: userId }).toArray();
+      const employeeIds = managedEmployees.map(e => e._id.toString());
+      if (employee_id && employeeIds.includes(employee_id)) {
+        employeeFilter = { employee_id };
+      } else {
+        employeeFilter = { employee_id: { $in: employeeIds } };
+      }
+    } else if (employee_id) {
+      employeeFilter = { employee_id };
+    }
+
+    // Build date filter
+    const dateFilter = {};
+    if (start_date) {
+      dateFilter.$gte = start_date;
+    }
+    if (end_date) {
+      dateFilter.$lte = end_date;
+    }
+
+    const query = { ...employeeFilter };
+    if (Object.keys(dateFilter).length > 0) {
+      query.date = dateFilter;
+    }
+
+    // Get counts by status
+    const statusCounts = await db.collection('worksheets').aggregate([
+      { $match: query },
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]).toArray();
+
+    // Calculate total hours
+    const hoursResult = await db.collection('worksheets').aggregate([
+      { $match: query },
+      { $group: { _id: null, total_hours: { $sum: '$total_hours' } } }
+    ]).toArray();
+
+    const summary = {
+      total: 0,
+      draft: 0,
+      submitted: 0,
+      tl_verified: 0,
+      manager_approved: 0,
+      rejected: 0,
+      total_hours: hoursResult.length > 0 ? hoursResult[0].total_hours : 0
+    };
+
+    statusCounts.forEach(item => {
+      summary.total += item.count;
+      if (item._id === WorksheetStatus.DRAFT) summary.draft = item.count;
+      else if (item._id === WorksheetStatus.SUBMITTED) summary.submitted = item.count;
+      else if (item._id === WorksheetStatus.TL_VERIFIED) summary.tl_verified = item.count;
+      else if (item._id === WorksheetStatus.MANAGER_APPROVED) summary.manager_approved = item.count;
+      else if (item._id === WorksheetStatus.REJECTED) summary.rejected = item.count;
+    });
+
+    res.json(summary);
+  } catch (error) {
+    console.error('Get worksheet summary error:', error);
     res.status(500).json({ detail: error.message });
   }
 });
@@ -3212,6 +3680,117 @@ app.put('/notifications/:notification_id/read', authenticate, async (req, res) =
   }
 });
 
+// GET /notifications/unread - Get only unread notifications
+app.get('/notifications/unread', authenticate, async (req, res) => {
+  try {
+    const { skip = 0, limit = 50 } = req.query;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+
+    const notifications = await db.collection('notifications')
+      .find({
+        recipient_id: userId,
+        is_read: false
+      })
+      .sort({ created_at: -1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit))
+      .toArray();
+
+    res.json(notifications.map(n => ({
+      id: n._id.toString(),
+      recipient_id: n.recipient_id,
+      type: (n.type || 'task_assigned').toLowerCase(),
+      title: n.title,
+      message: n.message,
+      related_id: n.related_id,
+      is_read: n.is_read || false,
+      created_at: n.created_at
+    })));
+  } catch (error) {
+    console.error('Get unread notifications error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// PUT /notifications/read-all - Mark all notifications as read
+app.put('/notifications/read-all', authenticate, async (req, res) => {
+  try {
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+
+    const result = await db.collection('notifications').updateMany(
+      {
+        recipient_id: userId,
+        is_read: false
+      },
+      {
+        $set: { is_read: true }
+      }
+    );
+
+    res.json({
+      message: 'All notifications marked as read',
+      modified_count: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Mark all notifications read error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// DELETE /notifications/:id - Delete single notification
+app.delete('/notifications/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ detail: 'Invalid notification ID' });
+    }
+
+    const notification = await db.collection('notifications').findOne({
+      _id: new ObjectId(id),
+      recipient_id: userId
+    });
+
+    if (!notification) {
+      return res.status(404).json({ detail: 'Notification not found' });
+    }
+
+    await db.collection('notifications').deleteOne({
+      _id: new ObjectId(id),
+      recipient_id: userId
+    });
+
+    res.json({ message: 'Notification deleted successfully' });
+  } catch (error) {
+    console.error('Delete notification error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// DELETE /notifications - Delete all notifications
+app.delete('/notifications', authenticate, async (req, res) => {
+  try {
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+
+    const result = await db.collection('notifications').deleteMany({
+      recipient_id: userId
+    });
+
+    res.json({
+      message: 'All notifications deleted successfully',
+      deleted_count: result.deletedCount
+    });
+  } catch (error) {
+    console.error('Delete all notifications error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
 // GET /reports/productivity - Productivity report
 app.get('/reports/productivity', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
@@ -3329,6 +3908,142 @@ app.get('/reports/productivity', authenticate, requireRoles([UserRole.ADMIN, Use
     });
   } catch (error) {
     console.error('Get productivity report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/attendance - Get attendance report
+app.get('/reports/attendance', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    const { start_date, end_date, employee_id } = req.query;
+    const db = getDatabase();
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+
+    // Build employee filter
+    const employeeQuery = {};
+    if (userRole === UserRole.TEAM_LEAD) {
+      employeeQuery.team_lead_id = userId;
+    } else if (userRole === UserRole.MANAGER) {
+      employeeQuery.manager_id = userId;
+    }
+
+    if (employee_id && ObjectId.isValid(employee_id)) {
+      employeeQuery._id = new ObjectId(employee_id);
+    }
+
+    const employees = await db.collection('users').find({
+      ...employeeQuery,
+      role: UserRole.ASSOCIATE
+    }).toArray();
+
+    const startDate = start_date ? new Date(start_date) : moment.tz(IST).subtract(30, 'days').toDate();
+    const endDate = end_date ? new Date(end_date) : moment.tz(IST).toDate();
+
+    const reportData = [];
+
+    for (const emp of employees) {
+      const empId = emp._id.toString();
+
+      // Get time sessions for the date range
+      const sessions = await db.collection('time_sessions').find({
+        employee_id: empId,
+        date: {
+          $gte: moment(startDate).format('YYYY-MM-DD'),
+          $lte: moment(endDate).format('YYYY-MM-DD')
+        }
+      }).sort({ date: -1 }).toArray();
+
+      const totalWorkHours = sessions.reduce((sum, s) => sum + (s.total_work_hours || 0), 0);
+      const totalBreakMinutes = sessions.reduce((sum, s) => sum + (s.total_break_minutes || 0), 0);
+      const totalOvertimeHours = sessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
+      const daysPresent = sessions.length;
+
+      // Calculate expected work days (excluding weekends)
+      let expectedDays = 0;
+      let currentDate = moment(startDate);
+      const endMoment = moment(endDate);
+
+      while (currentDate.isSameOrBefore(endMoment)) {
+        const dayOfWeek = currentDate.day();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Exclude Sunday (0) and Saturday (6)
+          expectedDays++;
+        }
+        currentDate.add(1, 'day');
+      }
+
+      const daysAbsent = expectedDays - daysPresent;
+      const attendanceRate = expectedDays > 0 ? Math.round((daysPresent / expectedDays) * 100 * 100) / 100 : 0;
+
+      // Get late arrivals (login after 9:30 AM)
+      let lateArrivals = 0;
+      sessions.forEach(session => {
+        if (session.login_time) {
+          const loginTime = moment(session.login_time);
+          const expectedLoginTime = moment(session.login_time).hour(9).minute(30).second(0);
+          if (loginTime.isAfter(expectedLoginTime)) {
+            lateArrivals++;
+          }
+        }
+      });
+
+      // Get early departures (logout before 6:00 PM)
+      let earlyDepartures = 0;
+      sessions.forEach(session => {
+        if (session.logout_time && session.total_work_hours < STANDARD_WORK_HOURS) {
+          const logoutTime = moment(session.logout_time);
+          const expectedLogoutTime = moment(session.logout_time).hour(18).minute(0).second(0);
+          if (logoutTime.isBefore(expectedLogoutTime)) {
+            earlyDepartures++;
+          }
+        }
+      });
+
+      reportData.push({
+        employee_id: empId,
+        employee_name: emp.full_name,
+        employee_email: emp.email || '',
+        department: emp.department || '',
+        expected_days: expectedDays,
+        days_present: daysPresent,
+        days_absent: daysAbsent,
+        attendance_rate: attendanceRate,
+        total_work_hours: Math.round(totalWorkHours * 100) / 100,
+        average_hours_per_day: daysPresent > 0 ? Math.round((totalWorkHours / daysPresent) * 100) / 100 : 0,
+        total_break_minutes: totalBreakMinutes,
+        total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+        late_arrivals: lateArrivals,
+        early_departures: earlyDepartures
+      });
+    }
+
+    // Calculate overview statistics
+    const overview = {
+      total_employees: reportData.length,
+      total_expected_days: reportData.reduce((sum, emp) => sum + emp.expected_days, 0),
+      total_days_present: reportData.reduce((sum, emp) => sum + emp.days_present, 0),
+      total_days_absent: reportData.reduce((sum, emp) => sum + emp.days_absent, 0),
+      average_attendance_rate: reportData.length > 0
+        ? Math.round((reportData.reduce((sum, emp) => sum + emp.attendance_rate, 0) / reportData.length) * 100) / 100
+        : 0,
+      total_work_hours: Math.round(reportData.reduce((sum, emp) => sum + emp.total_work_hours, 0) * 100) / 100,
+      total_overtime_hours: Math.round(reportData.reduce((sum, emp) => sum + emp.total_overtime_hours, 0) * 100) / 100,
+      total_late_arrivals: reportData.reduce((sum, emp) => sum + emp.late_arrivals, 0),
+      total_early_departures: reportData.reduce((sum, emp) => sum + emp.early_departures, 0)
+    };
+
+    res.json({
+      report_type: 'attendance',
+      date_range: {
+        start: moment(startDate).format('YYYY-MM-DD'),
+        end: moment(endDate).format('YYYY-MM-DD')
+      },
+      generated_at: moment.tz(IST).format(),
+      overview,
+      data: reportData
+    });
+  } catch (error) {
+    console.error('Get attendance report error:', error);
     res.status(500).json({ detail: error.message });
   }
 });

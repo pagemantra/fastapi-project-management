@@ -33,6 +33,7 @@ const Users = () => {
       setUsers(response.data || []);
     } catch (error) {
       console.error('Failed to fetch users:', error);
+      message.error('Failed to load users');
       setUsers([]);
     } finally {
       setLoading(false);
@@ -46,7 +47,8 @@ const Users = () => {
         setManagers(response.data || []);
       }
     } catch (error) {
-      console.error('Failed to fetch managers');
+      console.error('Failed to fetch managers:', error);
+      message.error('Failed to load managers');
       setManagers([]);
     }
   };
@@ -56,7 +58,8 @@ const Users = () => {
       const response = await userService.getTeamLeads();
       setTeamLeads(response.data || []);
     } catch (error) {
-      console.error('Failed to fetch team leads');
+      console.error('Failed to fetch team leads:', error);
+      message.error('Failed to load team leads');
       setTeamLeads([]);
     }
   };
