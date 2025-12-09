@@ -978,7 +978,7 @@ const Worksheets = () => {
 
           <Form.Item>
             <Space>
-              <Button type="primary" htmlType="submit" disabled={!teamForm}>
+              <Button type="primary" htmlType="submit">
                 Save Worksheet
               </Button>
               <Button onClick={handleModalClose}>Cancel</Button>

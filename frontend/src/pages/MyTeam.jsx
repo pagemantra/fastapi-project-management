@@ -223,7 +223,7 @@ const MyTeam = () => {
               title="Team Members"
               value={activeMembers}
               prefix={<UserOutlined />}
-              valueStyle={{ color: '#3f8600' }}
+              styles={{ value: { color: '#3f8600'  } }}
             />
           </Card>
         </Col>
@@ -234,7 +234,7 @@ const MyTeam = () => {
               value={loggedInToday}
               suffix={`/ ${activeMembers}`}
               prefix={<ClockCircleOutlined />}
-              valueStyle={{ color: '#1890ff' }}
+              styles={{ value: { color: '#1890ff'  } }}
             />
           </Card>
         </Col>
@@ -244,7 +244,7 @@ const MyTeam = () => {
               title="Pending Tasks"
               value={pendingTasks}
               prefix={<CheckCircleOutlined />}
-              valueStyle={{ color: '#faad14' }}
+              styles={{ value: { color: '#faad14'  } }}
             />
           </Card>
         </Col>
@@ -254,7 +254,7 @@ const MyTeam = () => {
               title="Worksheets to Verify"
               value={pendingWorksheets.length}
               prefix={<FileTextOutlined />}
-              valueStyle={{ color: pendingWorksheets.length > 0 ? '#cf1322' : '#3f8600' }}
+              styles={{ value: { color: pendingWorksheets.length > 0 ? '#cf1322' : '#3f8600'  } }}
             />
           </Card>
         </Col>
@@ -332,3 +332,4 @@ const MyTeam = () => {
 };
 
 export default MyTeam;
+

@@ -238,7 +238,7 @@ const Dashboard = () => {
                   title="Team Members"
                   value={teamStats.teamMembers}
                   prefix={<TeamOutlined />}
-                  valueStyle={{ color: '#3f8600' }}
+                  styles={{ value: { color: '#3f8600'  } }}
                 />
               </Card>
             </Col>
@@ -249,7 +249,7 @@ const Dashboard = () => {
                   value={teamStats.loggedInToday}
                   suffix={`/ ${teamStats.teamMembers}`}
                   prefix={<UserOutlined />}
-                  valueStyle={{ color: '#1890ff' }}
+                  styles={{ value: { color: '#1890ff'  } }}
                 />
               </Card>
             </Col>
@@ -261,7 +261,7 @@ const Dashboard = () => {
               title="Total Tasks"
               value={stats.tasks?.total_tasks || 0}
               prefix={<CheckCircleOutlined />}
-              valueStyle={{ color: '#3f8600' }}
+              styles={{ value: { color: '#3f8600'  } }}
             />
           </Card>
         </Col>
@@ -271,7 +271,7 @@ const Dashboard = () => {
               title="Pending Tasks"
               value={stats.tasks?.by_status?.pending || 0}
               prefix={<ClockCircleOutlined />}
-              valueStyle={{ color: '#faad14' }}
+              styles={{ value: { color: '#faad14'  } }}
             />
           </Card>
         </Col>
@@ -295,7 +295,7 @@ const Dashboard = () => {
                 title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'}
                 value={isTeamLead() ? stats.worksheets?.pending_verification || 0 : stats.worksheets?.pending_approval || 0}
                 prefix={<AlertOutlined />}
-                valueStyle={{ color: '#cf1322' }}
+                styles={{ value: { color: '#cf1322'  } }}
               />
             </Card>
           </Col>
@@ -343,3 +343,4 @@ const Dashboard = () => {
 };
 
 export default Dashboard;
+

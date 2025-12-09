@@ -222,7 +222,7 @@ const Reports = () => {
               <Statistic
                 title="Approved"
                 value={worksheetAnalytics.summary?.approved || 0}
-                valueStyle={{ color: '#3f8600' }}
+                styles={{ value: { color: '#3f8600'  } }}
               />
             </Card>
           </Col>
@@ -231,7 +231,7 @@ const Reports = () => {
               <Statistic
                 title="Pending"
                 value={(worksheetAnalytics.summary?.pending_verification || 0) + (worksheetAnalytics.summary?.pending_approval || 0)}
-                valueStyle={{ color: '#faad14' }}
+                styles={{ value: { color: '#faad14'  } }}
               />
             </Card>
           </Col>
@@ -241,7 +241,7 @@ const Reports = () => {
                 title="Rejection Rate"
                 value={worksheetAnalytics.summary?.rejection_rate || 0}
                 suffix="%"
-                valueStyle={{ color: worksheetAnalytics.summary?.rejection_rate > 10 ? '#cf1322' : '#3f8600' }}
+                styles={{ value: { color: worksheetAnalytics.summary?.rejection_rate > 10 ? '#cf1322' : '#3f8600'  } }}
               />
             </Card>
           </Col>
@@ -374,3 +374,4 @@ const Reports = () => {
 };
 
 export default Reports;
+

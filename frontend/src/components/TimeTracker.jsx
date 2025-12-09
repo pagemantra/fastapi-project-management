@@ -190,7 +190,7 @@ const TimeTracker = () => {
             title="Work Time"
             value={formatTime(Math.max(0, elapsedTime))}
             prefix={<ClockCircleOutlined />}
-            valueStyle={{ fontSize: 32, color: session?.status === 'active' ? '#52c41a' : '#1890ff' }}
+            styles={{ value: { fontSize: 32, color: session?.status === 'active' ? '#52c41a' : '#1890ff' } }}
           />
         </Col>
         <Col xs={24} md={8}>
@@ -201,7 +201,7 @@ const TimeTracker = () => {
           />
         </Col>
         <Col xs={24} md={8}>
-          <Space direction="vertical" style={{ width: '100%' }}>
+          <Space orientation="vertical" style={{ width: '100%' }}>
             {!session || session.status === 'completed' ? (
               <Button
                 type="primary"
@@ -260,12 +260,12 @@ const TimeTracker = () => {
       </Row>
       <div style={{ marginTop: 16 }}>
         <Text type="secondary">
-          Current System Time: <Text strong>{currentSystemTime.format('hh:mm:ss A')}</Text>
+          Current System Time: <Text strong>{currentSystemTime.format('hh:mm A')}</Text>
         </Text>
         {session && (
           <>
             <Text type="secondary" style={{ marginLeft: 16 }}>
-              | Logged in at: {dayjs.tz(session.login_time, 'Asia/Kolkata').format('hh:mm:ss A')}
+              | Logged in at: {dayjs.tz(session.login_time, 'Asia/Kolkata').format('hh:mm A')}
             </Text>
             {session.worksheet_submitted && (
               <Tag color="green" style={{ marginLeft: 8 }}>Worksheet Submitted</Tag>

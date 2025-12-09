@@ -127,16 +127,16 @@ const Attendance = () => {
       render: (_, record) => record.employee_name || record.employee_id,
     }]),
     {
-      title: 'Login',
+      title: 'Login Time',
       dataIndex: 'login_time',
       key: 'login_time',
-      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm:ss A') : '-',
+      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm A') : '-',
     },
     {
-      title: 'Logout',
+      title: 'Logout Time',
       dataIndex: 'logout_time',
       key: 'logout_time',
-      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm:ss A') : '-',
+      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm A') : '-',
     },
     {
       title: 'Work Hours',
@@ -255,7 +255,7 @@ const Attendance = () => {
               title="Total Overtime"
               value={totalOvertime.toFixed(1)}
               suffix="hrs"
-              valueStyle={{ color: totalOvertime > 0 ? '#faad14' : '#52c41a' }}
+              styles={{ value: { color: totalOvertime > 0 ? '#faad14' : '#52c41a'  } }}
             />
           </Card>
         </Col>
@@ -396,3 +396,4 @@ const Attendance = () => {
 };
 
 export default Attendance;
+
