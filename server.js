@@ -173,7 +173,10 @@ function getNow() {
 }
 
 function calculateWorkHours(loginTime, logoutTime, totalBreakMinutes) {
-  const totalMinutes = moment(logoutTime).diff(moment(loginTime), 'minutes');
+  // Use timezone-aware parsing to ensure correct time calculation
+  const login = moment.tz(loginTime, IST);
+  const logout = moment.tz(logoutTime, IST);
+  const totalMinutes = logout.diff(login, 'minutes');
   const workMinutes = totalMinutes - totalBreakMinutes;
   const workHours = Math.max(0, workMinutes / 60);
   const overtimeHours = Math.max(0, workHours - STANDARD_WORK_HOURS);
@@ -1727,19 +1730,25 @@ async function endCurrentBreak(db, session) {
   const breaks = session.breaks || [];
   for (let i = 0; i < breaks.length; i++) {
     if (breaks[i].break_id === currentBreakId) {
-      const startTime = moment(breaks[i].start_time);
-      const duration = moment(now).diff(startTime, 'minutes');
+      // Use timezone-aware parsing to ensure correct duration calculation
+      const startTime = moment.tz(breaks[i].start_time, IST);
+      const nowMoment = moment.tz(now, IST);
+      const duration = Math.max(0, nowMoment.diff(startTime, 'minutes'));
       breaks[i].end_time = now;
       breaks[i].duration_minutes = duration;
       break;
     }
   }
 
+  // Calculate total break minutes
+  const totalBreakMinutes = breaks.reduce((sum, b) => sum + (b.duration_minutes || 0), 0);
+
   await db.collection('time_sessions').updateOne(
     { _id: session._id },
     {
       $set: {
         breaks,
+        total_break_minutes: totalBreakMinutes,
         status: SessionStatus.ACTIVE,
         current_break_id: null,
         updated_at: now
@@ -1873,6 +1882,32 @@ app.get('/attendance/current', authenticate, async (req, res) => {
       return res.json(null);
     }
 
+    // Calculate real-time work hours for active sessions
+    let totalWorkHours = session.total_work_hours || 0;
+    let totalBreakMinutes = session.total_break_minutes || 0;
+    let overtimeHours = session.overtime_hours || 0;
+
+    if (session.status === SessionStatus.ACTIVE || session.status === SessionStatus.ON_BREAK) {
+      const now = getNow();
+      // Calculate current break minutes including ongoing break
+      const breaks = session.breaks || [];
+      totalBreakMinutes = breaks.reduce((sum, b) => {
+        if (b.duration_minutes) {
+          return sum + b.duration_minutes;
+        } else if (b.start_time && !b.end_time) {
+          // Ongoing break - calculate duration so far
+          const startTime = moment.tz(b.start_time, IST);
+          const nowMoment = moment.tz(now, IST);
+          return sum + Math.max(0, nowMoment.diff(startTime, 'minutes'));
+        }
+        return sum;
+      }, 0);
+
+      const { workHours, overtimeHours: ot } = calculateWorkHours(session.login_time, now, totalBreakMinutes);
+      totalWorkHours = workHours;
+      overtimeHours = ot;
+    }
+
     res.json({
       id: session._id.toString(),
       employee_id: session.employee_id,
@@ -1881,9 +1916,9 @@ app.get('/attendance/current', authenticate, async (req, res) => {
       login_time: session.login_time,
       logout_time: session.logout_time,
       breaks: session.breaks || [],
-      total_work_hours: session.total_work_hours || 0,
-      total_break_minutes: session.total_break_minutes || 0,
-      overtime_hours: session.overtime_hours || 0,
+      total_work_hours: totalWorkHours,
+      total_break_minutes: totalBreakMinutes,
+      overtime_hours: overtimeHours,
       status: session.status,
       worksheet_submitted: session.worksheet_submitted || false,
       current_break_id: session.current_break_id,
@@ -1927,23 +1962,50 @@ app.get('/attendance/today-all', authenticate, requireRoles([UserRole.ADMIN, Use
       }
     }
 
-    res.json(sessions.map(s => ({
-      id: s._id.toString(),
-      employee_id: s.employee_id,
-      employee_name: employeeCache[s.employee_id] || null,
-      date: s.date,
-      login_time: s.login_time,
-      logout_time: s.logout_time,
-      breaks: s.breaks || [],
-      total_work_hours: s.total_work_hours || 0,
-      total_break_minutes: s.total_break_minutes || 0,
-      overtime_hours: s.overtime_hours || 0,
-      status: s.status,
-      worksheet_submitted: s.worksheet_submitted || false,
-      current_break_id: s.current_break_id,
-      created_at: s.created_at,
-      updated_at: s.updated_at
-    })));
+    // Calculate real-time stats for active sessions
+    const now = getNow();
+    res.json(sessions.map(s => {
+      let totalWorkHours = s.total_work_hours || 0;
+      let totalBreakMinutes = s.total_break_minutes || 0;
+      let overtimeHours = s.overtime_hours || 0;
+
+      // Calculate real-time stats for active/on_break sessions
+      if (s.status === SessionStatus.ACTIVE || s.status === SessionStatus.ON_BREAK) {
+        const breaks = s.breaks || [];
+        totalBreakMinutes = breaks.reduce((sum, b) => {
+          if (b.duration_minutes) {
+            return sum + b.duration_minutes;
+          } else if (b.start_time && !b.end_time) {
+            const startTime = moment.tz(b.start_time, IST);
+            const nowMoment = moment.tz(now, IST);
+            return sum + Math.max(0, nowMoment.diff(startTime, 'minutes'));
+          }
+          return sum;
+        }, 0);
+
+        const calcResult = calculateWorkHours(s.login_time, now, totalBreakMinutes);
+        totalWorkHours = calcResult.workHours;
+        overtimeHours = calcResult.overtimeHours;
+      }
+
+      return {
+        id: s._id.toString(),
+        employee_id: s.employee_id,
+        employee_name: employeeCache[s.employee_id] || null,
+        date: s.date,
+        login_time: s.login_time,
+        logout_time: s.logout_time,
+        breaks: s.breaks || [],
+        total_work_hours: totalWorkHours,
+        total_break_minutes: totalBreakMinutes,
+        overtime_hours: overtimeHours,
+        status: s.status,
+        worksheet_submitted: s.worksheet_submitted || false,
+        current_break_id: s.current_break_id,
+        created_at: s.created_at,
+        updated_at: s.updated_at
+      };
+    }));
   } catch (error) {
     console.error('Get today all attendance error:', error);
     res.status(500).json({ detail: error.message });
@@ -1981,23 +2043,49 @@ app.get('/attendance/today', authenticate, requireRoles([UserRole.ADMIN, UserRol
       }
     }
 
-    res.json(sessions.map(s => ({
-      id: s._id.toString(),
-      employee_id: s.employee_id,
-      employee_name: employeeCache[s.employee_id] || null,
-      date: s.date,
-      login_time: s.login_time,
-      logout_time: s.logout_time,
-      breaks: s.breaks || [],
-      total_work_hours: s.total_work_hours || 0,
-      total_break_minutes: s.total_break_minutes || 0,
-      overtime_hours: s.overtime_hours || 0,
-      status: s.status,
-      worksheet_submitted: s.worksheet_submitted || false,
-      current_break_id: s.current_break_id,
-      created_at: s.created_at,
-      updated_at: s.updated_at
-    })));
+    // Calculate real-time stats for active sessions
+    const now = getNow();
+    res.json(sessions.map(s => {
+      let totalWorkHours = s.total_work_hours || 0;
+      let totalBreakMinutes = s.total_break_minutes || 0;
+      let overtimeHours = s.overtime_hours || 0;
+
+      if (s.status === SessionStatus.ACTIVE || s.status === SessionStatus.ON_BREAK) {
+        const breaks = s.breaks || [];
+        totalBreakMinutes = breaks.reduce((sum, b) => {
+          if (b.duration_minutes) {
+            return sum + b.duration_minutes;
+          } else if (b.start_time && !b.end_time) {
+            const startTime = moment.tz(b.start_time, IST);
+            const nowMoment = moment.tz(now, IST);
+            return sum + Math.max(0, nowMoment.diff(startTime, 'minutes'));
+          }
+          return sum;
+        }, 0);
+
+        const calcResult = calculateWorkHours(s.login_time, now, totalBreakMinutes);
+        totalWorkHours = calcResult.workHours;
+        overtimeHours = calcResult.overtimeHours;
+      }
+
+      return {
+        id: s._id.toString(),
+        employee_id: s.employee_id,
+        employee_name: employeeCache[s.employee_id] || null,
+        date: s.date,
+        login_time: s.login_time,
+        logout_time: s.logout_time,
+        breaks: s.breaks || [],
+        total_work_hours: totalWorkHours,
+        total_break_minutes: totalBreakMinutes,
+        overtime_hours: overtimeHours,
+        status: s.status,
+        worksheet_submitted: s.worksheet_submitted || false,
+        current_break_id: s.current_break_id,
+        created_at: s.created_at,
+        updated_at: s.updated_at
+      };
+    }));
   } catch (error) {
     console.error('Get today attendance error:', error);
     res.status(500).json({ detail: error.message });
@@ -2071,23 +2159,51 @@ app.get('/attendance/history', authenticate, async (req, res) => {
       }
     }
 
-    res.json(sessions.map(s => ({
-      id: s._id.toString(),
-      employee_id: s.employee_id,
-      employee_name: employeeCache[s.employee_id] || null,
-      date: s.date,
-      login_time: s.login_time,
-      logout_time: s.logout_time,
-      breaks: s.breaks || [],
-      total_work_hours: s.total_work_hours || 0,
-      total_break_minutes: s.total_break_minutes || 0,
-      overtime_hours: s.overtime_hours || 0,
-      status: s.status,
-      worksheet_submitted: s.worksheet_submitted || false,
-      current_break_id: s.current_break_id,
-      created_at: s.created_at,
-      updated_at: s.updated_at
-    })));
+    // Calculate real-time stats for active sessions
+    const now = getNow();
+    res.json(sessions.map(s => {
+      let totalWorkHours = s.total_work_hours || 0;
+      let totalBreakMinutes = s.total_break_minutes || 0;
+      let overtimeHours = s.overtime_hours || 0;
+
+      // Calculate real-time stats for active/on_break sessions
+      if (s.status === SessionStatus.ACTIVE || s.status === SessionStatus.ON_BREAK) {
+        const breaks = s.breaks || [];
+        totalBreakMinutes = breaks.reduce((sum, b) => {
+          if (b.duration_minutes) {
+            return sum + b.duration_minutes;
+          } else if (b.start_time && !b.end_time) {
+            // Ongoing break - calculate duration so far
+            const startTime = moment.tz(b.start_time, IST);
+            const nowMoment = moment.tz(now, IST);
+            return sum + Math.max(0, nowMoment.diff(startTime, 'minutes'));
+          }
+          return sum;
+        }, 0);
+
+        const calcResult = calculateWorkHours(s.login_time, now, totalBreakMinutes);
+        totalWorkHours = calcResult.workHours;
+        overtimeHours = calcResult.overtimeHours;
+      }
+
+      return {
+        id: s._id.toString(),
+        employee_id: s.employee_id,
+        employee_name: employeeCache[s.employee_id] || null,
+        date: s.date,
+        login_time: s.login_time,
+        logout_time: s.logout_time,
+        breaks: s.breaks || [],
+        total_work_hours: totalWorkHours,
+        total_break_minutes: totalBreakMinutes,
+        overtime_hours: overtimeHours,
+        status: s.status,
+        worksheet_submitted: s.worksheet_submitted || false,
+        current_break_id: s.current_break_id,
+        created_at: s.created_at,
+        updated_at: s.updated_at
+      };
+    }));
   } catch (error) {
     console.error('Get attendance history error:', error);
     res.status(500).json({ detail: error.message });

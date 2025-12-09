@@ -161,15 +161,26 @@ const Attendance = () => {
         if (!breaks || breaks.length === 0) return '-';
         return (
           <div>
-            {breaks.map((breakItem, idx) => (
-              <div key={idx} style={{ fontSize: '11px', marginBottom: '2px' }}>
-                <Tag color="cyan" style={{ fontSize: '10px' }}>
-                  {breakItem.break_type?.replace('_', ' ').toUpperCase()}
-                </Tag>
-                {dayjs.tz(breakItem.start_time, 'Asia/Kolkata').format('hh:mm A')} - {breakItem.end_time ? dayjs.tz(breakItem.end_time, 'Asia/Kolkata').format('hh:mm A') : 'ongoing'}
-                {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> ({breakItem.comment})</Text>}
-              </div>
-            ))}
+            {breaks.map((breakItem, idx) => {
+              // Format start time
+              const startTimeFormatted = breakItem.start_time
+                ? dayjs.tz(breakItem.start_time, 'Asia/Kolkata').format('hh:mm A')
+                : '-';
+              // Format end time or show 'ongoing'
+              const endTimeFormatted = breakItem.end_time
+                ? dayjs.tz(breakItem.end_time, 'Asia/Kolkata').format('hh:mm A')
+                : 'ongoing';
+
+              return (
+                <div key={idx} style={{ fontSize: '11px', marginBottom: '2px' }}>
+                  <Tag color="cyan" style={{ fontSize: '10px' }}>
+                    {breakItem.break_type?.replace('_', ' ').toUpperCase()}
+                  </Tag>
+                  {startTimeFormatted} - {endTimeFormatted}
+                  {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> ({breakItem.comment})</Text>}
+                </div>
+              );
+            })}
           </div>
         );
       },
