@@ -60,7 +60,8 @@ const Forms = () => {
       const response = await teamService.getTeams({});
       setTeams(response.data);
     } catch (error) {
-      console.error('Failed to fetch teams');
+      console.error('Failed to fetch teams:', error);
+      message.error('Failed to load teams');
     }
   };
 
