@@ -132,13 +132,13 @@ const Attendance = () => {
       title: 'Login Time',
       dataIndex: 'login_time',
       key: 'login_time',
-      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm A') : '-',
+      render: (time) => time ? dayjs.utc(time).tz('Asia/Kolkata').format('hh:mm A') : '-',
     },
     {
       title: 'Logout Time',
       dataIndex: 'logout_time',
       key: 'logout_time',
-      render: (time) => time ? dayjs.tz(time, 'Asia/Kolkata').format('hh:mm A') : '-',
+      render: (time) => time ? dayjs.utc(time).tz('Asia/Kolkata').format('hh:mm A') : '-',
     },
     {
       title: 'Work Hours',
@@ -166,7 +166,7 @@ const Attendance = () => {
                 <Tag color="cyan" style={{ fontSize: '10px' }}>
                   {breakItem.break_type?.replace('_', ' ').toUpperCase()}
                 </Tag>
-                {dayjs.tz(breakItem.start_time, 'Asia/Kolkata').format('hh:mm A')} - {breakItem.end_time ? dayjs.tz(breakItem.end_time, 'Asia/Kolkata').format('hh:mm A') : 'ongoing'}
+                {dayjs.utc(breakItem.start_time).tz('Asia/Kolkata').format('hh:mm A')} - {breakItem.end_time ? dayjs.utc(breakItem.end_time).tz('Asia/Kolkata').format('hh:mm A') : 'ongoing'}
                 {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> ({breakItem.comment})</Text>}
               </div>
             ))}

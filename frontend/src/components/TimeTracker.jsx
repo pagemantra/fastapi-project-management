@@ -33,7 +33,7 @@ const TimeTracker = () => {
     let interval;
     if (session && (session.status === 'active' || session.status === 'on_break')) {
       interval = setInterval(() => {
-        const loginTime = dayjs.tz(session.login_time, 'Asia/Kolkata');
+        const loginTime = dayjs.utc(session.login_time).tz('Asia/Kolkata');
         const now = dayjs.tz(new Date(), 'Asia/Kolkata');
         const totalSeconds = now.diff(loginTime, 'second');
         const breakSeconds = session.total_break_minutes * 60;
@@ -265,7 +265,7 @@ const TimeTracker = () => {
         {session && (
           <>
             <Text type="secondary" style={{ marginLeft: 16 }}>
-              | Logged in at: {dayjs.tz(session.login_time, 'Asia/Kolkata').format('hh:mm A')}
+              | Logged in at: {dayjs.utc(session.login_time).tz('Asia/Kolkata').format('hh:mm A')}
             </Text>
             {session.worksheet_submitted && (
               <Tag color="green" style={{ marginLeft: 8 }}>Worksheet Submitted</Tag>

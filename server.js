@@ -200,6 +200,37 @@ function formatUserResponse(user) {
   };
 }
 
+function formatSessionWithCalculatedHours(session) {
+  let workHours = session.total_work_hours || 0;
+  let overtimeHours = session.overtime_hours || 0;
+
+  // For active or on_break sessions, calculate work hours in real-time
+  if (session.status === SessionStatus.ACTIVE || session.status === SessionStatus.ON_BREAK) {
+    const now = getNow();
+    const calculated = calculateWorkHours(session.login_time, now, session.total_break_minutes || 0);
+    workHours = calculated.workHours;
+    overtimeHours = calculated.overtimeHours;
+  }
+
+  return {
+    id: session._id.toString(),
+    employee_id: session.employee_id,
+    employee_name: session.employee_name || null,
+    date: session.date,
+    login_time: session.login_time,
+    logout_time: session.logout_time,
+    breaks: session.breaks || [],
+    total_work_hours: workHours,
+    total_break_minutes: session.total_break_minutes || 0,
+    overtime_hours: overtimeHours,
+    status: session.status,
+    worksheet_submitted: session.worksheet_submitted || false,
+    current_break_id: session.current_break_id,
+    created_at: session.created_at,
+    updated_at: session.updated_at
+  };
+}
+
 async function createNotification(recipient_id, type, title, message, related_id = null) {
   const db = getDatabase();
   await db.collection('notifications').insertOne({
@@ -1691,23 +1722,10 @@ app.post('/attendance/clock-out', authenticate, async (req, res) => {
     }
 
     const updatedSession = await db.collection('time_sessions').findOne({ _id: session._id });
-    res.json({
-      id: updatedSession._id.toString(),
-      employee_id: updatedSession.employee_id,
-      employee_name: null,
-      date: updatedSession.date,
-      login_time: updatedSession.login_time,
-      logout_time: updatedSession.logout_time,
-      breaks: updatedSession.breaks,
-      total_work_hours: updatedSession.total_work_hours,
-      total_break_minutes: updatedSession.total_break_minutes,
-      overtime_hours: updatedSession.overtime_hours,
-      status: updatedSession.status,
-      worksheet_submitted: updatedSession.worksheet_submitted,
-      current_break_id: updatedSession.current_break_id,
-      created_at: updatedSession.created_at,
-      updated_at: updatedSession.updated_at
-    });
+    res.json(formatSessionWithCalculatedHours({
+      ...updatedSession,
+      employee_name: null
+    }));
   } catch (error) {
     console.error('Clock out error:', error);
     res.status(500).json({ detail: error.message });
@@ -1786,23 +1804,10 @@ app.post('/attendance/break/start', authenticate, async (req, res) => {
     );
 
     const updatedSession = await db.collection('time_sessions').findOne({ _id: session._id });
-    res.json({
-      id: updatedSession._id.toString(),
-      employee_id: updatedSession.employee_id,
-      employee_name: null,
-      date: updatedSession.date,
-      login_time: updatedSession.login_time,
-      logout_time: updatedSession.logout_time,
-      breaks: updatedSession.breaks,
-      total_work_hours: updatedSession.total_work_hours,
-      total_break_minutes: updatedSession.total_break_minutes,
-      overtime_hours: updatedSession.overtime_hours,
-      status: updatedSession.status,
-      worksheet_submitted: updatedSession.worksheet_submitted,
-      current_break_id: updatedSession.current_break_id,
-      created_at: updatedSession.created_at,
-      updated_at: updatedSession.updated_at
-    });
+    res.json(formatSessionWithCalculatedHours({
+      ...updatedSession,
+      employee_name: null
+    }));
   } catch (error) {
     console.error('Start break error:', error);
     res.status(500).json({ detail: error.message });
@@ -1829,23 +1834,10 @@ app.post('/attendance/break/end', authenticate, async (req, res) => {
     await endCurrentBreak(db, session);
 
     const updatedSession = await db.collection('time_sessions').findOne({ _id: session._id });
-    res.json({
-      id: updatedSession._id.toString(),
-      employee_id: updatedSession.employee_id,
-      employee_name: null,
-      date: updatedSession.date,
-      login_time: updatedSession.login_time,
-      logout_time: updatedSession.logout_time,
-      breaks: updatedSession.breaks,
-      total_work_hours: updatedSession.total_work_hours,
-      total_break_minutes: updatedSession.total_break_minutes,
-      overtime_hours: updatedSession.overtime_hours,
-      status: updatedSession.status,
-      worksheet_submitted: updatedSession.worksheet_submitted,
-      current_break_id: updatedSession.current_break_id,
-      created_at: updatedSession.created_at,
-      updated_at: updatedSession.updated_at
-    });
+    res.json(formatSessionWithCalculatedHours({
+      ...updatedSession,
+      employee_name: null
+    }));
   } catch (error) {
     console.error('End break error:', error);
     res.status(500).json({ detail: error.message });
@@ -1869,23 +1861,10 @@ app.get('/attendance/current', authenticate, async (req, res) => {
       return res.json(null);
     }
 
-    res.json({
-      id: session._id.toString(),
-      employee_id: session.employee_id,
-      employee_name: null,
-      date: session.date,
-      login_time: session.login_time,
-      logout_time: session.logout_time,
-      breaks: session.breaks || [],
-      total_work_hours: session.total_work_hours || 0,
-      total_break_minutes: session.total_break_minutes || 0,
-      overtime_hours: session.overtime_hours || 0,
-      status: session.status,
-      worksheet_submitted: session.worksheet_submitted || false,
-      current_break_id: session.current_break_id,
-      created_at: session.created_at,
-      updated_at: session.updated_at
-    });
+    res.json(formatSessionWithCalculatedHours({
+      ...session,
+      employee_name: null
+    }));
   } catch (error) {
     console.error('Get current session error:', error);
     res.status(500).json({ detail: error.message });
@@ -1923,22 +1902,9 @@ app.get('/attendance/today-all', authenticate, requireRoles([UserRole.ADMIN, Use
       }
     }
 
-    res.json(sessions.map(s => ({
-      id: s._id.toString(),
-      employee_id: s.employee_id,
-      employee_name: employeeCache[s.employee_id] || null,
-      date: s.date,
-      login_time: s.login_time,
-      logout_time: s.logout_time,
-      breaks: s.breaks || [],
-      total_work_hours: s.total_work_hours || 0,
-      total_break_minutes: s.total_break_minutes || 0,
-      overtime_hours: s.overtime_hours || 0,
-      status: s.status,
-      worksheet_submitted: s.worksheet_submitted || false,
-      current_break_id: s.current_break_id,
-      created_at: s.created_at,
-      updated_at: s.updated_at
+    res.json(sessions.map(s => formatSessionWithCalculatedHours({
+      ...s,
+      employee_name: employeeCache[s.employee_id] || null
     })));
   } catch (error) {
     console.error('Get today all attendance error:', error);
@@ -1977,22 +1943,9 @@ app.get('/attendance/today', authenticate, requireRoles([UserRole.ADMIN, UserRol
       }
     }
 
-    res.json(sessions.map(s => ({
-      id: s._id.toString(),
-      employee_id: s.employee_id,
-      employee_name: employeeCache[s.employee_id] || null,
-      date: s.date,
-      login_time: s.login_time,
-      logout_time: s.logout_time,
-      breaks: s.breaks || [],
-      total_work_hours: s.total_work_hours || 0,
-      total_break_minutes: s.total_break_minutes || 0,
-      overtime_hours: s.overtime_hours || 0,
-      status: s.status,
-      worksheet_submitted: s.worksheet_submitted || false,
-      current_break_id: s.current_break_id,
-      created_at: s.created_at,
-      updated_at: s.updated_at
+    res.json(sessions.map(s => formatSessionWithCalculatedHours({
+      ...s,
+      employee_name: employeeCache[s.employee_id] || null
     })));
   } catch (error) {
     console.error('Get today attendance error:', error);
@@ -2067,22 +2020,9 @@ app.get('/attendance/history', authenticate, async (req, res) => {
       }
     }
 
-    res.json(sessions.map(s => ({
-      id: s._id.toString(),
-      employee_id: s.employee_id,
-      employee_name: employeeCache[s.employee_id] || null,
-      date: s.date,
-      login_time: s.login_time,
-      logout_time: s.logout_time,
-      breaks: s.breaks || [],
-      total_work_hours: s.total_work_hours || 0,
-      total_break_minutes: s.total_break_minutes || 0,
-      overtime_hours: s.overtime_hours || 0,
-      status: s.status,
-      worksheet_submitted: s.worksheet_submitted || false,
-      current_break_id: s.current_break_id,
-      created_at: s.created_at,
-      updated_at: s.updated_at
+    res.json(sessions.map(s => formatSessionWithCalculatedHours({
+      ...s,
+      employee_name: employeeCache[s.employee_id] || null
     })));
   } catch (error) {
     console.error('Get attendance history error:', error);
@@ -2617,14 +2557,62 @@ app.post('/worksheets', authenticate, async (req, res) => {
     const db = getDatabase();
     const userId = req.user._id.toString();
 
-    // Check if worksheet exists
+    // Check if worksheet exists - if it does, update it instead of creating new one
     const existing = await db.collection('worksheets').findOne({
       employee_id: userId,
       date
     });
 
     if (existing) {
-      return res.status(400).json({ detail: 'Worksheet already exists for this date. Use PUT to update.' });
+      // Update existing worksheet instead of returning error
+      const now = getNow();
+      const updateData = {
+        form_id: form_id || existing.form_id,
+        form_responses: form_responses || existing.form_responses,
+        tasks_completed: tasks_completed || existing.tasks_completed,
+        notes: notes || existing.notes,
+        updated_at: now
+      };
+
+      // Get total_hours from time_session if not provided
+      if (total_hours) {
+        updateData.total_hours = total_hours;
+      } else if (!existing.total_hours) {
+        const timeSession = await db.collection('time_sessions').findOne({
+          employee_id: userId,
+          date
+        });
+        updateData.total_hours = timeSession?.total_work_hours || 0;
+      }
+
+      await db.collection('worksheets').updateOne(
+        { _id: existing._id },
+        { $set: updateData }
+      );
+
+      const updated = await db.collection('worksheets').findOne({ _id: existing._id });
+
+      return res.json({
+        id: updated._id.toString(),
+        employee_id: updated.employee_id,
+        date: updated.date,
+        form_id: updated.form_id,
+        form_responses: updated.form_responses,
+        tasks_completed: updated.tasks_completed,
+        total_hours: updated.total_hours,
+        notes: updated.notes,
+        status: updated.status,
+        submitted_at: updated.submitted_at,
+        tl_verified_by: updated.tl_verified_by,
+        tl_verified_at: updated.tl_verified_at,
+        manager_approved_by: updated.manager_approved_by,
+        manager_approved_at: updated.manager_approved_at,
+        rejection_reason: updated.rejection_reason,
+        rejected_by: updated.rejected_by,
+        rejected_at: updated.rejected_at,
+        created_at: updated.created_at,
+        updated_at: updated.updated_at
+      });
     }
 
     // Verify form exists
@@ -3274,6 +3262,41 @@ app.get('/worksheets', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
+    // Fetch employee names
+    const employeeIds = [...new Set(worksheets.map(w => w.employee_id))];
+    const employees = await db.collection('users').find({
+      _id: { $in: employeeIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const employeeMap = {};
+    employees.forEach(e => {
+      employeeMap[e._id.toString()] = e.full_name;
+    });
+
+    // Fetch form names
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    const forms = await db.collection('forms').find({
+      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const formMap = {};
+    forms.forEach(f => {
+      formMap[f._id.toString()] = f.name;
+    });
+
+    // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
+    const verifierIds = [
+      ...worksheets.map(w => w.tl_verified_by),
+      ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.rejected_by)
+    ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+
+    const verifiers = await db.collection('users').find({
+      _id: { $in: verifierIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const verifierMap = {};
+    verifiers.forEach(v => {
+      verifierMap[v._id.toString()] = v.full_name;
+    });
+
     res.json(worksheets.map(w => ({
       id: w._id.toString(),
       employee_id: w.employee_id,
@@ -3285,17 +3308,17 @@ app.get('/worksheets', authenticate, async (req, res) => {
       notes: w.notes,
       status: w.status,
       submitted_at: w.submitted_at,
-      tl_verified_by: w.tl_verified_by,
+      tl_verified_by: verifierMap[w.tl_verified_by] || w.tl_verified_by || null,
       tl_verified_at: w.tl_verified_at,
-      manager_approved_by: w.manager_approved_by,
+      manager_approved_by: verifierMap[w.manager_approved_by] || w.manager_approved_by || null,
       manager_approved_at: w.manager_approved_at,
       rejection_reason: w.rejection_reason,
-      rejected_by: w.rejected_by,
+      rejected_by: verifierMap[w.rejected_by] || w.rejected_by || null,
       rejected_at: w.rejected_at,
       created_at: w.created_at,
       updated_at: w.updated_at,
-      employee_name: null,
-      form_name: null
+      employee_name: employeeMap[w.employee_id] || null,
+      form_name: formMap[w.form_id] || null
     })));
   } catch (error) {
     console.error('Get worksheets error:', error);
@@ -3387,6 +3410,41 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       .limit(100)
       .toArray();
 
+    // Fetch employee names
+    const employeeIds = [...new Set(worksheets.map(w => w.employee_id))];
+    const employees = await db.collection('users').find({
+      _id: { $in: employeeIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const employeeMap = {};
+    employees.forEach(e => {
+      employeeMap[e._id.toString()] = e.full_name;
+    });
+
+    // Fetch form names
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    const forms = await db.collection('forms').find({
+      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const formMap = {};
+    forms.forEach(f => {
+      formMap[f._id.toString()] = f.name;
+    });
+
+    // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
+    const verifierIds = [
+      ...worksheets.map(w => w.tl_verified_by),
+      ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.rejected_by)
+    ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+
+    const verifiers = await db.collection('users').find({
+      _id: { $in: verifierIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const verifierMap = {};
+    verifiers.forEach(v => {
+      verifierMap[v._id.toString()] = v.full_name;
+    });
+
     res.json(worksheets.map(w => ({
       id: w._id.toString(),
       employee_id: w.employee_id,
@@ -3398,17 +3456,17 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       notes: w.notes,
       status: w.status,
       submitted_at: w.submitted_at,
-      tl_verified_by: w.tl_verified_by,
+      tl_verified_by: verifierMap[w.tl_verified_by] || w.tl_verified_by || null,
       tl_verified_at: w.tl_verified_at,
-      manager_approved_by: w.manager_approved_by,
+      manager_approved_by: verifierMap[w.manager_approved_by] || w.manager_approved_by || null,
       manager_approved_at: w.manager_approved_at,
       rejection_reason: w.rejection_reason,
-      rejected_by: w.rejected_by,
+      rejected_by: verifierMap[w.rejected_by] || w.rejected_by || null,
       rejected_at: w.rejected_at,
       created_at: w.created_at,
       updated_at: w.updated_at,
-      employee_name: null,
-      form_name: null
+      employee_name: employeeMap[w.employee_id] || null,
+      form_name: formMap[w.form_id] || null
     })));
   } catch (error) {
     console.error('Get pending verification error:', error);
@@ -3439,6 +3497,41 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       .limit(100)
       .toArray();
 
+    // Fetch employee names
+    const employeeIds = [...new Set(worksheets.map(w => w.employee_id))];
+    const employees = await db.collection('users').find({
+      _id: { $in: employeeIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const employeeMap = {};
+    employees.forEach(e => {
+      employeeMap[e._id.toString()] = e.full_name;
+    });
+
+    // Fetch form names
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    const forms = await db.collection('forms').find({
+      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const formMap = {};
+    forms.forEach(f => {
+      formMap[f._id.toString()] = f.name;
+    });
+
+    // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
+    const verifierIds = [
+      ...worksheets.map(w => w.tl_verified_by),
+      ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.rejected_by)
+    ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+
+    const verifiers = await db.collection('users').find({
+      _id: { $in: verifierIds.map(id => new ObjectId(id)) }
+    }).toArray();
+    const verifierMap = {};
+    verifiers.forEach(v => {
+      verifierMap[v._id.toString()] = v.full_name;
+    });
+
     res.json(worksheets.map(w => ({
       id: w._id.toString(),
       employee_id: w.employee_id,
@@ -3450,17 +3543,17 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       notes: w.notes,
       status: w.status,
       submitted_at: w.submitted_at,
-      tl_verified_by: w.tl_verified_by,
+      tl_verified_by: verifierMap[w.tl_verified_by] || w.tl_verified_by || null,
       tl_verified_at: w.tl_verified_at,
-      manager_approved_by: w.manager_approved_by,
+      manager_approved_by: verifierMap[w.manager_approved_by] || w.manager_approved_by || null,
       manager_approved_at: w.manager_approved_at,
       rejection_reason: w.rejection_reason,
-      rejected_by: w.rejected_by,
+      rejected_by: verifierMap[w.rejected_by] || w.rejected_by || null,
       rejected_at: w.rejected_at,
       created_at: w.created_at,
       updated_at: w.updated_at,
-      employee_name: null,
-      form_name: null
+      employee_name: employeeMap[w.employee_id] || null,
+      form_name: formMap[w.form_id] || null
     })));
   } catch (error) {
     console.error('Get pending approval error:', error);
@@ -4044,6 +4137,408 @@ app.get('/reports/attendance', authenticate, requireRoles([UserRole.ADMIN, UserR
     });
   } catch (error) {
     console.error('Get attendance report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/overtime - Get overtime report
+app.get('/reports/overtime', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    const { start_date, end_date, employee_id } = req.query;
+    const db = getDatabase();
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+
+    // Build employee filter
+    const employeeQuery = {};
+    if (userRole === UserRole.TEAM_LEAD) {
+      employeeQuery.team_lead_id = userId;
+    } else if (userRole === UserRole.MANAGER) {
+      employeeQuery.manager_id = userId;
+    }
+
+    if (employee_id && ObjectId.isValid(employee_id)) {
+      employeeQuery._id = new ObjectId(employee_id);
+    }
+
+    const employees = await db.collection('users').find({
+      ...employeeQuery,
+      role: UserRole.ASSOCIATE
+    }).toArray();
+
+    const startDate = start_date ? new Date(start_date) : moment.tz(IST).subtract(30, 'days').toDate();
+    const endDate = end_date ? new Date(end_date) : moment.tz(IST).toDate();
+
+    const reportData = [];
+
+    for (const emp of employees) {
+      const empId = emp._id.toString();
+
+      // Get time sessions with overtime
+      const sessions = await db.collection('time_sessions').find({
+        employee_id: empId,
+        date: {
+          $gte: moment(startDate).format('YYYY-MM-DD'),
+          $lte: moment(endDate).format('YYYY-MM-DD')
+        },
+        overtime_hours: { $gt: 0 }
+      }).sort({ date: -1 }).toArray();
+
+      const totalOvertimeHours = sessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
+      const daysWithOvertime = sessions.length;
+
+      reportData.push({
+        employee_id: empId,
+        employee_name: emp.full_name,
+        employee_email: emp.email || '',
+        department: emp.department || '',
+        total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+        days_with_overtime: daysWithOvertime,
+        average_overtime_per_day: daysWithOvertime > 0 ? Math.round((totalOvertimeHours / daysWithOvertime) * 100) / 100 : 0,
+        sessions: sessions.map(s => ({
+          date: s.date,
+          overtime_hours: s.overtime_hours,
+          total_work_hours: s.total_work_hours
+        }))
+      });
+    }
+
+    const overview = {
+      total_employees: reportData.length,
+      total_overtime_hours: Math.round(reportData.reduce((sum, emp) => sum + emp.total_overtime_hours, 0) * 100) / 100,
+      average_overtime_per_employee: reportData.length > 0
+        ? Math.round((reportData.reduce((sum, emp) => sum + emp.total_overtime_hours, 0) / reportData.length) * 100) / 100
+        : 0
+    };
+
+    res.json({
+      report_type: 'overtime',
+      date_range: {
+        start: moment(startDate).format('YYYY-MM-DD'),
+        end: moment(endDate).format('YYYY-MM-DD')
+      },
+      generated_at: moment.tz(IST).format(),
+      overview,
+      data: reportData
+    });
+  } catch (error) {
+    console.error('Get overtime report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/team-performance - Get team performance report
+app.get('/reports/team-performance', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    const { start_date, end_date, team_id } = req.query;
+    const db = getDatabase();
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+
+    const startDate = start_date ? new Date(start_date) : moment.tz(IST).subtract(30, 'days').toDate();
+    const endDate = end_date ? new Date(end_date) : moment.tz(IST).toDate();
+
+    // Build team filter
+    const teamQuery = {};
+    if (userRole === UserRole.TEAM_LEAD) {
+      teamQuery.team_lead_id = userId;
+    } else if (userRole === UserRole.MANAGER) {
+      teamQuery.manager_id = userId;
+    }
+
+    if (team_id && ObjectId.isValid(team_id)) {
+      teamQuery._id = new ObjectId(team_id);
+    }
+
+    const teams = await db.collection('teams').find(teamQuery).toArray();
+    const reportData = [];
+
+    for (const team of teams) {
+      const teamId = team._id.toString();
+
+      // Get team members
+      const members = await db.collection('team_members').find({ team_id: teamId }).toArray();
+      const memberIds = members.map(m => m.employee_id);
+
+      // Get tasks assigned to team
+      const tasks = await db.collection('tasks').find({
+        assigned_to: { $in: memberIds },
+        created_at: {
+          $gte: startDate,
+          $lte: endDate
+        }
+      }).toArray();
+
+      const completedTasks = tasks.filter(t => t.status === TaskStatus.COMPLETED).length;
+      const inProgressTasks = tasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length;
+      const todoTasks = tasks.filter(t => t.status === TaskStatus.TODO).length;
+
+      // Get worksheets
+      const worksheets = await db.collection('worksheets').find({
+        employee_id: { $in: memberIds },
+        date: {
+          $gte: moment(startDate).format('YYYY-MM-DD'),
+          $lte: moment(endDate).format('YYYY-MM-DD')
+        }
+      }).toArray();
+
+      const submittedWorksheets = worksheets.filter(w => w.status !== WorksheetStatus.DRAFT).length;
+      const approvedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.APPROVED).length;
+
+      // Get attendance
+      const sessions = await db.collection('time_sessions').find({
+        employee_id: { $in: memberIds },
+        date: {
+          $gte: moment(startDate).format('YYYY-MM-DD'),
+          $lte: moment(endDate).format('YYYY-MM-DD')
+        }
+      }).toArray();
+
+      const totalWorkHours = sessions.reduce((sum, s) => sum + (s.total_work_hours || 0), 0);
+      const totalOvertimeHours = sessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
+
+      reportData.push({
+        team_id: teamId,
+        team_name: team.name,
+        team_description: team.description || '',
+        member_count: memberIds.length,
+        tasks: {
+          total: tasks.length,
+          completed: completedTasks,
+          in_progress: inProgressTasks,
+          todo: todoTasks,
+          completion_rate: tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100 * 100) / 100 : 0
+        },
+        worksheets: {
+          total: worksheets.length,
+          submitted: submittedWorksheets,
+          approved: approvedWorksheets,
+          approval_rate: submittedWorksheets > 0 ? Math.round((approvedWorksheets / submittedWorksheets) * 100 * 100) / 100 : 0
+        },
+        attendance: {
+          total_work_hours: Math.round(totalWorkHours * 100) / 100,
+          total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+          average_hours_per_member: memberIds.length > 0 ? Math.round((totalWorkHours / memberIds.length) * 100) / 100 : 0
+        }
+      });
+    }
+
+    res.json({
+      report_type: 'team_performance',
+      date_range: {
+        start: moment(startDate).format('YYYY-MM-DD'),
+        end: moment(endDate).format('YYYY-MM-DD')
+      },
+      generated_at: moment.tz(IST).format(),
+      data: reportData
+    });
+  } catch (error) {
+    console.error('Get team performance report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/worksheet-analytics - Get worksheet analytics report
+app.get('/reports/worksheet-analytics', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    const { start_date, end_date, employee_id } = req.query;
+    const db = getDatabase();
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+
+    const startDate = start_date ? new Date(start_date) : moment.tz(IST).subtract(30, 'days').toDate();
+    const endDate = end_date ? new Date(end_date) : moment.tz(IST).toDate();
+
+    // Build employee filter
+    const employeeQuery = {};
+    if (userRole === UserRole.TEAM_LEAD) {
+      employeeQuery.team_lead_id = userId;
+    } else if (userRole === UserRole.MANAGER) {
+      employeeQuery.manager_id = userId;
+    }
+
+    if (employee_id && ObjectId.isValid(employee_id)) {
+      employeeQuery._id = new ObjectId(employee_id);
+    }
+
+    const employees = await db.collection('users').find({
+      ...employeeQuery,
+      role: UserRole.ASSOCIATE
+    }).toArray();
+
+    const reportData = [];
+
+    for (const emp of employees) {
+      const empId = emp._id.toString();
+
+      const worksheets = await db.collection('worksheets').find({
+        employee_id: empId,
+        date: {
+          $gte: moment(startDate).format('YYYY-MM-DD'),
+          $lte: moment(endDate).format('YYYY-MM-DD')
+        }
+      }).toArray();
+
+      const totalWorksheets = worksheets.length;
+      const draftWorksheets = worksheets.filter(w => w.status === WorksheetStatus.DRAFT).length;
+      const submittedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.SUBMITTED).length;
+      const verifiedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.VERIFIED).length;
+      const approvedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.APPROVED).length;
+      const rejectedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.REJECTED).length;
+
+      const submissionRate = totalWorksheets > 0 ? Math.round((submittedWorksheets / totalWorksheets) * 100 * 100) / 100 : 0;
+      const approvalRate = submittedWorksheets > 0 ? Math.round((approvedWorksheets / submittedWorksheets) * 100 * 100) / 100 : 0;
+
+      reportData.push({
+        employee_id: empId,
+        employee_name: emp.full_name,
+        employee_email: emp.email || '',
+        department: emp.department || '',
+        total_worksheets: totalWorksheets,
+        draft: draftWorksheets,
+        submitted: submittedWorksheets,
+        verified: verifiedWorksheets,
+        approved: approvedWorksheets,
+        rejected: rejectedWorksheets,
+        submission_rate: submissionRate,
+        approval_rate: approvalRate
+      });
+    }
+
+    const overview = {
+      total_employees: reportData.length,
+      total_worksheets: reportData.reduce((sum, emp) => sum + emp.total_worksheets, 0),
+      total_approved: reportData.reduce((sum, emp) => sum + emp.approved, 0),
+      total_rejected: reportData.reduce((sum, emp) => sum + emp.rejected, 0),
+      average_submission_rate: reportData.length > 0
+        ? Math.round((reportData.reduce((sum, emp) => sum + emp.submission_rate, 0) / reportData.length) * 100) / 100
+        : 0,
+      average_approval_rate: reportData.length > 0
+        ? Math.round((reportData.reduce((sum, emp) => sum + emp.approval_rate, 0) / reportData.length) * 100) / 100
+        : 0
+    };
+
+    res.json({
+      report_type: 'worksheet_analytics',
+      date_range: {
+        start: moment(startDate).format('YYYY-MM-DD'),
+        end: moment(endDate).format('YYYY-MM-DD')
+      },
+      generated_at: moment.tz(IST).format(),
+      overview,
+      data: reportData
+    });
+  } catch (error) {
+    console.error('Get worksheet analytics error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/export/productivity - Export productivity report as CSV
+app.get('/reports/export/productivity', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    // Get the report data
+    const reportResponse = await fetch(`http://localhost:${config.PORT}/reports/productivity?${new URLSearchParams(req.query)}`);
+    const reportData = await reportResponse.json();
+
+    // Convert to CSV
+    const csvRows = [];
+    csvRows.push('Employee Name,Email,Department,Tasks Completed,Tasks In Progress,Total Tasks,Completion Rate,Total Work Hours,Avg Hours/Day');
+
+    for (const emp of reportData.data) {
+      csvRows.push([
+        emp.employee_name,
+        emp.employee_email,
+        emp.department,
+        emp.tasks_completed,
+        emp.tasks_in_progress,
+        emp.total_tasks,
+        emp.completion_rate,
+        emp.total_work_hours,
+        emp.average_hours_per_day
+      ].join(','));
+    }
+
+    const csv = csvRows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=productivity_report_${moment().format('YYYYMMDD')}.csv`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Export productivity report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/export/attendance - Export attendance report as CSV
+app.get('/reports/export/attendance', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    // Get the report data
+    const reportResponse = await fetch(`http://localhost:${config.PORT}/reports/attendance?${new URLSearchParams(req.query)}`);
+    const reportData = await reportResponse.json();
+
+    // Convert to CSV
+    const csvRows = [];
+    csvRows.push('Employee Name,Email,Department,Expected Days,Days Present,Days Absent,Attendance Rate,Total Work Hours,Avg Hours/Day,Total Break Minutes,Total Overtime,Late Arrivals,Early Departures');
+
+    for (const emp of reportData.data) {
+      csvRows.push([
+        emp.employee_name,
+        emp.employee_email,
+        emp.department,
+        emp.expected_days,
+        emp.days_present,
+        emp.days_absent,
+        emp.attendance_rate,
+        emp.total_work_hours,
+        emp.average_hours_per_day,
+        emp.total_break_minutes,
+        emp.total_overtime_hours,
+        emp.late_arrivals,
+        emp.early_departures
+      ].join(','));
+    }
+
+    const csv = csvRows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=attendance_report_${moment().format('YYYYMMDD')}.csv`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Export attendance report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/export/overtime - Export overtime report as CSV
+app.get('/reports/export/overtime', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    // Get the report data
+    const reportResponse = await fetch(`http://localhost:${config.PORT}/reports/overtime?${new URLSearchParams(req.query)}`);
+    const reportData = await reportResponse.json();
+
+    // Convert to CSV
+    const csvRows = [];
+    csvRows.push('Employee Name,Email,Department,Total Overtime Hours,Days With Overtime,Avg Overtime/Day');
+
+    for (const emp of reportData.data) {
+      csvRows.push([
+        emp.employee_name,
+        emp.employee_email,
+        emp.department,
+        emp.total_overtime_hours,
+        emp.days_with_overtime,
+        emp.average_overtime_per_day
+      ].join(','));
+    }
+
+    const csv = csvRows.join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=overtime_report_${moment().format('YYYYMMDD')}.csv`);
+    res.send(csv);
+  } catch (error) {
+    console.error('Export overtime report error:', error);
     res.status(500).json({ detail: error.message });
   }
 });

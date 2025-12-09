@@ -131,8 +131,8 @@ const Reports = () => {
   const attendanceColumns = [
     { title: 'Date', dataIndex: 'date', key: 'date' },
     { title: 'Associate', dataIndex: 'employee_name', key: 'employee_name' },
-    { title: 'Login', dataIndex: 'login_time', key: 'login_time', render: (v) => v ? dayjs.tz(v, 'Asia/Kolkata').format('hh:mm A') : '-' },
-    { title: 'Logout', dataIndex: 'logout_time', key: 'logout_time', render: (v) => v ? dayjs.tz(v, 'Asia/Kolkata').format('hh:mm A') : '-' },
+    { title: 'Login', dataIndex: 'login_time', key: 'login_time', render: (v) => v ? dayjs.utc(v).tz('Asia/Kolkata').format('hh:mm A') : '-' },
+    { title: 'Logout', dataIndex: 'logout_time', key: 'logout_time', render: (v) => v ? dayjs.utc(v).tz('Asia/Kolkata').format('hh:mm A') : '-' },
     { title: 'Work Hours', dataIndex: 'total_work_hours', key: 'total_work_hours' },
     { title: 'Break (min)', dataIndex: 'total_break_minutes', key: 'total_break_minutes' },
     { title: 'Overtime', dataIndex: 'overtime_hours', key: 'overtime_hours' },

@@ -41,7 +41,7 @@ export const taskService = {
   getMyTasks: (params) => api.get('/tasks/my-tasks', { params }),
   getAssignedByMe: (params) => api.get('/tasks/assigned-by-me', { params }),
   addWorkLog: (taskId, data) => api.post(`/tasks/${taskId}/work-log`, data),
-  getTaskSummary: (params) => api.get('/tasks/reports/summary', { params }),
+  getTaskSummary: (params) => api.get('/tasks/summary', { params }),
 };
 
 // Attendance Services
