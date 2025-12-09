@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://fastapi-project-management-production-22e0.up.railway.app';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
