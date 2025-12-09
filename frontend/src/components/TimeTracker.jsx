@@ -36,8 +36,22 @@ const TimeTracker = () => {
         const loginTime = dayjs.utc(session.login_time).tz('Asia/Kolkata');
         const now = dayjs.tz(new Date(), 'Asia/Kolkata');
         const totalSeconds = now.diff(loginTime, 'second');
-        const breakSeconds = session.total_break_minutes * 60;
-        setElapsedTime(totalSeconds - breakSeconds);
+
+        // Calculate break seconds including any ongoing break
+        let breakSeconds = 0;
+        if (session.breaks && session.breaks.length > 0) {
+          session.breaks.forEach(b => {
+            if (b.duration_minutes) {
+              breakSeconds += b.duration_minutes * 60;
+            } else if (b.start_time && !b.end_time) {
+              // Ongoing break - calculate duration in seconds
+              const breakStart = dayjs.tz(b.start_time, 'Asia/Kolkata');
+              breakSeconds += Math.max(0, now.diff(breakStart, 'second'));
+            }
+          });
+        }
+
+        setElapsedTime(Math.max(0, totalSeconds - breakSeconds));
         setCurrentSystemTime(now);
       }, 1000);
     } else {
@@ -196,7 +210,20 @@ const TimeTracker = () => {
         <Col xs={24} md={8}>
           <Statistic
             title="Break Time"
-            value={`${session?.total_break_minutes || 0} min`}
+            value={(() => {
+              if (!session) return '0 min';
+              let totalMins = session.total_break_minutes || 0;
+              // Add ongoing break time if on break
+              if (session.status === 'on_break' && session.breaks) {
+                const ongoingBreak = session.breaks.find(b => b.start_time && !b.end_time);
+                if (ongoingBreak) {
+                  const breakStart = dayjs.tz(ongoingBreak.start_time, 'Asia/Kolkata');
+                  const now = dayjs.tz(new Date(), 'Asia/Kolkata');
+                  totalMins += Math.max(0, now.diff(breakStart, 'minute'));
+                }
+              }
+              return `${totalMins} min`;
+            })()}
             prefix={<CoffeeOutlined />}
           />
         </Col>
