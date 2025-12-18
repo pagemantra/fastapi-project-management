@@ -169,7 +169,7 @@ function requireRoles(allowedRoles) {
 // ==================== UTILITIES ====================
 
 function getNow() {
-  return moment.tz(IST).toDate();
+  return moment.utc().toDate();
 }
 
 function calculateWorkHours(loginTime, logoutTime, totalBreakMinutes) {
@@ -4034,95 +4034,45 @@ app.get('/reports/attendance', authenticate, requireRoles([UserRole.ADMIN, UserR
     const endDate = end_date ? new Date(end_date) : moment.tz(IST).toDate();
 
     const reportData = [];
+    const employeeMap = {};
+    employees.forEach(emp => {
+      employeeMap[emp._id.toString()] = emp.full_name;
+    });
 
-    for (const emp of employees) {
-      const empId = emp._id.toString();
-
-      // Get time sessions for the date range
-      const sessions = await db.collection('time_sessions').find({
-        employee_id: empId,
-        date: {
-          $gte: moment(startDate).format('YYYY-MM-DD'),
-          $lte: moment(endDate).format('YYYY-MM-DD')
-        }
-      }).sort({ date: -1 }).toArray();
-
-      const totalWorkHours = sessions.reduce((sum, s) => sum + (s.total_work_hours || 0), 0);
-      const totalBreakMinutes = sessions.reduce((sum, s) => sum + (s.total_break_minutes || 0), 0);
-      const totalOvertimeHours = sessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
-      const daysPresent = sessions.length;
-
-      // Calculate expected work days (excluding weekends)
-      let expectedDays = 0;
-      let currentDate = moment(startDate);
-      const endMoment = moment(endDate);
-
-      while (currentDate.isSameOrBefore(endMoment)) {
-        const dayOfWeek = currentDate.day();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Exclude Sunday (0) and Saturday (6)
-          expectedDays++;
-        }
-        currentDate.add(1, 'day');
+    // Get all sessions for all employees in the date range
+    const employeeIds = employees.map(emp => emp._id.toString());
+    const sessions = await db.collection('time_sessions').find({
+      employee_id: { $in: employeeIds },
+      date: {
+        $gte: moment(startDate).format('YYYY-MM-DD'),
+        $lte: moment(endDate).format('YYYY-MM-DD')
       }
+    }).sort({ date: -1 }).toArray();
 
-      const daysAbsent = expectedDays - daysPresent;
-      const attendanceRate = expectedDays > 0 ? Math.round((daysPresent / expectedDays) * 100 * 100) / 100 : 0;
-
-      // Get late arrivals (login after 9:30 AM)
-      let lateArrivals = 0;
-      sessions.forEach(session => {
-        if (session.login_time) {
-          const loginTime = moment(session.login_time);
-          const expectedLoginTime = moment(session.login_time).hour(9).minute(30).second(0);
-          if (loginTime.isAfter(expectedLoginTime)) {
-            lateArrivals++;
-          }
-        }
-      });
-
-      // Get early departures (logout before 6:00 PM)
-      let earlyDepartures = 0;
-      sessions.forEach(session => {
-        if (session.logout_time && session.total_work_hours < STANDARD_WORK_HOURS) {
-          const logoutTime = moment(session.logout_time);
-          const expectedLogoutTime = moment(session.logout_time).hour(18).minute(0).second(0);
-          if (logoutTime.isBefore(expectedLogoutTime)) {
-            earlyDepartures++;
-          }
-        }
-      });
-
+    // Return session-level data (one record per employee per day)
+    sessions.forEach(session => {
       reportData.push({
-        employee_id: empId,
-        employee_name: emp.full_name,
-        employee_email: emp.email || '',
-        department: emp.department || '',
-        expected_days: expectedDays,
-        days_present: daysPresent,
-        days_absent: daysAbsent,
-        attendance_rate: attendanceRate,
-        total_work_hours: Math.round(totalWorkHours * 100) / 100,
-        average_hours_per_day: daysPresent > 0 ? Math.round((totalWorkHours / daysPresent) * 100) / 100 : 0,
-        total_break_minutes: totalBreakMinutes,
-        total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
-        late_arrivals: lateArrivals,
-        early_departures: earlyDepartures
+        employee_id: session.employee_id,
+        employee_name: employeeMap[session.employee_id] || null,
+        date: session.date,
+        login_time: session.login_time,
+        logout_time: session.logout_time,
+        total_work_hours: Math.round((session.total_work_hours || 0) * 100) / 100,
+        total_break_minutes: session.total_break_minutes || 0,
+        overtime_hours: Math.round((session.overtime_hours || 0) * 100) / 100,
+        status: session.status
       });
-    }
+    });
 
     // Calculate overview statistics
+    const totalWorkHours = sessions.reduce((sum, s) => sum + (s.total_work_hours || 0), 0);
+    const totalOvertimeHours = sessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
     const overview = {
-      total_employees: reportData.length,
-      total_expected_days: reportData.reduce((sum, emp) => sum + emp.expected_days, 0),
-      total_days_present: reportData.reduce((sum, emp) => sum + emp.days_present, 0),
-      total_days_absent: reportData.reduce((sum, emp) => sum + emp.days_absent, 0),
-      average_attendance_rate: reportData.length > 0
-        ? Math.round((reportData.reduce((sum, emp) => sum + emp.attendance_rate, 0) / reportData.length) * 100) / 100
-        : 0,
-      total_work_hours: Math.round(reportData.reduce((sum, emp) => sum + emp.total_work_hours, 0) * 100) / 100,
-      total_overtime_hours: Math.round(reportData.reduce((sum, emp) => sum + emp.total_overtime_hours, 0) * 100) / 100,
-      total_late_arrivals: reportData.reduce((sum, emp) => sum + emp.late_arrivals, 0),
-      total_early_departures: reportData.reduce((sum, emp) => sum + emp.early_departures, 0)
+      total_employees: employees.length,
+      total_sessions: sessions.length,
+      total_work_hours: Math.round(totalWorkHours * 100) / 100,
+      total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
+      average_work_hours_per_session: sessions.length > 0 ? Math.round((totalWorkHours / sessions.length) * 100) / 100 : 0
     };
 
     res.json({

@@ -24,8 +24,14 @@
     {
       "user": "Manager",
       "page": "Dashboard",
+      "type": "Error Message",
+      "details": "Resource not found, Resource not found"
+    },
+    {
+      "user": "Manager",
+      "page": "Dashboard",
       "type": "Console Errors",
-      "details": "Failed to load resource: the server responded with a status of 404 (Not Found); Failed to fetch task summary: JSHandle@object; Failed to load resource: the server responded with a status of 404 (Not Found); Warning: [antd: message] Static function can not consume context like dynamic theme. Please use 'App' component instead.; Failed to fetch task summary: JSHandle@object; Failed to load resource: the server responded with a status of 404 (Not Found); Failed to fetch task summary: JSHandle@object"
+      "details": "Failed to load resource: the server responded with a status of 404 (Not Found); Warning: [antd: message] Static function can not consume context like dynamic theme. Please use 'App' component instead.; Failed to fetch task summary: JSHandle@object; Failed to load resource: the server responded with a status of 404 (Not Found); Failed to fetch task summary: JSHandle@object"
     },
     {
       "user": "Manager",
@@ -38,6 +44,12 @@
       "page": "Reports",
       "type": "Console Errors",
       "details": "Warning: [antd: Tabs] `Tabs.TabPane` is deprecated. Please use `items` instead.; Failed to load resource: the server responded with a status of 404 (Not Found); Warning: [antd: message] Static function can not consume context like dynamic theme. Please use 'App' component instead.; Failed to load resource: the server responded with a status of 404 (Not Found); Failed to load resource: the server responded with a status of 404 (Not Found); Failed to load resource: the server responded with a status of 404 (Not Found); Failed to load resource: the server responded with a status of 404 (Not Found); Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "user": "Admin",
+      "page": "Dashboard",
+      "type": "Error Message",
+      "details": "Resource not found, Resource not found"
     },
     {
       "user": "Admin",
