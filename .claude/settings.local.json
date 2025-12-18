@@ -9,7 +9,8 @@
       "Bash(git push:*)",
       "Bash(cat:*)",
       "Bash(python:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(npm start)"
     ],
     "deny": [],
     "ask": []

@@ -490,7 +490,7 @@ const Worksheets = () => {
     return worksheets;
   };
 
-  // Export worksheets to CSV - same columns as displayed in table
+  // Export worksheets to CSV - includes all data (table columns + form responses)
   const handleExportCSV = () => {
     const dataToExport = getDisplayData();
     if (dataToExport.length === 0) {
@@ -498,19 +498,68 @@ const Worksheets = () => {
       return;
     }
 
-    // Build CSV content - same columns as table: Date, Associate, Form, Hours, Status
-    const headers = ['Date', 'Associate', 'Form', 'Hours', 'Status'];
-    const csvRows = [headers.join(',')];
-
+    // Collect all unique form response field labels across all worksheets
+    // Exclude image-related fields as Image Count is already a separate column
+    const allFieldLabels = new Set();
     dataToExport.forEach(ws => {
-      const row = [
-        ws.date,
-        `"${ws.employee_name || ''}"`,
-        `"${ws.form_name || ''}"`,
-        `${ws.total_hours || 0} hrs`,
-        ws.status?.replace('_', ' ').toUpperCase() || '',
-      ];
-      csvRows.push(row.join(','));
+      if (ws.form_responses) {
+        ws.form_responses.forEach(resp => {
+          if (resp.field_label &&
+              resp.field_id !== 'image_count' &&
+              !resp.field_label?.toLowerCase().includes('image')) {
+            allFieldLabels.add(resp.field_label);
+          }
+        });
+      }
+    });
+    const fieldLabelsArray = Array.from(allFieldLabels);
+
+    // Build raw data first to determine which columns have data
+    const rawData = dataToExport.map(ws => {
+      // Get image count from form_responses
+      const imageCountField = ws.form_responses?.find(
+        r => r.field_id === 'image_count' || r.field_label?.toLowerCase().includes('image')
+      );
+      const imageCount = imageCountField?.value || ws.image_count || 0;
+
+      // Build form response values
+      const formResponseValues = {};
+      fieldLabelsArray.forEach(label => {
+        const resp = ws.form_responses?.find(r => r.field_label === label);
+        formResponseValues[label] = resp ? String(resp.value) : '';
+      });
+
+      return {
+        'Date': ws.date || '',
+        'Associate': ws.employee_name || '',
+        'Form': ws.form_name || '',
+        'Hours': ws.total_hours ? `${ws.total_hours} hrs` : '',
+        'Image Count': imageCount || '',
+        'Status': ws.status?.replace('_', ' ').toUpperCase() || '',
+        ...formResponseValues,
+        'Notes': ws.notes || '',
+        'Rejection Reason': ws.rejection_reason || '',
+      };
+    });
+
+    // Determine which columns have at least one non-empty value
+    const allColumns = ['Date', 'Associate', 'Form', 'Hours', 'Image Count', 'Status', ...fieldLabelsArray, 'Notes', 'Rejection Reason'];
+    const columnsWithData = allColumns.filter(col => {
+      return rawData.some(row => {
+        const val = row[col];
+        return val !== '' && val !== null && val !== undefined && val !== 0 && val !== '0';
+      });
+    });
+
+    // Build CSV with only columns that have data
+    const csvRows = [columnsWithData.join(',')];
+
+    rawData.forEach(row => {
+      const csvRow = columnsWithData.map(col => {
+        const val = row[col] || '';
+        return `"${String(val).replace(/"/g, '""')}"`;
+      });
+      csvRows.push(csvRow.join(','));
     });
 
     const csvContent = csvRows.join('\n');
@@ -548,6 +597,16 @@ const Worksheets = () => {
       dataIndex: 'total_hours',
       key: 'total_hours',
       render: (hours) => `${hours || 0} hrs`,
+    },
+    {
+      title: 'Image Count',
+      key: 'image_count',
+      render: (_, record) => {
+        const imageCountField = record.form_responses?.find(
+          r => r.field_id === 'image_count' || r.field_label?.toLowerCase().includes('image')
+        );
+        return imageCountField?.value || record.image_count || 0;
+      },
     },
     {
       title: 'Status',
