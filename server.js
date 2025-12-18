@@ -27,13 +27,13 @@ const UserRole = {
 const TaskStatus = {
   TODO: 'todo',
   IN_PROGRESS: 'in_progress',
-  COMPLETED: 'completed',
+  COMPLETED: 'completed', 
   ON_HOLD: 'on_hold'
 };
 
 const TaskPriority = {
-  LOW: 'low',
-  MEDIUM: 'medium',
+  LOW: 'low',  
+  MEDIUM: 'medium', 
   HIGH: 'high',
   URGENT: 'urgent'
 };
