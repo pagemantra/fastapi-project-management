@@ -313,7 +313,7 @@ const Users = () => {
                 label="Role"
                 rules={[{ required: true, message: 'Please select role' }]}
               >
-                <Select options={getRoleOptions()} disabled={!!editingUser} />
+                <Select options={getRoleOptions()} />
               </Form.Item>
             </Col>
           </Row>
