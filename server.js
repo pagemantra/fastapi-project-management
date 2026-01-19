@@ -681,6 +681,27 @@ app.put('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.
       }
     });
 
+    // Handle role update - only admins can change roles
+    if (req.body.role !== undefined) {
+      if (userRole !== UserRole.ADMIN) {
+        return res.status(403).json({ detail: 'Only admins can change user roles' });
+      }
+      // Prevent changing to admin role
+      if (req.body.role === UserRole.ADMIN) {
+        return res.status(403).json({ detail: 'Cannot assign admin role' });
+      }
+      // Prevent changing admin's role
+      if (user.role === UserRole.ADMIN) {
+        return res.status(403).json({ detail: 'Cannot change admin role' });
+      }
+      // Validate role value
+      const validRoles = [UserRole.MANAGER, UserRole.TEAM_LEAD, UserRole.ASSOCIATE];
+      if (!validRoles.includes(req.body.role)) {
+        return res.status(400).json({ detail: 'Invalid role value' });
+      }
+      updateData.role = req.body.role;
+    }
+
     updateData.updated_at = getNow();
 
     await db.collection('users').updateOne(
