@@ -930,12 +930,17 @@ app.put('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.
     }
 
     const updateData = {};
-    const allowedFields = ['name', 'description', 'is_active'];
+    const allowedFields = ['name', 'description', 'is_active', 'team_lead_id'];
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
         updateData[field] = req.body[field];
       }
     });
+
+    // Allow admin to update manager_id as well
+    if (req.body.manager_id !== undefined && req.user.role === UserRole.ADMIN) {
+      updateData.manager_id = req.body.manager_id;
+    }
 
     updateData.updated_at = getNow();
 

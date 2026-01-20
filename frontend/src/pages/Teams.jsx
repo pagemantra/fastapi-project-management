@@ -301,11 +301,11 @@ const Teams = () => {
             <Input.TextArea rows={3} />
           </Form.Item>
 
-          {isAdmin() && !editingTeam && (
+          {isAdmin() && (
             <Form.Item
               name="manager_id"
               label="Manager"
-              rules={[{ required: true, message: 'Please select manager' }]}
+              rules={[{ required: !editingTeam, message: 'Please select manager' }]}
             >
               <Select placeholder="Select manager">
                 {managers.map((m) => (
