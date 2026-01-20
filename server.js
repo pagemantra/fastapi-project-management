@@ -19,6 +19,7 @@ const config = {
 
 const UserRole = {
   ADMIN: 'admin',
+  DELIVERY_MANAGER: 'delivery_manager',
   MANAGER: 'manager',
   TEAM_LEAD: 'team_lead',
   ASSOCIATE: 'employee'
@@ -398,7 +399,7 @@ app.get('/auth/me', authenticate, (req, res) => {
 // ===== USER ROUTES =====
 
 // POST /users - Create new user
-app.post('/users', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.post('/users', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { full_name, employee_id, email, password, role, phone, department, is_active, manager_id, team_lead_id } = req.body;
     const db = getDatabase();
@@ -409,9 +410,9 @@ app.post('/users', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER,
     let finalTeamLeadId = team_lead_id;
 
     // Role validation
-    if (creatorRole === UserRole.ADMIN) {
-      if (role === UserRole.ADMIN) {
-        return res.status(403).json({ detail: 'Cannot create another admin' });
+    if (creatorRole === UserRole.ADMIN || creatorRole === UserRole.DELIVERY_MANAGER) {
+      if (role === UserRole.ADMIN || role === UserRole.DELIVERY_MANAGER) {
+        return res.status(403).json({ detail: 'Cannot create admin or delivery manager' });
       }
     } else if (creatorRole === UserRole.MANAGER) {
       if (![UserRole.TEAM_LEAD, UserRole.ASSOCIATE].includes(role)) {
@@ -507,8 +508,8 @@ app.get('/users', authenticate, async (req, res) => {
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    if (userRole === UserRole.ADMIN) {
-      // Admin sees all
+    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
+      // Admin and Delivery Manager see all
     } else if (userRole === UserRole.MANAGER) {
       query.manager_id = userId;
     } else if (userRole === UserRole.TEAM_LEAD) {
@@ -534,12 +535,12 @@ app.get('/users', authenticate, async (req, res) => {
 });
 
 // GET /users/all-for-dashboard
-app.get('/users/all-for-dashboard', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/users/all-for-dashboard', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const db = getDatabase();
     const userRole = req.user.role;
     const userId = req.user._id.toString();
-    const query = { role: { $ne: UserRole.ADMIN } };
+    const query = { role: { $nin: [UserRole.ADMIN, UserRole.DELIVERY_MANAGER] } };
 
     if (userRole === UserRole.TEAM_LEAD) {
       query.team_lead_id = userId;
@@ -556,7 +557,7 @@ app.get('/users/all-for-dashboard', authenticate, requireRoles([UserRole.ADMIN, 
 });
 
 // GET /users/managers
-app.get('/users/managers', authenticate, requireRoles([UserRole.ADMIN]), async (req, res) => {
+app.get('/users/managers', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
   try {
     const db = getDatabase();
     const managers = await db.collection('users')
@@ -570,7 +571,7 @@ app.get('/users/managers', authenticate, requireRoles([UserRole.ADMIN]), async (
 });
 
 // GET /users/team-leads
-app.get('/users/team-leads', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.get('/users/team-leads', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const db = getDatabase();
     const query = { role: UserRole.TEAM_LEAD, is_active: true };
@@ -588,7 +589,7 @@ app.get('/users/team-leads', authenticate, requireRoles([UserRole.ADMIN, UserRol
 });
 
 // GET /users/employees
-app.get('/users/employees', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/users/employees', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const db = getDatabase();
     const query = { role: UserRole.ASSOCIATE, is_active: true };
@@ -649,7 +650,7 @@ app.get('/users/:user_id', authenticate, async (req, res) => {
 });
 
 // PUT /users/:user_id
-app.put('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.put('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { user_id } = req.params;
     const db = getDatabase();
@@ -681,18 +682,18 @@ app.put('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.
       }
     });
 
-    // Handle role update - only admins can change roles
+    // Handle role update - only admins and delivery managers can change roles
     if (req.body.role !== undefined) {
-      if (userRole !== UserRole.ADMIN) {
-        return res.status(403).json({ detail: 'Only admins can change user roles' });
+      if (userRole !== UserRole.ADMIN && userRole !== UserRole.DELIVERY_MANAGER) {
+        return res.status(403).json({ detail: 'Only admins and delivery managers can change user roles' });
       }
-      // Prevent changing to admin role
-      if (req.body.role === UserRole.ADMIN) {
-        return res.status(403).json({ detail: 'Cannot assign admin role' });
+      // Prevent changing to admin or delivery_manager role
+      if (req.body.role === UserRole.ADMIN || req.body.role === UserRole.DELIVERY_MANAGER) {
+        return res.status(403).json({ detail: 'Cannot assign admin or delivery manager role' });
       }
-      // Prevent changing admin's role
-      if (user.role === UserRole.ADMIN) {
-        return res.status(403).json({ detail: 'Cannot change admin role' });
+      // Prevent changing admin's or delivery_manager's role
+      if (user.role === UserRole.ADMIN || user.role === UserRole.DELIVERY_MANAGER) {
+        return res.status(403).json({ detail: 'Cannot change admin or delivery manager role' });
       }
       // Validate role value
       const validRoles = [UserRole.MANAGER, UserRole.TEAM_LEAD, UserRole.ASSOCIATE];
@@ -718,7 +719,7 @@ app.put('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.
 });
 
 // DELETE /users/:user_id (soft delete)
-app.delete('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN]), async (req, res) => {
+app.delete('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
   try {
     const { user_id } = req.params;
     const db = getDatabase();
@@ -750,7 +751,7 @@ app.delete('/users/:user_id', authenticate, requireRoles([UserRole.ADMIN]), asyn
 // ===== TEAM ROUTES =====
 
 // POST /teams - Create team
-app.post('/teams', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.post('/teams', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { name, description, team_lead_id, manager_id } = req.body;
     const db = getDatabase();
@@ -829,8 +830,8 @@ app.get('/teams', authenticate, async (req, res) => {
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    if (userRole === UserRole.ADMIN) {
-      // Admin sees all
+    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
+      // Admin and Delivery Manager see all
     } else if (userRole === UserRole.MANAGER) {
       query.manager_id = userId;
     } else if (userRole === UserRole.TEAM_LEAD) {
@@ -911,7 +912,7 @@ app.get('/teams/:team_id', authenticate, async (req, res) => {
 });
 
 // PUT /teams/:team_id
-app.put('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.put('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { team_id } = req.params;
     const db = getDatabase();
@@ -937,8 +938,8 @@ app.put('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.
       }
     });
 
-    // Allow admin to update manager_id as well
-    if (req.body.manager_id !== undefined && req.user.role === UserRole.ADMIN) {
+    // Allow admin and delivery manager to update manager_id as well
+    if (req.body.manager_id !== undefined && (req.user.role === UserRole.ADMIN || req.user.role === UserRole.DELIVERY_MANAGER)) {
       updateData.manager_id = req.body.manager_id;
     }
 
@@ -968,7 +969,7 @@ app.put('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.
 });
 
 // POST /teams/:team_id/members - Add member
-app.post('/teams/:team_id/members', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.post('/teams/:team_id/members', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { team_id } = req.params;
     const { employee_id } = req.body;
@@ -1048,7 +1049,7 @@ app.post('/teams/:team_id/members', authenticate, requireRoles([UserRole.ADMIN, 
 });
 
 // DELETE /teams/:team_id/members/:employee_id - Remove member
-app.delete('/teams/:team_id/members/:employee_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.delete('/teams/:team_id/members/:employee_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { team_id, employee_id } = req.params;
     const db = getDatabase();
@@ -1113,7 +1114,7 @@ app.delete('/teams/:team_id/members/:employee_id', authenticate, requireRoles([U
 });
 
 // DELETE /teams/:team_id
-app.delete('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN]), async (req, res) => {
+app.delete('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
   try {
     const { team_id } = req.params;
     const db = getDatabase();
@@ -1141,7 +1142,7 @@ app.delete('/teams/:team_id', authenticate, requireRoles([UserRole.ADMIN]), asyn
 // ===== TASK ROUTES =====
 
 // POST /tasks - Create task
-app.post('/tasks', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.post('/tasks', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { title, description, priority, status, due_date, estimated_hours, assigned_to, team_id } = req.body;
     const db = getDatabase();
@@ -1220,7 +1221,7 @@ app.get('/tasks', authenticate, async (req, res) => {
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    if (userRole === UserRole.ADMIN) {
+    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
       if (assigned_to) query.assigned_to = assigned_to;
     } else if (userRole === UserRole.MANAGER) {
       const employees = await db.collection('users').find({
@@ -1360,7 +1361,7 @@ app.get('/tasks/summary', authenticate, async (req, res) => {
 });
 
 // GET /tasks/assigned-by-me
-app.get('/tasks/assigned-by-me', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/tasks/assigned-by-me', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { status } = req.query;
     const db = getDatabase();
@@ -1544,7 +1545,7 @@ app.post('/tasks/:task_id/work-log', authenticate, async (req, res) => {
 
     const userId = req.user._id.toString();
 
-    if (req.user.role !== UserRole.ADMIN && task.assigned_to !== userId) {
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.DELIVERY_MANAGER && task.assigned_to !== userId) {
       return res.status(403).json({ detail: 'Only assigned employee can log work hours' });
     }
 
@@ -1590,7 +1591,7 @@ app.post('/tasks/:task_id/work-log', authenticate, async (req, res) => {
 });
 
 // DELETE /tasks/:task_id
-app.delete('/tasks/:task_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.delete('/tasks/:task_id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { task_id } = req.params;
     const db = getDatabase();
@@ -1607,7 +1608,7 @@ app.delete('/tasks/:task_id', authenticate, requireRoles([UserRole.ADMIN, UserRo
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    if (userRole !== UserRole.ADMIN && task.assigned_by !== userId) {
+    if (userRole !== UserRole.ADMIN && userRole !== UserRole.DELIVERY_MANAGER && task.assigned_by !== userId) {
       return res.status(403).json({ detail: 'Can only delete tasks you assigned' });
     }
 
@@ -1714,8 +1715,8 @@ app.post('/attendance/clock-out', authenticate, async (req, res) => {
       return res.status(400).json({ detail: 'Please submit your daily worksheet before clocking out' });
     }
 
-    if (force && req.user.role !== UserRole.ADMIN) {
-      return res.status(403).json({ detail: 'Only admin can force clock out without worksheet' });
+    if (force && req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.DELIVERY_MANAGER) {
+      return res.status(403).json({ detail: 'Only admin or delivery manager can force clock out without worksheet' });
     }
 
     const now = getNow();
@@ -1898,7 +1899,7 @@ app.get('/attendance/current', authenticate, async (req, res) => {
 });
 
 // GET /attendance/today-all
-app.get('/attendance/today-all', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/attendance/today-all', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const db = getDatabase();
     const today = moment.tz(IST).format('YYYY-MM-DD');
@@ -1939,7 +1940,7 @@ app.get('/attendance/today-all', authenticate, requireRoles([UserRole.ADMIN, Use
 });
 
 // GET /attendance/today - Alias for /attendance/today-all
-app.get('/attendance/today', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/attendance/today', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const db = getDatabase();
     const today = moment.tz(IST).format('YYYY-MM-DD');
@@ -2057,7 +2058,7 @@ app.get('/attendance/history', authenticate, async (req, res) => {
 });
 
 // GET /attendance/break-settings/:teamId - Get break settings for a team
-app.get('/attendance/break-settings/:teamId', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/attendance/break-settings/:teamId', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { teamId } = req.params;
     const db = getDatabase();
@@ -2100,7 +2101,7 @@ app.get('/attendance/break-settings/:teamId', authenticate, requireRoles([UserRo
 });
 
 // POST /attendance/break-settings - Create break settings for a team
-app.post('/attendance/break-settings', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.post('/attendance/break-settings', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { team_id, enforce_limits, max_breaks_per_day, max_break_duration_minutes, lunch_break_duration, short_break_duration } = req.body;
     const db = getDatabase();
@@ -2150,7 +2151,7 @@ app.post('/attendance/break-settings', authenticate, requireRoles([UserRole.ADMI
 });
 
 // PUT /attendance/break-settings/:teamId - Update break settings for a team
-app.put('/attendance/break-settings/:teamId', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.put('/attendance/break-settings/:teamId', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { teamId } = req.params;
     const { enforce_limits, max_breaks_per_day, max_break_duration_minutes, lunch_break_duration, short_break_duration } = req.body;
@@ -2212,8 +2213,8 @@ app.get('/forms', authenticate, async (req, res) => {
     const userId = req.user._id.toString();
     const query = {};
 
-    if (userRole === UserRole.ADMIN) {
-      // Admin sees all
+    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
+      // Admin and Delivery Manager see all
     } else if (userRole === UserRole.MANAGER) {
       const myTeams = await db.collection('teams').find({ manager_id: userId }).toArray();
       const teamIds = myTeams.map(t => t._id.toString());
@@ -2302,7 +2303,7 @@ app.get('/forms/:id', authenticate, async (req, res) => {
 });
 
 // PUT /forms/:id - Update form
-app.put('/forms/:id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.put('/forms/:id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, fields, is_active } = req.body;
@@ -2350,7 +2351,7 @@ app.put('/forms/:id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAG
 });
 
 // DELETE /forms/:id - Delete form
-app.delete('/forms/:id', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.delete('/forms/:id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { id } = req.params;
     const db = getDatabase();
@@ -2415,7 +2416,7 @@ app.get('/forms/team/:teamId', authenticate, async (req, res) => {
 });
 
 // POST /forms/:formId/assign - Assign form to teams
-app.post('/forms/:formId/assign', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.post('/forms/:formId/assign', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { formId } = req.params;
     const { team_ids } = req.body;
@@ -2480,7 +2481,7 @@ app.post('/forms/:formId/assign', authenticate, requireRoles([UserRole.ADMIN, Us
 });
 
 // DELETE /forms/:formId/unassign/:teamId - Unassign form from team
-app.delete('/forms/:formId/unassign/:teamId', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.delete('/forms/:formId/unassign/:teamId', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { formId, teamId } = req.params;
     const db = getDatabase();
@@ -2533,7 +2534,7 @@ app.delete('/forms/:formId/unassign/:teamId', authenticate, requireRoles([UserRo
 });
 
 // POST /forms - Create form
-app.post('/forms', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.post('/forms', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { name, description, fields, is_active, assigned_teams } = req.body;
     const db = getDatabase();
@@ -2801,7 +2802,7 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
 });
 
 // POST /worksheets/:worksheet_id/verify - Team Lead verification
-app.post('/worksheets/:worksheet_id/verify', authenticate, requireRoles([UserRole.ADMIN, UserRole.TEAM_LEAD]), async (req, res) => {
+app.post('/worksheets/:worksheet_id/verify', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { worksheet_id } = req.params;
     const db = getDatabase();
@@ -2893,7 +2894,7 @@ app.post('/worksheets/:worksheet_id/verify', authenticate, requireRoles([UserRol
 });
 
 // POST /worksheets/:worksheet_id/approve - Manager approval
-app.post('/worksheets/:worksheet_id/approve', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.post('/worksheets/:worksheet_id/approve', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { worksheet_id } = req.params;
     const db = getDatabase();
@@ -2973,7 +2974,7 @@ app.post('/worksheets/:worksheet_id/approve', authenticate, requireRoles([UserRo
 });
 
 // POST /worksheets/:id/reject - Reject a worksheet (Team Lead/Manager)
-app.post('/worksheets/:id/reject', authenticate, requireRoles([UserRole.ADMIN, UserRole.TEAM_LEAD, UserRole.MANAGER]), async (req, res) => {
+app.post('/worksheets/:id/reject', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.TEAM_LEAD, UserRole.MANAGER]), async (req, res) => {
   try {
     const { id } = req.params;
     const { rejection_reason } = req.body;
@@ -3069,7 +3070,7 @@ app.post('/worksheets/:id/reject', authenticate, requireRoles([UserRole.ADMIN, U
 });
 
 // POST /worksheets/bulk-approve - Bulk approve multiple worksheets (Manager)
-app.post('/worksheets/bulk-approve', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER]), async (req, res) => {
+app.post('/worksheets/bulk-approve', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const { worksheet_ids } = req.body;
     const db = getDatabase();
@@ -3409,7 +3410,7 @@ app.get('/worksheets/my-worksheets', authenticate, async (req, res) => {
 });
 
 // GET /worksheets/pending-verification - Get worksheets pending Team Lead verification
-app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole.TEAM_LEAD, UserRole.MANAGER, UserRole.ADMIN]), async (req, res) => {
+app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole.TEAM_LEAD, UserRole.MANAGER, UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
   try {
     const db = getDatabase();
     const userId = req.user._id.toString();
@@ -3501,7 +3502,7 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
 });
 
 // GET /worksheets/pending-approval - Get worksheets pending Manager approval
-app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MANAGER, UserRole.ADMIN]), async (req, res) => {
+app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MANAGER, UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
   try {
     const db = getDatabase();
     const userId = req.user._id.toString();
@@ -3911,7 +3912,7 @@ app.delete('/notifications', authenticate, async (req, res) => {
 });
 
 // GET /reports/productivity - Productivity report
-app.get('/reports/productivity', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/productivity', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { start_date, end_date, employee_id } = req.query;
     const db = getDatabase();
@@ -4032,7 +4033,7 @@ app.get('/reports/productivity', authenticate, requireRoles([UserRole.ADMIN, Use
 });
 
 // GET /reports/attendance - Get attendance report
-app.get('/reports/attendance', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/attendance', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { start_date, end_date, employee_id } = req.query;
     const db = getDatabase();
@@ -4118,7 +4119,7 @@ app.get('/reports/attendance', authenticate, requireRoles([UserRole.ADMIN, UserR
 });
 
 // GET /reports/overtime - Get overtime report
-app.get('/reports/overtime', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/overtime', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { start_date, end_date, employee_id } = req.query;
     const db = getDatabase();
@@ -4204,7 +4205,7 @@ app.get('/reports/overtime', authenticate, requireRoles([UserRole.ADMIN, UserRol
 });
 
 // GET /reports/team-performance - Get team performance report
-app.get('/reports/team-performance', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/team-performance', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { start_date, end_date, team_id } = req.query;
     const db = getDatabase();
@@ -4315,7 +4316,7 @@ app.get('/reports/team-performance', authenticate, requireRoles([UserRole.ADMIN,
 });
 
 // GET /reports/worksheet-analytics - Get worksheet analytics report
-app.get('/reports/worksheet-analytics', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/worksheet-analytics', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { start_date, end_date, employee_id } = req.query;
     const db = getDatabase();
@@ -4411,7 +4412,7 @@ app.get('/reports/worksheet-analytics', authenticate, requireRoles([UserRole.ADM
 });
 
 // GET /reports/export/productivity - Export productivity report as CSV
-app.get('/reports/export/productivity', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/export/productivity', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     // Get the report data
     const reportResponse = await fetch(`http://localhost:${config.PORT}/reports/productivity?${new URLSearchParams(req.query)}`);
@@ -4447,7 +4448,7 @@ app.get('/reports/export/productivity', authenticate, requireRoles([UserRole.ADM
 });
 
 // GET /reports/export/attendance - Export attendance report as CSV
-app.get('/reports/export/attendance', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/export/attendance', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     // Get the report data
     const reportResponse = await fetch(`http://localhost:${config.PORT}/reports/attendance?${new URLSearchParams(req.query)}`);
@@ -4487,7 +4488,7 @@ app.get('/reports/export/attendance', authenticate, requireRoles([UserRole.ADMIN
 });
 
 // GET /reports/export/overtime - Export overtime report as CSV
-app.get('/reports/export/overtime', authenticate, requireRoles([UserRole.ADMIN, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.get('/reports/export/overtime', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     // Get the report data
     const reportResponse = await fetch(`http://localhost:${config.PORT}/reports/overtime?${new URLSearchParams(req.query)}`);

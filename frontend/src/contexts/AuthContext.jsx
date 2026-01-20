@@ -59,7 +59,9 @@ export const AuthProvider = ({ children }) => {
     message.success('Logged out successfully');
   };
 
-  const isAdmin = () => user?.role === 'admin';
+  const isAdmin = () => user?.role === 'admin' || user?.role === 'delivery_manager';
+  const isDeliveryManager = () => user?.role === 'delivery_manager';
+  const isOnlyAdmin = () => user?.role === 'admin';
   const isManager = () => user?.role === 'manager';
   const isTeamLead = () => user?.role === 'team_lead';
   const isEmployee = () => user?.role === 'employee' || user?.role === 'associate';
@@ -75,6 +77,8 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     isAdmin,
+    isDeliveryManager,
+    isOnlyAdmin,
     isManager,
     isTeamLead,
     isEmployee,

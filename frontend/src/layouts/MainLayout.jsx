@@ -54,8 +54,8 @@ const MainLayout = () => {
       },
     ];
 
-    // Admin menu items
-    if (role === 'admin') {
+    // Admin and Delivery Manager menu items
+    if (role === 'admin' || role === 'delivery_manager') {
       items.push(
         {
           key: '/users',

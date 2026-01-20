@@ -174,14 +174,22 @@ const Users = () => {
       render: (role) => {
         const colors = {
           admin: 'red',
+          delivery_manager: 'purple',
           manager: 'blue',
           team_lead: 'green',
           employee: 'default',
         };
-        const displayName = role === 'employee' ? 'ASSOCIATE' : role.replace('_', ' ').toUpperCase();
-        return <Tag color={colors[role]}>{displayName}</Tag>;
+        const displayNames = {
+          admin: 'ADMIN',
+          delivery_manager: 'DELIVERY MANAGER',
+          manager: 'MANAGER',
+          team_lead: 'TEAM LEAD',
+          employee: 'ASSOCIATE',
+        };
+        return <Tag color={colors[role]}>{displayNames[role] || role.replace('_', ' ').toUpperCase()}</Tag>;
       },
       filters: [
+        { text: 'Delivery Manager', value: 'delivery_manager' },
         { text: 'Manager', value: 'manager' },
         { text: 'Team Lead', value: 'team_lead' },
         { text: 'Associate', value: 'employee' },
@@ -213,7 +221,7 @@ const Users = () => {
           >
             Edit
           </Button>
-          {record.role !== 'admin' && (
+          {record.role !== 'admin' && record.role !== 'delivery_manager' && (
             <Popconfirm
               title="Are you sure you want to deactivate this user?"
               onConfirm={() => handleDelete(record.id)}
