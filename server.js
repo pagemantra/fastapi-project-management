@@ -561,7 +561,7 @@ app.get('/users/managers', authenticate, requireRoles([UserRole.ADMIN, UserRole.
   try {
     const db = getDatabase();
     const managers = await db.collection('users')
-      .find({ role: UserRole.MANAGER, is_active: true })
+      .find({ role: { $in: [UserRole.MANAGER, UserRole.DELIVERY_MANAGER] }, is_active: true })
       .toArray();
     res.json(managers.map(formatUserResponse));
   } catch (error) {
