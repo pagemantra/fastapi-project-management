@@ -448,7 +448,7 @@ app.post('/users', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY
       }
       const manager = await db.collection('users').findOne({
         _id: new ObjectId(finalManagerId),
-        role: UserRole.MANAGER
+        role: { $in: [UserRole.MANAGER, UserRole.DELIVERY_MANAGER] }
       });
       if (!manager) {
         return res.status(400).json({ detail: 'Invalid manager ID' });
@@ -766,7 +766,7 @@ app.post('/teams', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY
       }
       const manager = await db.collection('users').findOne({
         _id: new ObjectId(manager_id),
-        role: UserRole.MANAGER
+        role: { $in: [UserRole.MANAGER, UserRole.DELIVERY_MANAGER] }
       });
       if (!manager) {
         return res.status(400).json({ detail: 'Invalid manager ID' });
