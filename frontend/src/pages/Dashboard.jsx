@@ -242,8 +242,8 @@ const Dashboard = () => {
     <div>
       <Title level={3}>Welcome, {user?.full_name}!</Title>
 
-      {/* Time Tracker for Associates */}
-      {isEmployee() && (
+      {/* Time Tracker for Associates, Team Leads, and Managers */}
+      {(isEmployee() || isTeamLead() || isManager()) && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col span={24}>
             <TimeTracker />

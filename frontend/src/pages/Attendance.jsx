@@ -210,8 +210,8 @@ const Attendance = () => {
     <div>
       <Title level={3}>Attendance</Title>
 
-      {/* Time Tracker for associates, team leads, and managers */}
-      {(isEmployee() || isTeamLead() || isManager()) && (
+      {/* Time Tracker for associates only - managers and team leads see it on Dashboard */}
+      {isEmployee() && (
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           <Col span={24}>
             <TimeTracker />
