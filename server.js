@@ -592,13 +592,21 @@ app.get('/users/team-leads', authenticate, requireRoles([UserRole.ADMIN, UserRol
 app.get('/users/employees', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const db = getDatabase();
-    const query = { role: UserRole.ASSOCIATE, is_active: true };
     const userId = req.user._id.toString();
+    const userRole = req.user.role;
+    let query = { is_active: true };
 
-    if (req.user.role === UserRole.MANAGER) {
+    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
+      // Admin and Delivery Manager can see all employees and managers
+      query.role = { $in: [UserRole.ASSOCIATE, UserRole.MANAGER, UserRole.TEAM_LEAD] };
+    } else if (userRole === UserRole.MANAGER) {
+      // Managers can see their own team members
       query.manager_id = userId;
-    } else if (req.user.role === UserRole.TEAM_LEAD) {
+      query.role = UserRole.ASSOCIATE;
+    } else if (userRole === UserRole.TEAM_LEAD) {
+      // Team leads can see their own team members
       query.team_lead_id = userId;
+      query.role = UserRole.ASSOCIATE;
     }
 
     const employees = await db.collection('users').find(query).toArray();
@@ -1000,14 +1008,14 @@ app.post('/teams/:team_id/members', authenticate, requireRoles([UserRole.ADMIN, 
 
     const employee = await db.collection('users').findOne({
       _id: new ObjectId(employee_id),
-      role: UserRole.ASSOCIATE
+      role: { $in: [UserRole.ASSOCIATE, UserRole.MANAGER, UserRole.TEAM_LEAD] }
     });
     if (!employee) {
       return res.status(400).json({ detail: 'Invalid employee ID' });
     }
 
     if (team.members && team.members.includes(employee_id)) {
-      return res.status(400).json({ detail: 'Employee is already a team member' });
+      return res.status(400).json({ detail: 'Member is already in the team' });
     }
 
     // Add member and update employee's team_lead_id
