@@ -527,7 +527,27 @@ app.get('/users', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
-    res.json(users.map(formatUserResponse));
+    // Fetch all teams to get project assignments
+    const teams = await db.collection('teams').find({ is_active: true }).toArray();
+
+    // Map users with their project assignments
+    const usersWithProjects = users.map(user => {
+      const userIdStr = user._id.toString();
+      // Find teams where user is a member, team lead, or manager
+      const userTeams = teams.filter(team =>
+        (team.members && team.members.includes(userIdStr)) ||
+        team.team_lead_id === userIdStr ||
+        team.manager_id === userIdStr
+      );
+      const projectNames = userTeams.map(t => t.name);
+
+      return {
+        ...formatUserResponse(user),
+        projects: projectNames.length > 0 ? projectNames : ['Not Assigned']
+      };
+    });
+
+    res.json(usersWithProjects);
   } catch (error) {
     console.error('Get users error:', error);
     res.status(500).json({ detail: error.message });
@@ -2747,18 +2767,31 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
     }
 
     const now = getNow();
+    const employee = req.user;
+    const employeeRole = employee.role;
+
+    // Determine workflow based on role
+    let newStatus = WorksheetStatus.SUBMITTED;
+    let updateFields = {
+      submitted_at: now,
+      updated_at: now,
+      rejection_reason: null,
+      rejected_by: null,
+      rejected_at: null
+    };
+
+    // Team Leads and Managers skip TL verification - go directly to manager approval
+    if (employeeRole === UserRole.TEAM_LEAD || employeeRole === UserRole.MANAGER) {
+      newStatus = WorksheetStatus.VERIFIED;
+      updateFields.tl_verified_by = userId; // Self-verified
+      updateFields.tl_verified_at = now;
+    }
+
+    updateFields.status = newStatus;
+
     await db.collection('worksheets').updateOne(
       { _id: new ObjectId(worksheet_id) },
-      {
-        $set: {
-          status: WorksheetStatus.SUBMITTED,
-          submitted_at: now,
-          updated_at: now,
-          rejection_reason: null,
-          rejected_by: null,
-          rejected_at: null
-        }
-      }
+      { $set: updateFields }
     );
 
     // Mark worksheet as submitted in time session
@@ -2767,16 +2800,45 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
       { $set: { worksheet_submitted: true } }
     );
 
-    // Notify Team Lead
-    const employee = req.user;
-    if (employee.team_lead_id) {
-      await createNotification(
-        employee.team_lead_id,
-        'WORKSHEET_SUBMITTED',
-        'New Worksheet Submitted',
-        `${employee.full_name} has submitted their worksheet for ${worksheet.date}`,
-        worksheet_id
-      );
+    // Notify appropriate approver based on role
+    if (employeeRole === UserRole.ASSOCIATE) {
+      // Associates: notify Team Lead for verification
+      if (employee.team_lead_id) {
+        await createNotification(
+          employee.team_lead_id,
+          'WORKSHEET_SUBMITTED',
+          'New Worksheet Submitted',
+          `${employee.full_name} has submitted their worksheet for ${worksheet.date}`,
+          worksheet_id
+        );
+      }
+    } else if (employeeRole === UserRole.TEAM_LEAD) {
+      // Team Leads: notify Manager for approval (skip verification)
+      if (employee.manager_id) {
+        await createNotification(
+          employee.manager_id,
+          'WORKSHEET_VERIFIED',
+          'Worksheet Ready for Approval',
+          `${employee.full_name} (Team Lead) has submitted their worksheet for ${worksheet.date}`,
+          worksheet_id
+        );
+      }
+    } else if (employeeRole === UserRole.MANAGER) {
+      // Managers: notify Delivery Manager for approval
+      const deliveryManagers = await db.collection('users').find({
+        role: UserRole.DELIVERY_MANAGER,
+        is_active: true
+      }).toArray();
+
+      for (const dm of deliveryManagers) {
+        await createNotification(
+          dm._id.toString(),
+          'WORKSHEET_VERIFIED',
+          'Manager Worksheet for Approval',
+          `${employee.full_name} (Manager) has submitted their worksheet for ${worksheet.date}`,
+          worksheet_id
+        );
+      }
     }
 
     const updated = await db.collection('worksheets').findOne({ _id: new ObjectId(worksheet_id) });
@@ -3518,11 +3580,27 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
 
     let query = { status: WorksheetStatus.TL_VERIFIED };
 
-    // Managers see worksheets from their department only
     if (userRole === UserRole.MANAGER) {
+      // Managers see worksheets from employees under them (associates and team leads)
       const employees = await db.collection('users').find({ manager_id: userId }).toArray();
       const employeeIds = employees.map(e => e._id.toString());
       query.employee_id = { $in: employeeIds };
+    } else if (userRole === UserRole.DELIVERY_MANAGER) {
+      // Delivery Managers see worksheets from all managers plus regular pending approval
+      const managers = await db.collection('users').find({
+        role: UserRole.MANAGER,
+        is_active: true
+      }).toArray();
+      const managerIds = managers.map(m => m._id.toString());
+
+      // Also get all employees without manager (or directly under DM)
+      const allEmployees = await db.collection('users').find({
+        role: { $in: [UserRole.ASSOCIATE, UserRole.TEAM_LEAD] },
+        is_active: true
+      }).toArray();
+      const allEmployeeIds = allEmployees.map(e => e._id.toString());
+
+      query.employee_id = { $in: [...managerIds, ...allEmployeeIds] };
     }
     // Admins see all pending approval
 

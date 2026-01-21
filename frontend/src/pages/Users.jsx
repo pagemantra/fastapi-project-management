@@ -202,6 +202,23 @@ const Users = () => {
       key: 'department',
     },
     {
+      title: 'Projects',
+      dataIndex: 'projects',
+      key: 'projects',
+      render: (projects) => (
+        <span>
+          {projects && projects.length > 0
+            ? projects.map((project, index) => (
+                <Tag key={index} color={project === 'Not Assigned' ? 'default' : 'cyan'}>
+                  {project}
+                </Tag>
+              ))
+            : <Tag color="default">Not Assigned</Tag>
+          }
+        </span>
+      ),
+    },
+    {
       title: 'Status',
       dataIndex: 'is_active',
       key: 'is_active',

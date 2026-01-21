@@ -44,7 +44,8 @@ const Worksheets = () => {
     if (isManager() || isAdmin()) {
       fetchPendingApproval();
     }
-    if (isEmployee()) {
+    // Managers, Team Leads, and Employees can submit worksheets
+    if (isEmployee() || isTeamLead() || isManager()) {
       fetchTeamAndForm();
     }
   }, []);
@@ -52,7 +53,9 @@ const Worksheets = () => {
   const fetchWorksheets = async () => {
     try {
       setLoading(true);
-      const response = isEmployee()
+      // Employees, Team Leads, and Managers get their own worksheets
+      // Admin gets all worksheets
+      const response = (isEmployee() || isTeamLead() || isManager())
         ? await worksheetService.getMyWorksheets({})
         : await worksheetService.getWorksheets({});
       setWorksheets(response.data || []);
@@ -582,7 +585,7 @@ const Worksheets = () => {
       key: 'date',
       sorter: (a, b) => dayjs(a.date).unix() - dayjs(b.date).unix(),
     },
-    ...(isEmployee() ? [] : [{
+    ...((isEmployee() || isTeamLead() || isManager()) ? [] : [{
       title: 'Associate',
       dataIndex: 'employee_name',
       key: 'employee_name',
@@ -638,12 +641,12 @@ const Worksheets = () => {
           >
             View
           </Button>
-          {isEmployee() && record.status === 'draft' && (
+          {(isEmployee() || isTeamLead() || isManager()) && record.status === 'draft' && (
             <Button type="link" onClick={() => handleSubmit(record.id)}>
               Submit
             </Button>
           )}
-          {isEmployee() && record.status === 'rejected' && (
+          {(isEmployee() || isTeamLead() || isManager()) && record.status === 'rejected' && (
             <>
               <Button
                 type="link"
@@ -806,7 +809,7 @@ const Worksheets = () => {
         <Col>
           <Title level={3}>Worksheets</Title>
         </Col>
-        {isEmployee() && (
+        {(isEmployee() || isTeamLead() || isManager()) && (
           <Col>
             <Button type="primary" icon={<FileTextOutlined />} onClick={handleCreateWorksheet}>
               Create Worksheet
@@ -816,7 +819,7 @@ const Worksheets = () => {
       </Row>
 
       {/* Alert for rejected worksheets */}
-      {isEmployee() && rejectedWorksheets.length > 0 && (
+      {(isEmployee() || isTeamLead() || isManager()) && rejectedWorksheets.length > 0 && (
         <Alert
           message="Worksheet Rejected"
           description={

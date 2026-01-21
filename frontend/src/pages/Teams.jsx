@@ -359,10 +359,17 @@ const Teams = () => {
         <Form form={memberForm} layout="inline" onFinish={handleAddMember} style={{ marginBottom: 16 }}>
           <Form.Item
             name="employee_id"
-            rules={[{ required: true, message: 'Select associate' }]}
+            rules={[{ required: true, message: 'Select member' }]}
             style={{ flex: 1 }}
           >
-            <Select placeholder="Select associate to add">
+            <Select
+              showSearch
+              placeholder="Search and select member to add"
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            >
               {employees
                 .filter(e => !selectedTeam?.members?.includes(e.id))
                 .map((emp) => (
