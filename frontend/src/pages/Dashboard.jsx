@@ -180,7 +180,7 @@ const Dashboard = () => {
           on_hold: 'orange',
           cancelled: 'red',
         };
-        return <Tag color={colors[status]}>{status.replace('_', ' ').toUpperCase()}</Tag>;
+        return <Tag color={colors[status]}>{(status || '').replace('_', ' ').toUpperCase()}</Tag>;
       },
     },
     {
@@ -219,7 +219,7 @@ const Dashboard = () => {
           submitted: 'blue',
           tl_verified: 'cyan',
         };
-        return <Tag color={colors[status]}>{status.replace('_', ' ').toUpperCase()}</Tag>;
+        return <Tag color={colors[status]}>{(status || '').replace('_', ' ').toUpperCase()}</Tag>;
       },
     },
     {

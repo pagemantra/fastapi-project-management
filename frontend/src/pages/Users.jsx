@@ -186,7 +186,7 @@ const Users = () => {
           team_lead: 'TEAM LEAD',
           employee: 'ASSOCIATE',
         };
-        return <Tag color={colors[role]}>{displayNames[role] || role.replace('_', ' ').toUpperCase()}</Tag>;
+        return <Tag color={colors[role]}>{displayNames[role] || (role || '').replace('_', ' ').toUpperCase()}</Tag>;
       },
       filters: [
         { text: 'Delivery Manager', value: 'delivery_manager' },

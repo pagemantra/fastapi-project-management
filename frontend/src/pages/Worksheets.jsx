@@ -651,7 +651,7 @@ const Worksheets = () => {
       key: 'status',
       render: (status) => (
         <Tag color={getStatusColor(status)}>
-          {status.replace('_', ' ').toUpperCase()}
+          {(status || '').replace('_', ' ').toUpperCase()}
         </Tag>
       ),
       filters: [
@@ -1110,7 +1110,7 @@ const Worksheets = () => {
             <p><strong>Associate:</strong> {selectedWorksheet.employee_name}</p>
             <p><strong>Form:</strong> {selectedWorksheet.form_name}</p>
             <p><strong>Status:</strong> <Tag color={getStatusColor(selectedWorksheet.status)}>
-              {selectedWorksheet.status.replace('_', ' ').toUpperCase()}
+              {(selectedWorksheet.status || '').replace('_', ' ').toUpperCase()}
             </Tag></p>
             <p><strong>Total Hours:</strong> {selectedWorksheet.total_hours || 0}</p>
 

@@ -176,7 +176,7 @@ const Reports = () => {
   // Chart data
   const worksheetChartData = worksheetAnalytics?.status_distribution
     ? Object.entries(worksheetAnalytics.status_distribution).map(([status, count]) => ({
-        status: status.replace('_', ' ').toUpperCase(),
+        status: (status || '').replace('_', ' ').toUpperCase(),
         count,
       }))
     : [];

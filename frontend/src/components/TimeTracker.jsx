@@ -176,7 +176,7 @@ const TimeTracker = () => {
       completed: 'blue',
       incomplete: 'red',
     };
-    return <Tag color={colors[session.status]}>{session.status.replace('_', ' ').toUpperCase()}</Tag>;
+    return <Tag color={colors[session.status]}>{(session.status || '').replace('_', ' ').toUpperCase()}</Tag>;
   };
 
   const breakOptions = [
