@@ -44,13 +44,15 @@ const Reports = () => {
     };
 
     try {
-      const [productivity, attendance, overtime, worksheet, team, projects] = await Promise.all([
+      // Fetch all reports in parallel including manager members
+      const [productivity, attendance, overtime, worksheet, team, projects, managerMembersRes] = await Promise.all([
         reportService.getProductivityReport(params),
         reportService.getAttendanceReport(params),
         reportService.getOvertimeReport(params),
         reportService.getWorksheetAnalytics(params),
         reportService.getTeamPerformance(params),
         reportService.getProjectsReport(params),
+        reportService.getManagerMembers(params),
       ]);
 
       setProductivityData(productivity.data.data || []);
@@ -59,9 +61,10 @@ const Reports = () => {
       setWorksheetAnalytics(worksheet.data);
       setTeamPerformance(team.data.data || []);
       setProjectsData(projects.data.data || []);
-
-      // Fetch manager members data for Project Managers section
-      fetchManagerMembers(params);
+      setManagerMembers({
+        managers: managerMembersRes.data.managers || [],
+        data: managerMembersRes.data.data || []
+      });
     } catch {
       message.error('Failed to fetch reports');
     } finally {
@@ -447,10 +450,10 @@ const Reports = () => {
                                         <Statistic title="Total Hours" value={member.total_hours || 0} valueStyle={{ fontSize: 14 }} />
                                       </Col>
                                       <Col span={8}>
-                                        <Statistic title="Images" value={member.image_count || 0} valueStyle={{ fontSize: 14 }} />
+                                        <Statistic title="Worksheets" value={member.worksheets_count || 0} valueStyle={{ fontSize: 14 }} />
                                       </Col>
                                       <Col span={8}>
-                                        <Statistic title="Worksheets" value={member.worksheets_count || 0} valueStyle={{ fontSize: 14 }} />
+                                        <Statistic title="Tasks" value={member.tasks_count || 0} valueStyle={{ fontSize: 14 }} />
                                       </Col>
                                     </Row>
                                     {memberWorksheets.length > 0 && (

@@ -4060,69 +4060,87 @@ app.get('/reports/productivity', authenticate, requireRoles([UserRole.ADMIN, Use
 
     const startDate = start_date ? new Date(start_date) : moment.tz(IST).subtract(30, 'days').toDate();
     const endDate = end_date ? new Date(end_date) : moment.tz(IST).toDate();
+    const startDateStr = moment(startDate).format('YYYY-MM-DD');
+    const endDateStr = moment(endDate).format('YYYY-MM-DD');
 
-    const reportData = [];
+    const empIds = employees.map(e => e._id.toString());
 
-    for (const emp of employees) {
-      const empId = emp._id.toString();
+    // Batch fetch all data in parallel
+    const [allTasks, allSessions, allWorksheets] = await Promise.all([
+      db.collection('tasks').find({ assigned_to: { $in: empIds } }).toArray(),
+      db.collection('time_sessions').find({
+        employee_id: { $in: empIds },
+        date: { $gte: startDateStr, $lte: endDateStr }
+      }).toArray(),
+      db.collection('worksheets').find({
+        employee_id: { $in: empIds },
+        date: { $gte: startDateStr, $lte: endDateStr }
+      }).toArray()
+    ]);
 
-      // Tasks completed
-      const tasksCompleted = await db.collection('tasks').countDocuments({
-        assigned_to: empId,
-        status: TaskStatus.COMPLETED,
-        completed_at: { $gte: startDate, $lte: endDate }
-      });
+    // Pre-process data by employee
+    const tasksByEmployee = {};
+    const sessionsByEmployee = {};
+    const worksheetsByEmployee = {};
 
-      const totalTasks = await db.collection('tasks').countDocuments({ assigned_to: empId });
+    empIds.forEach(id => {
+      tasksByEmployee[id] = { completed: 0, total: 0 };
+      sessionsByEmployee[id] = [];
+      worksheetsByEmployee[id] = { total: 0, approved: 0 };
+    });
 
-      // Attendance data
-      const sessions = await db.collection('time_sessions').find({
-        employee_id: empId,
-        date: {
-          $gte: moment(startDate).format('YYYY-MM-DD'),
-          $lte: moment(endDate).format('YYYY-MM-DD')
+    allTasks.forEach(t => {
+      if (tasksByEmployee[t.assigned_to]) {
+        tasksByEmployee[t.assigned_to].total++;
+        if (t.status === TaskStatus.COMPLETED && t.completed_at >= startDate && t.completed_at <= endDate) {
+          tasksByEmployee[t.assigned_to].completed++;
         }
-      }).toArray();
+      }
+    });
+
+    allSessions.forEach(s => {
+      if (sessionsByEmployee[s.employee_id]) {
+        sessionsByEmployee[s.employee_id].push(s);
+      }
+    });
+
+    allWorksheets.forEach(w => {
+      if (worksheetsByEmployee[w.employee_id]) {
+        worksheetsByEmployee[w.employee_id].total++;
+        if (w.status === WorksheetStatus.MANAGER_APPROVED) {
+          worksheetsByEmployee[w.employee_id].approved++;
+        }
+      }
+    });
+
+    // Build report data
+    const reportData = employees.map(emp => {
+      const empId = emp._id.toString();
+      const tasks = tasksByEmployee[empId];
+      const sessions = sessionsByEmployee[empId];
+      const worksheets = worksheetsByEmployee[empId];
 
       const totalWorkHours = sessions.reduce((sum, s) => sum + (s.total_work_hours || 0), 0);
       const totalOvertime = sessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
       const daysWorked = sessions.length;
 
-      // Worksheets
-      const totalWorksheets = await db.collection('worksheets').countDocuments({
-        employee_id: empId,
-        date: {
-          $gte: moment(startDate).format('YYYY-MM-DD'),
-          $lte: moment(endDate).format('YYYY-MM-DD')
-        }
-      });
-
-      const approvedWorksheets = await db.collection('worksheets').countDocuments({
-        employee_id: empId,
-        date: {
-          $gte: moment(startDate).format('YYYY-MM-DD'),
-          $lte: moment(endDate).format('YYYY-MM-DD')
-        },
-        status: WorksheetStatus.MANAGER_APPROVED
-      });
-
-      reportData.push({
+      return {
         employee_id: empId,
         employee_name: emp.full_name,
         employee_email: emp.email || '',
         department: emp.department || '',
-        tasks_completed: tasksCompleted,
-        total_tasks: totalTasks,
-        completion_rate: totalTasks > 0 ? Math.round((tasksCompleted / totalTasks) * 100 * 100) / 100 : 0,
+        tasks_completed: tasks.completed,
+        total_tasks: tasks.total,
+        completion_rate: tasks.total > 0 ? Math.round((tasks.completed / tasks.total) * 100 * 100) / 100 : 0,
         days_worked: daysWorked,
         total_work_hours: Math.round(totalWorkHours * 100) / 100,
         total_overtime_hours: Math.round(totalOvertime * 100) / 100,
         average_hours_per_day: daysWorked > 0 ? Math.round((totalWorkHours / daysWorked) * 100) / 100 : 0,
-        worksheets_submitted: totalWorksheets,
-        worksheets_approved: approvedWorksheets,
-        worksheet_approval_rate: totalWorksheets > 0 ? Math.round((approvedWorksheets / totalWorksheets) * 100 * 100) / 100 : 0
-      });
-    }
+        worksheets_submitted: worksheets.total,
+        worksheets_approved: worksheets.approved,
+        worksheet_approval_rate: worksheets.total > 0 ? Math.round((worksheets.approved / worksheets.total) * 100 * 100) / 100 : 0
+      };
+    });
 
     // Calculate overview statistics
     const overview = {
@@ -4350,66 +4368,94 @@ app.get('/reports/team-performance', authenticate, requireRoles([UserRole.ADMIN,
     }
 
     const teams = await db.collection('teams').find(teamQuery).toArray();
-    const reportData = [];
+    const teamIds = teams.map(t => t._id.toString());
+    const startDateStr = moment(startDate).format('YYYY-MM-DD');
+    const endDateStr = moment(endDate).format('YYYY-MM-DD');
 
-    for (const team of teams) {
+    // Collect all member IDs from teams
+    const allMemberIds = new Set();
+    teams.forEach(team => {
+      if (team.members) {
+        team.members.forEach(m => allMemberIds.add(m));
+      }
+      if (team.team_lead_id) allMemberIds.add(team.team_lead_id);
+    });
+    const memberIdsArray = Array.from(allMemberIds);
+
+    // Batch fetch all data in parallel
+    const [allTeamMembers, allTasks, allWorksheets, allSessions, teamLeads] = await Promise.all([
+      db.collection('team_members').find({ team_id: { $in: teamIds } }).toArray(),
+      db.collection('tasks').find({
+        assigned_to: { $in: memberIdsArray },
+        created_at: { $gte: startDate, $lte: endDate }
+      }).toArray(),
+      db.collection('worksheets').find({
+        employee_id: { $in: memberIdsArray },
+        date: { $gte: startDateStr, $lte: endDateStr }
+      }).toArray(),
+      db.collection('time_sessions').find({
+        employee_id: { $in: memberIdsArray },
+        date: { $gte: startDateStr, $lte: endDateStr }
+      }).toArray(),
+      db.collection('users').find({
+        _id: { $in: teams.filter(t => t.team_lead_id).map(t => new ObjectId(t.team_lead_id)) }
+      }).toArray()
+    ]);
+
+    // Create team lead map
+    const teamLeadMap = {};
+    teamLeads.forEach(tl => {
+      teamLeadMap[tl._id.toString()] = tl.full_name;
+    });
+
+    // Group team members by team
+    const membersByTeam = {};
+    allTeamMembers.forEach(tm => {
+      if (!membersByTeam[tm.team_id]) {
+        membersByTeam[tm.team_id] = [];
+      }
+      membersByTeam[tm.team_id].push(tm.employee_id);
+    });
+
+    // Build report data
+    const reportData = teams.map(team => {
       const teamId = team._id.toString();
+      const memberIds = team.members || membersByTeam[teamId] || [];
+      const allTeamMemberIds = [...new Set([...memberIds, team.team_lead_id].filter(Boolean))];
 
-      // Get team members
-      const members = await db.collection('team_members').find({ team_id: teamId }).toArray();
-      const memberIds = members.map(m => m.employee_id);
+      // Filter data for this team
+      const teamTasks = allTasks.filter(t => allTeamMemberIds.includes(t.assigned_to));
+      const teamWorksheets = allWorksheets.filter(w => allTeamMemberIds.includes(w.employee_id));
+      const teamSessions = allSessions.filter(s => allTeamMemberIds.includes(s.employee_id));
 
-      // Get tasks assigned to team
-      const tasks = await db.collection('tasks').find({
-        assigned_to: { $in: memberIds },
-        created_at: {
-          $gte: startDate,
-          $lte: endDate
-        }
-      }).toArray();
+      const completedTasks = teamTasks.filter(t => t.status === TaskStatus.COMPLETED).length;
+      const inProgressTasks = teamTasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length;
+      const todoTasks = teamTasks.filter(t => t.status === TaskStatus.TODO).length;
+      const submittedWorksheets = teamWorksheets.filter(w => w.status !== WorksheetStatus.DRAFT).length;
+      const approvedWorksheets = teamWorksheets.filter(w => w.status === WorksheetStatus.MANAGER_APPROVED).length;
+      const totalWorkHours = teamSessions.reduce((sum, s) => sum + (s.total_work_hours || 0), 0);
+      const totalOvertimeHours = teamSessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
 
-      const completedTasks = tasks.filter(t => t.status === TaskStatus.COMPLETED).length;
-      const inProgressTasks = tasks.filter(t => t.status === TaskStatus.IN_PROGRESS).length;
-      const todoTasks = tasks.filter(t => t.status === TaskStatus.TODO).length;
-
-      // Get worksheets
-      const worksheets = await db.collection('worksheets').find({
-        employee_id: { $in: memberIds },
-        date: {
-          $gte: moment(startDate).format('YYYY-MM-DD'),
-          $lte: moment(endDate).format('YYYY-MM-DD')
-        }
-      }).toArray();
-
-      const submittedWorksheets = worksheets.filter(w => w.status !== WorksheetStatus.DRAFT).length;
-      const approvedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.MANAGER_APPROVED).length;
-
-      // Get attendance
-      const sessions = await db.collection('time_sessions').find({
-        employee_id: { $in: memberIds },
-        date: {
-          $gte: moment(startDate).format('YYYY-MM-DD'),
-          $lte: moment(endDate).format('YYYY-MM-DD')
-        }
-      }).toArray();
-
-      const totalWorkHours = sessions.reduce((sum, s) => sum + (s.total_work_hours || 0), 0);
-      const totalOvertimeHours = sessions.reduce((sum, s) => sum + (s.overtime_hours || 0), 0);
-
-      reportData.push({
+      return {
         team_id: teamId,
         team_name: team.name,
+        team_lead: teamLeadMap[team.team_lead_id] || 'Not Assigned',
         team_description: team.description || '',
-        member_count: memberIds.length,
+        member_count: allTeamMemberIds.length,
+        tasks_completed: completedTasks,
+        task_completion_rate: teamTasks.length > 0 ? Math.round((completedTasks / teamTasks.length) * 100 * 100) / 100 : 0,
+        worksheets_submitted: submittedWorksheets,
+        worksheet_approval_rate: submittedWorksheets > 0 ? Math.round((approvedWorksheets / submittedWorksheets) * 100 * 100) / 100 : 0,
+        total_work_hours: Math.round(totalWorkHours * 100) / 100,
         tasks: {
-          total: tasks.length,
+          total: teamTasks.length,
           completed: completedTasks,
           in_progress: inProgressTasks,
           todo: todoTasks,
-          completion_rate: tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100 * 100) / 100 : 0
+          completion_rate: teamTasks.length > 0 ? Math.round((completedTasks / teamTasks.length) * 100 * 100) / 100 : 0
         },
         worksheets: {
-          total: worksheets.length,
+          total: teamWorksheets.length,
           submitted: submittedWorksheets,
           approved: approvedWorksheets,
           approval_rate: submittedWorksheets > 0 ? Math.round((approvedWorksheets / submittedWorksheets) * 100 * 100) / 100 : 0
@@ -4417,10 +4463,10 @@ app.get('/reports/team-performance', authenticate, requireRoles([UserRole.ADMIN,
         attendance: {
           total_work_hours: Math.round(totalWorkHours * 100) / 100,
           total_overtime_hours: Math.round(totalOvertimeHours * 100) / 100,
-          average_hours_per_member: memberIds.length > 0 ? Math.round((totalWorkHours / memberIds.length) * 100) / 100 : 0
+          average_hours_per_member: allTeamMemberIds.length > 0 ? Math.round((totalWorkHours / allTeamMemberIds.length) * 100) / 100 : 0
         }
-      });
-    }
+      };
+    });
 
     res.json({
       report_type: 'team_performance',
@@ -4564,18 +4610,28 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
       if (team.team_lead_id) allMemberIds.add(team.team_lead_id);
     });
 
-    const todayAttendance = await db.collection('time_sessions').find({
-      employee_id: { $in: Array.from(allMemberIds) },
-      date: today,
-      status: { $in: ['active', 'completed', 'on_break'] }
-    }).toArray();
-    const loggedInUserIds = new Set(todayAttendance.map(a => a.employee_id));
+    const memberIdsArray = Array.from(allMemberIds);
 
-    // Get worksheets for date range
-    const worksheets = await db.collection('worksheets').find({
-      employee_id: { $in: Array.from(allMemberIds) },
-      date: { $gte: startDate, $lte: endDate }
-    }).toArray();
+    // Parallel fetch: attendance, worksheets, users, tasks
+    const [todayAttendance, worksheets, users, tasks] = await Promise.all([
+      db.collection('time_sessions').find({
+        employee_id: { $in: memberIdsArray },
+        date: today,
+        status: { $in: ['active', 'completed', 'on_break'] }
+      }).toArray(),
+      db.collection('worksheets').find({
+        employee_id: { $in: memberIdsArray },
+        date: { $gte: startDate, $lte: endDate }
+      }).toArray(),
+      db.collection('users').find({
+        _id: { $in: memberIdsArray.map(id => new ObjectId(id)) }
+      }).toArray(),
+      db.collection('tasks').find({
+        assigned_to: { $in: memberIdsArray }
+      }).toArray()
+    ]);
+
+    const loggedInUserIds = new Set(todayAttendance.map(a => a.employee_id));
 
     // Get forms for form names
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
@@ -4587,13 +4643,17 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
       formMap[f._id.toString()] = f.name;
     });
 
-    // Get user details for all members
-    const users = await db.collection('users').find({
-      _id: { $in: Array.from(allMemberIds).map(id => new ObjectId(id)) }
-    }).toArray();
     const userMap = {};
     users.forEach(u => {
       userMap[u._id.toString()] = u;
+    });
+
+    const tasksByMember = {};
+    tasks.forEach(t => {
+      if (!tasksByMember[t.assigned_to]) {
+        tasksByMember[t.assigned_to] = [];
+      }
+      tasksByMember[t.assigned_to].push(t);
     });
 
     const projectsData = [];
@@ -4705,6 +4765,9 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
           };
         });
 
+        // Get member's tasks
+        const memberTasks = tasksByMember[memberId] || [];
+
         return {
           id: memberId,
           name: user?.full_name || 'Unknown',
@@ -4712,6 +4775,7 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
           role: user?.role || '',
           is_logged_in: isLoggedIn,
           worksheets_count: memberWorksheets.length,
+          tasks_count: memberTasks.length,
           total_hours: Math.round(totalHours * 100) / 100,
           image_count: memberImageCount,
           pleo_validation_count: memberPleoCount,
@@ -4766,38 +4830,32 @@ app.get('/reports/manager-members', authenticate, requireRoles([UserRole.ADMIN, 
       targetManagerId = manager_id;
     }
 
-    // Get all managers for dropdown (admin/DM only)
-    let allManagers = [];
-    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
-      allManagers = await db.collection('users').find({
-        role: UserRole.MANAGER,
-        is_active: true
-      }).toArray();
-    }
-
-    // Get members under the manager
-    const members = await db.collection('users').find({
-      manager_id: targetManagerId,
-      is_active: true
-    }).toArray();
+    // Parallel fetch: managers (if needed) and members
+    const [allManagers, members] = await Promise.all([
+      (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER)
+        ? db.collection('users').find({ role: UserRole.MANAGER, is_active: true }).toArray()
+        : Promise.resolve([]),
+      db.collection('users').find({ manager_id: targetManagerId, is_active: true }).toArray()
+    ]);
 
     const memberIds = members.map(m => m._id.toString());
 
-    // Get today's attendance
-    const todayAttendance = await db.collection('time_sessions').find({
-      employee_id: { $in: memberIds },
-      date: today
-    }).toArray();
+    // Parallel fetch: attendance and worksheets
+    const [todayAttendance, worksheets] = await Promise.all([
+      db.collection('time_sessions').find({
+        employee_id: { $in: memberIds },
+        date: today
+      }).toArray(),
+      db.collection('worksheets').find({
+        employee_id: { $in: memberIds },
+        date: { $gte: startDate, $lte: endDate }
+      }).toArray()
+    ]);
+
     const attendanceMap = {};
     todayAttendance.forEach(a => {
       attendanceMap[a.employee_id] = a;
     });
-
-    // Get worksheets for date range
-    const worksheets = await db.collection('worksheets').find({
-      employee_id: { $in: memberIds },
-      date: { $gte: startDate, $lte: endDate }
-    }).toArray();
 
     // Get forms for form names
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
