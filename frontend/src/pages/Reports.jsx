@@ -32,6 +32,8 @@ const Reports = () => {
     dayjs().subtract(30, 'day'),
     dayjs()
   ]);
+  // Separate date range for Projects tab - defaults to today
+  const [projectsDateRange, setProjectsDateRange] = useState([dayjs(), dayjs()]);
   const [productivityData, setProductivityData] = useState(dataCache.productivity || []);
   const [attendanceData, setAttendanceData] = useState(dataCache.attendance || []);
   const [overtimeData, setOvertimeData] = useState(dataCache.overtime || []);
@@ -43,6 +45,7 @@ const Reports = () => {
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedProjectMember, setSelectedProjectMember] = useState({});
   const [initialLoading, setInitialLoading] = useState(!dataCache.productivity);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const fetchingRef = useRef({});
   useAuth();
 
@@ -51,11 +54,40 @@ const Reports = () => {
     end_date: dateRange[1].format('YYYY-MM-DD'),
   }), [dateRange]);
 
+  // Get params for projects tab (uses separate date range, defaults to today)
+  const getProjectsParams = useCallback(() => ({
+    start_date: projectsDateRange[0].format('YYYY-MM-DD'),
+    end_date: projectsDateRange[1].format('YYYY-MM-DD'),
+  }), [projectsDateRange]);
+
   // Check if params changed
   const paramsChanged = useCallback(() => {
     const currentParams = JSON.stringify(getParams());
     return dataCache.lastParams !== currentParams;
   }, [getParams]);
+
+  // Fetch projects data with specific date range
+  const fetchProjectsData = useCallback(async (params) => {
+    if (fetchingRef.current.projectsSpecific) return;
+    fetchingRef.current.projectsSpecific = true;
+    setProjectsLoading(true);
+
+    try {
+      const [projects, mm] = await Promise.all([
+        reportService.getProjectsReport(params),
+        reportService.getManagerMembers(params),
+      ]);
+      const pData = projects.data.data || [];
+      const mmData = { managers: mm.data.managers || [], data: mm.data.data || [] };
+      setProjectsData(pData);
+      setManagerMembers(mmData);
+    } catch (error) {
+      console.error('Failed to fetch projects data:', error);
+    } finally {
+      setProjectsLoading(false);
+      fetchingRef.current.projectsSpecific = false;
+    }
+  }, []);
 
   // Fetch all data in background without blocking UI
   const fetchAllDataBackground = useCallback(async () => {
@@ -81,21 +113,8 @@ const Reports = () => {
 
       // Fetch other data in parallel without blocking
       setTimeout(() => {
-        if (!fetchingRef.current.projects) {
-          fetchingRef.current.projects = true;
-          Promise.all([
-            reportService.getProjectsReport(params),
-            reportService.getManagerMembers(params),
-          ]).then(([projects, mm]) => {
-            const pData = projects.data.data || [];
-            const mmData = { managers: mm.data.managers || [], data: mm.data.data || [] };
-            dataCache.projects = pData;
-            dataCache.managerMembers = mmData;
-            setProjectsData(pData);
-            setManagerMembers(mmData);
-            fetchingRef.current.projects = false;
-          }).catch(() => { fetchingRef.current.projects = false; });
-        }
+        // Projects data uses its own date range (defaults to today)
+        // It will be fetched separately via useEffect on projectsDateRange
 
         if (!fetchingRef.current.attendance) {
           fetchingRef.current.attendance = true;
@@ -157,6 +176,11 @@ const Reports = () => {
     }
   }, [dateRange, paramsChanged, fetchAllDataBackground]);
 
+  // Fetch projects data when projectsDateRange changes (defaults to today)
+  useEffect(() => {
+    fetchProjectsData(getProjectsParams());
+  }, [projectsDateRange, fetchProjectsData, getProjectsParams]);
+
   const handleTabChange = (tab) => {
     setActiveTab(tab);
   };
@@ -165,12 +189,26 @@ const Reports = () => {
     dataCache.lastParams = null;
     fetchingRef.current = {};
     fetchAllDataBackground();
+    // Also refresh projects with current projects date range
+    fetchProjectsData(getProjectsParams());
+  };
+
+  // Handle projects date filter change
+  const handleProjectsDateChange = (dates) => {
+    if (dates && dates.length === 2) {
+      setProjectsDateRange(dates);
+    }
+  };
+
+  // Reset projects to today's data
+  const handleProjectsToday = () => {
+    setProjectsDateRange([dayjs(), dayjs()]);
   };
 
   const handleManagerChange = async (managerId) => {
     setSelectedManager(managerId);
     setSelectedMember(null);
-    const params = { ...getParams(), manager_id: managerId };
+    const params = { ...getProjectsParams(), manager_id: managerId };
     try {
       const response = await reportService.getManagerMembers(params);
       setManagerMembers(prev => ({ ...prev, data: response.data.data || [] }));
@@ -329,6 +367,40 @@ const Reports = () => {
           label: 'Projects',
           children: (
             <div>
+              {/* Projects Date Filter */}
+              <Card size="small" style={{ marginBottom: 16 }}>
+                <Row align="middle" gutter={16}>
+                  <Col>
+                    <Text strong>Date Filter:</Text>
+                  </Col>
+                  <Col>
+                    <Button
+                      type={projectsDateRange[0].isSame(dayjs(), 'day') && projectsDateRange[1].isSame(dayjs(), 'day') ? 'primary' : 'default'}
+                      onClick={handleProjectsToday}
+                      size="small"
+                    >
+                      Today
+                    </Button>
+                  </Col>
+                  <Col>
+                    <RangePicker
+                      value={projectsDateRange}
+                      onChange={handleProjectsDateChange}
+                      size="small"
+                      allowClear={false}
+                    />
+                  </Col>
+                  <Col>
+                    {projectsLoading && <Text type="secondary">Loading...</Text>}
+                  </Col>
+                  <Col flex="auto" style={{ textAlign: 'right' }}>
+                    <Text type="secondary">
+                      Showing data from {projectsDateRange[0].format('MMM D, YYYY')} to {projectsDateRange[1].format('MMM D, YYYY')}
+                    </Text>
+                  </Col>
+                </Row>
+              </Card>
+
               <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                 {projectsData.map(project => (
                   <Col xs={24} sm={12} lg={8} key={project.id}>

@@ -403,12 +403,14 @@ const Forms = () => {
                   </Row>
 
                   {['select', 'multi_select', 'checkbox'].includes(field.field_type) && (
-                    <Form.Item label="Options (one per line)">
+                    <Form.Item label="Options (one per line)" help="Enter each option on a new line">
                       <TextArea
-                        rows={3}
+                        rows={5}
+                        autoSize={{ minRows: 5, maxRows: 10 }}
                         value={field.options?.join('\n') || ''}
                         onChange={(e) => updateField(index, 'options', e.target.value.split('\n').filter(Boolean))}
-                        placeholder="Option 1&#10;Option 2&#10;Option 3"
+                        placeholder={`Option 1\nOption 2\nOption 3\nOption 4\nOption 5`}
+                        style={{ fontFamily: 'monospace' }}
                       />
                     </Form.Item>
                   )}
