@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
   Card, Tabs, DatePicker, Button, Table, Space, Typography, Row, Col,
-  Statistic, message, Spin
+  Statistic, message, Spin, Select, Tag, Collapse, Badge
 } from 'antd';
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, ReloadOutlined, TeamOutlined, UserOutlined, CheckCircleOutlined, PictureOutlined, FileTextOutlined } from '@ant-design/icons';
 import { Column, Pie } from '@ant-design/charts';
 import { reportService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,6 +11,8 @@ import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
+const { Panel } = Collapse;
+const { Option } = Select;
 
 const Reports = () => {
   const [loading, setLoading] = useState(false);
@@ -23,7 +25,12 @@ const Reports = () => {
   const [overtimeData, setOvertimeData] = useState([]);
   const [worksheetAnalytics, setWorksheetAnalytics] = useState(null);
   const [teamPerformance, setTeamPerformance] = useState([]);
-  const { isAdmin, isManager } = useAuth();
+  const [projectsData, setProjectsData] = useState([]);
+  const [managerMembers, setManagerMembers] = useState({ managers: [], data: [] });
+  const [selectedManager, setSelectedManager] = useState(null);
+  const [selectedMember, setSelectedMember] = useState(null);
+  const [selectedProjectMember, setSelectedProjectMember] = useState({}); // Per-project member selection
+  useAuth(); // Auth check
 
   useEffect(() => {
     fetchAllReports();
@@ -37,12 +44,13 @@ const Reports = () => {
     };
 
     try {
-      const [productivity, attendance, overtime, worksheet, team] = await Promise.all([
+      const [productivity, attendance, overtime, worksheet, team, projects] = await Promise.all([
         reportService.getProductivityReport(params),
         reportService.getAttendanceReport(params),
         reportService.getOvertimeReport(params),
         reportService.getWorksheetAnalytics(params),
         reportService.getTeamPerformance(params),
+        reportService.getProjectsReport(params),
       ]);
 
       setProductivityData(productivity.data.data || []);
@@ -50,10 +58,49 @@ const Reports = () => {
       setOvertimeData(overtime.data.data || []);
       setWorksheetAnalytics(worksheet.data);
       setTeamPerformance(team.data.data || []);
-    } catch (error) {
+      setProjectsData(projects.data.data || []);
+
+      // Fetch manager members data for Project Managers section
+      fetchManagerMembers(params);
+    } catch {
       message.error('Failed to fetch reports');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchManagerMembers = async (params) => {
+    try {
+      const managerParams = {
+        ...params,
+        ...(selectedManager && { manager_id: selectedManager })
+      };
+      const response = await reportService.getManagerMembers(managerParams);
+      setManagerMembers({
+        managers: response.data.managers || [],
+        data: response.data.data || []
+      });
+    } catch (error) {
+      console.error('Failed to fetch manager members:', error);
+    }
+  };
+
+  const handleManagerChange = async (managerId) => {
+    setSelectedManager(managerId);
+    setSelectedMember(null);
+    const params = {
+      start_date: dateRange[0].format('YYYY-MM-DD'),
+      end_date: dateRange[1].format('YYYY-MM-DD'),
+      manager_id: managerId
+    };
+    try {
+      const response = await reportService.getManagerMembers(params);
+      setManagerMembers({
+        ...managerMembers,
+        data: response.data.data || []
+      });
+    } catch (error) {
+      message.error('Failed to fetch member data');
     }
   };
 
@@ -288,6 +335,339 @@ const Reports = () => {
                     scroll={{ x: true }}
                   />
                 </Card>
+              ),
+            },
+            {
+              key: 'projects',
+              label: 'Projects',
+              children: (
+                <div>
+                  {/* Project Overview Cards */}
+                  <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                    {projectsData.map(project => (
+                      <Col xs={24} sm={12} lg={8} key={project.id}>
+                        <Card
+                          title={
+                            <Space>
+                              <TeamOutlined />
+                              <span>{project.name}</span>
+                            </Space>
+                          }
+                          extra={
+                            <Badge
+                              count={`${project.logged_in_today}/${project.total_members}`}
+                              style={{ backgroundColor: project.logged_in_today > 0 ? '#52c41a' : '#d9d9d9' }}
+                            />
+                          }
+                          size="small"
+                        >
+                          <Row gutter={[8, 8]}>
+                            <Col span={12}>
+                              <Statistic
+                                title="Team Lead"
+                                value={project.team_lead}
+                                valueStyle={{ fontSize: 14 }}
+                              />
+                            </Col>
+                            <Col span={12}>
+                              <Statistic
+                                title="Logged In Today"
+                                value={project.logged_in_today}
+                                suffix={`/ ${project.total_members}`}
+                                valueStyle={{ fontSize: 14, color: project.logged_in_today > 0 ? '#52c41a' : '#999' }}
+                                prefix={<UserOutlined />}
+                              />
+                            </Col>
+                            <Col span={12}>
+                              <Statistic
+                                title="Worksheets"
+                                value={project.worksheets_submitted}
+                                valueStyle={{ fontSize: 14 }}
+                                prefix={<FileTextOutlined />}
+                              />
+                            </Col>
+                            {/* Annotation Project - Show Image Count */}
+                            {project.type === 'annotation' && (
+                              <Col span={12}>
+                                <Statistic
+                                  title="Total Images"
+                                  value={project.total_image_count || 0}
+                                  valueStyle={{ fontSize: 14, color: '#1890ff' }}
+                                  prefix={<PictureOutlined />}
+                                />
+                              </Col>
+                            )}
+                            {/* Finance/Pleo Project - Show Validation Count */}
+                            {project.type === 'finance_pleo' && (
+                              <Col span={12}>
+                                <Statistic
+                                  title="Pleo Validations"
+                                  value={project.total_pleo_validation || 0}
+                                  valueStyle={{ fontSize: 14, color: '#722ed1' }}
+                                  prefix={<CheckCircleOutlined />}
+                                />
+                              </Col>
+                            )}
+                          </Row>
+
+                          {/* Project Managers - Member Dropdown */}
+                          {project.type === 'project_managers' && project.members && project.members.length > 0 && (
+                            <div style={{ marginTop: 12 }}>
+                              <Text strong style={{ display: 'block', marginBottom: 8 }}>Select Member:</Text>
+                              <Select
+                                placeholder="Select a member to view details"
+                                style={{ width: '100%', marginBottom: 12 }}
+                                value={selectedProjectMember[project.id]}
+                                onChange={(value) => setSelectedProjectMember(prev => ({ ...prev, [project.id]: value }))}
+                                allowClear
+                                showSearch
+                                optionFilterProp="children"
+                              >
+                                {project.members.map(m => (
+                                  <Option key={m.id} value={m.id}>
+                                    <Space>
+                                      <Tag color={m.is_logged_in ? 'green' : 'default'} style={{ marginRight: 0 }}>
+                                        {m.is_logged_in ? 'Online' : 'Offline'}
+                                      </Tag>
+                                      {m.name}
+                                    </Space>
+                                  </Option>
+                                ))}
+                              </Select>
+
+                              {/* Selected Member's Worksheet Data */}
+                              {selectedProjectMember[project.id] && (() => {
+                                const member = project.members.find(m => m.id === selectedProjectMember[project.id]);
+                                if (!member) return null;
+                                const memberWorksheets = member.worksheets || [];
+                                return (
+                                  <Card size="small" style={{ marginTop: 8 }}>
+                                    <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
+                                      <Col span={8}>
+                                        <Statistic title="Total Hours" value={member.total_hours || 0} valueStyle={{ fontSize: 14 }} />
+                                      </Col>
+                                      <Col span={8}>
+                                        <Statistic title="Images" value={member.image_count || 0} valueStyle={{ fontSize: 14 }} />
+                                      </Col>
+                                      <Col span={8}>
+                                        <Statistic title="Worksheets" value={member.worksheets_count || 0} valueStyle={{ fontSize: 14 }} />
+                                      </Col>
+                                    </Row>
+                                    {memberWorksheets.length > 0 && (
+                                      <Table
+                                        dataSource={memberWorksheets}
+                                        columns={[
+                                          { title: 'Date', dataIndex: 'date', key: 'date', width: 100 },
+                                          { title: 'Form', dataIndex: 'form_name', key: 'form_name' },
+                                          {
+                                            title: 'Status',
+                                            dataIndex: 'status',
+                                            key: 'status',
+                                            width: 100,
+                                            render: (s) => {
+                                              const colors = { draft: 'default', submitted: 'blue', tl_verified: 'cyan', manager_approved: 'green', rejected: 'red' };
+                                              return <Tag color={colors[s]}>{(s || '').replace('_', ' ').toUpperCase()}</Tag>;
+                                            }
+                                          },
+                                          { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours', width: 60 },
+                                        ]}
+                                        rowKey="id"
+                                        size="small"
+                                        pagination={false}
+                                      />
+                                    )}
+                                  </Card>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          {/* Member List Expandable */}
+                          <Collapse ghost size="small" style={{ marginTop: 12 }}>
+                            <Panel header={`View Members (${project.total_members})`} key="1">
+                              <Table
+                                dataSource={project.members}
+                                columns={[
+                                  {
+                                    title: 'Name',
+                                    dataIndex: 'name',
+                                    key: 'name',
+                                    render: (name, record) => (
+                                      <Space>
+                                        <Tag color={record.is_logged_in ? 'green' : 'default'}>
+                                          {record.is_logged_in ? 'Online' : 'Offline'}
+                                        </Tag>
+                                        {name}
+                                      </Space>
+                                    )
+                                  },
+                                  { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
+                                  ...(project.type === 'annotation' ? [
+                                    { title: 'Images', dataIndex: 'image_count', key: 'image_count' }
+                                  ] : []),
+                                  ...(project.type === 'finance_pleo' ? [
+                                    { title: 'Pleo', dataIndex: 'pleo_validation_count', key: 'pleo_validation_count' }
+                                  ] : []),
+                                ]}
+                                rowKey="id"
+                                size="small"
+                                pagination={false}
+                              />
+                            </Panel>
+                          </Collapse>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+
+                  {/* Project Managers Section */}
+                  <Card title="Project Managers - Member Details" style={{ marginTop: 16 }}>
+                    <Row gutter={16} style={{ marginBottom: 16 }}>
+                      {managerMembers.managers && managerMembers.managers.length > 0 && (
+                        <Col xs={24} sm={12} md={8}>
+                          <Text strong>Select Manager: </Text>
+                          <Select
+                            placeholder="Select a manager"
+                            style={{ width: '100%', marginTop: 8 }}
+                            value={selectedManager}
+                            onChange={handleManagerChange}
+                            allowClear
+                          >
+                            {managerMembers.managers.map(m => (
+                              <Option key={m.id} value={m.id}>{m.name}</Option>
+                            ))}
+                          </Select>
+                        </Col>
+                      )}
+                      <Col xs={24} sm={12} md={8}>
+                        <Text strong>Select Member: </Text>
+                        <Select
+                          placeholder="Select a member to view details"
+                          style={{ width: '100%', marginTop: 8 }}
+                          value={selectedMember}
+                          onChange={setSelectedMember}
+                          allowClear
+                        >
+                          {managerMembers.data.map(m => (
+                            <Option key={m.id} value={m.id}>
+                              <Space>
+                                <Tag color={m.is_logged_in ? 'green' : 'default'} style={{ marginRight: 0 }}>
+                                  {m.is_logged_in ? 'Online' : 'Offline'}
+                                </Tag>
+                                {m.name}
+                              </Space>
+                            </Option>
+                          ))}
+                        </Select>
+                      </Col>
+                    </Row>
+
+                    {/* Member Summary Table */}
+                    <Table
+                      dataSource={managerMembers.data}
+                      columns={[
+                        {
+                          title: 'Associate',
+                          dataIndex: 'name',
+                          key: 'name',
+                          render: (name, record) => (
+                            <Space>
+                              <Tag color={record.is_logged_in ? 'green' : 'default'}>
+                                {record.is_logged_in ? 'Online' : 'Offline'}
+                              </Tag>
+                              {name}
+                            </Space>
+                          )
+                        },
+                        { title: 'Employee ID', dataIndex: 'employee_id', key: 'employee_id' },
+                        { title: 'Role', dataIndex: 'role', key: 'role', render: (r) => (r || '').replace('_', ' ').toUpperCase() },
+                        { title: 'Worksheets', dataIndex: 'total_worksheets', key: 'total_worksheets' },
+                        { title: 'Total Hours', dataIndex: 'total_hours', key: 'total_hours' },
+                        { title: 'Image Count', dataIndex: 'total_image_count', key: 'total_image_count' },
+                        { title: 'Pleo Validations', dataIndex: 'total_pleo_validation', key: 'total_pleo_validation' },
+                      ]}
+                      rowKey="id"
+                      pagination={{ pageSize: 10 }}
+                      expandable={{
+                        expandedRowRender: (record) => (
+                          <Table
+                            dataSource={record.worksheets}
+                            columns={[
+                              { title: 'Date', dataIndex: 'date', key: 'date' },
+                              { title: 'Form', dataIndex: 'form_name', key: 'form_name' },
+                              {
+                                title: 'Status',
+                                dataIndex: 'status',
+                                key: 'status',
+                                render: (s) => {
+                                  const colors = { draft: 'default', submitted: 'blue', tl_verified: 'cyan', manager_approved: 'green', rejected: 'red' };
+                                  return <Tag color={colors[s]}>{(s || '').replace('_', ' ').toUpperCase()}</Tag>;
+                                }
+                              },
+                              { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
+                              { title: 'Images', dataIndex: 'image_count', key: 'image_count' },
+                              { title: 'Pleo', dataIndex: 'pleo_validation_count', key: 'pleo_validation_count' },
+                            ]}
+                            rowKey="id"
+                            size="small"
+                            pagination={false}
+                          />
+                        ),
+                      }}
+                    />
+
+                    {/* Selected Member Detail View */}
+                    {selectedMember && (() => {
+                      const member = managerMembers.data.find(m => m.id === selectedMember);
+                      if (!member) return null;
+                      return (
+                        <Card
+                          title={`${member.name} - Worksheet Details`}
+                          size="small"
+                          style={{ marginTop: 16 }}
+                        >
+                          <Row gutter={16} style={{ marginBottom: 16 }}>
+                            <Col span={6}>
+                              <Statistic title="Total Hours" value={member.total_hours} suffix="hrs" />
+                            </Col>
+                            <Col span={6}>
+                              <Statistic title="Worksheets" value={member.total_worksheets} />
+                            </Col>
+                            <Col span={6}>
+                              <Statistic title="Total Images" value={member.total_image_count} />
+                            </Col>
+                            <Col span={6}>
+                              <Statistic title="Pleo Validations" value={member.total_pleo_validation} />
+                            </Col>
+                          </Row>
+                          <Table
+                            dataSource={member.worksheets}
+                            columns={[
+                              { title: 'Date', dataIndex: 'date', key: 'date' },
+                              { title: 'Form', dataIndex: 'form_name', key: 'form_name' },
+                              {
+                                title: 'Status',
+                                dataIndex: 'status',
+                                key: 'status',
+                                render: (s) => {
+                                  const colors = { draft: 'default', submitted: 'blue', tl_verified: 'cyan', manager_approved: 'green', rejected: 'red' };
+                                  return <Tag color={colors[s]}>{(s || '').replace('_', ' ').toUpperCase()}</Tag>;
+                                }
+                              },
+                              { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
+                              { title: 'Images', dataIndex: 'image_count', key: 'image_count' },
+                              { title: 'Pleo', dataIndex: 'pleo_validation_count', key: 'pleo_validation_count' },
+                              { title: 'Notes', dataIndex: 'notes', key: 'notes' },
+                            ]}
+                            rowKey="id"
+                            size="small"
+                            pagination={{ pageSize: 5 }}
+                          />
+                        </Card>
+                      );
+                    })()}
+                  </Card>
+                </div>
               ),
             },
             {

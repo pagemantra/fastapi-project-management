@@ -4533,6 +4533,361 @@ app.get('/reports/worksheet-analytics', authenticate, requireRoles([UserRole.ADM
   }
 });
 
+// GET /reports/projects - Project-wise report with member login status and aggregated data
+app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    const db = getDatabase();
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+
+    const today = moment.tz(IST).format('YYYY-MM-DD');
+    const startDate = start_date || today;
+    const endDate = end_date || today;
+
+    // Build team query based on role
+    const teamQuery = { is_active: true };
+    if (userRole === UserRole.TEAM_LEAD) {
+      teamQuery.team_lead_id = userId;
+    } else if (userRole === UserRole.MANAGER) {
+      teamQuery.manager_id = userId;
+    }
+
+    const teams = await db.collection('teams').find(teamQuery).toArray();
+
+    // Get today's attendance for all relevant members
+    const allMemberIds = new Set();
+    teams.forEach(team => {
+      if (team.members) {
+        team.members.forEach(m => allMemberIds.add(m));
+      }
+      if (team.team_lead_id) allMemberIds.add(team.team_lead_id);
+    });
+
+    const todayAttendance = await db.collection('time_sessions').find({
+      employee_id: { $in: Array.from(allMemberIds) },
+      date: today,
+      status: { $in: ['active', 'completed', 'on_break'] }
+    }).toArray();
+    const loggedInUserIds = new Set(todayAttendance.map(a => a.employee_id));
+
+    // Get worksheets for date range
+    const worksheets = await db.collection('worksheets').find({
+      employee_id: { $in: Array.from(allMemberIds) },
+      date: { $gte: startDate, $lte: endDate }
+    }).toArray();
+
+    // Get forms for form names
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    const forms = formIds.length > 0 ? await db.collection('forms').find({
+      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    }).toArray() : [];
+    const formMap = {};
+    forms.forEach(f => {
+      formMap[f._id.toString()] = f.name;
+    });
+
+    // Get user details for all members
+    const users = await db.collection('users').find({
+      _id: { $in: Array.from(allMemberIds).map(id => new ObjectId(id)) }
+    }).toArray();
+    const userMap = {};
+    users.forEach(u => {
+      userMap[u._id.toString()] = u;
+    });
+
+    const projectsData = [];
+
+    for (const team of teams) {
+      const teamId = team._id.toString();
+      const teamMembers = team.members || [];
+      const allTeamMembers = [...new Set([...teamMembers, team.team_lead_id].filter(Boolean))];
+
+      // Count logged in today
+      const loggedInToday = allTeamMembers.filter(m => loggedInUserIds.has(m)).length;
+
+      // Get team worksheets
+      const teamWorksheets = worksheets.filter(w => allTeamMembers.includes(w.employee_id));
+
+      // Calculate aggregated data based on project type
+      let aggregatedData = {};
+      const teamNameLower = (team.name || '').toLowerCase();
+
+      // For Annotation projects - sum image count
+      if (teamNameLower.includes('annotation')) {
+        let totalImageCount = 0;
+        teamWorksheets.forEach(ws => {
+          if (ws.form_responses) {
+            ws.form_responses.forEach(resp => {
+              if (resp.field_id === 'image_count' ||
+                  (resp.field_label && resp.field_label.toLowerCase().includes('image'))) {
+                totalImageCount += parseInt(resp.value) || 0;
+              }
+            });
+          }
+        });
+        aggregatedData.total_image_count = totalImageCount;
+        aggregatedData.type = 'annotation';
+      }
+
+      // For Finance/Pleo projects - sum pleo validation count
+      if (teamNameLower.includes('finance') || teamNameLower.includes('pleo')) {
+        let totalPleoValidation = 0;
+        teamWorksheets.forEach(ws => {
+          if (ws.form_responses) {
+            ws.form_responses.forEach(resp => {
+              if (resp.field_id === 'pleo_validation_count' ||
+                  resp.field_id === 'pleo_count' ||
+                  (resp.field_label && (resp.field_label.toLowerCase().includes('pleo') ||
+                   resp.field_label.toLowerCase().includes('validation')))) {
+                totalPleoValidation += parseInt(resp.value) || 0;
+              }
+            });
+          }
+        });
+        aggregatedData.total_pleo_validation = totalPleoValidation;
+        aggregatedData.type = 'finance_pleo';
+      }
+
+      // For Project Managers projects - identify for member dropdown
+      if (teamNameLower.includes('project manager') || teamNameLower.includes('project_manager')) {
+        aggregatedData.type = 'project_managers';
+      }
+
+      // Get team lead and manager names
+      const teamLead = team.team_lead_id ? userMap[team.team_lead_id] : null;
+      const manager = team.manager_id ? userMap[team.manager_id] : null;
+
+      // Build member details with worksheet data
+      const memberDetails = allTeamMembers.map(memberId => {
+        const user = userMap[memberId];
+        const memberWorksheets = teamWorksheets.filter(w => w.employee_id === memberId);
+        const isLoggedIn = loggedInUserIds.has(memberId);
+
+        // Aggregate worksheet data for this member
+        let memberImageCount = 0;
+        let memberPleoCount = 0;
+        let totalHours = 0;
+
+        // Build detailed worksheet list for this member
+        const worksheetDetails = memberWorksheets.map(ws => {
+          let imageCount = 0;
+          let pleoCount = 0;
+
+          if (ws.form_responses) {
+            ws.form_responses.forEach(resp => {
+              if (resp.field_id === 'image_count' ||
+                  (resp.field_label && resp.field_label.toLowerCase().includes('image'))) {
+                imageCount += parseInt(resp.value) || 0;
+              }
+              if (resp.field_id === 'pleo_validation_count' ||
+                  resp.field_id === 'pleo_count' ||
+                  (resp.field_label && (resp.field_label.toLowerCase().includes('pleo') ||
+                   resp.field_label.toLowerCase().includes('validation')))) {
+                pleoCount += parseInt(resp.value) || 0;
+              }
+            });
+          }
+
+          totalHours += ws.total_hours || 0;
+          memberImageCount += imageCount;
+          memberPleoCount += pleoCount;
+
+          return {
+            id: ws._id.toString(),
+            date: ws.date,
+            form_name: formMap[ws.form_id] || null,
+            status: ws.status,
+            total_hours: ws.total_hours || 0,
+            image_count: imageCount,
+            pleo_validation_count: pleoCount,
+            notes: ws.notes
+          };
+        });
+
+        return {
+          id: memberId,
+          name: user?.full_name || 'Unknown',
+          employee_id: user?.employee_id || '',
+          role: user?.role || '',
+          is_logged_in: isLoggedIn,
+          worksheets_count: memberWorksheets.length,
+          total_hours: Math.round(totalHours * 100) / 100,
+          image_count: memberImageCount,
+          pleo_validation_count: memberPleoCount,
+          worksheets: worksheetDetails
+        };
+      });
+
+      projectsData.push({
+        id: teamId,
+        name: team.name,
+        description: team.description || '',
+        team_lead: teamLead?.full_name || 'Not Assigned',
+        team_lead_id: team.team_lead_id,
+        manager: manager?.full_name || 'Not Assigned',
+        manager_id: team.manager_id,
+        total_members: allTeamMembers.length,
+        logged_in_today: loggedInToday,
+        worksheets_submitted: teamWorksheets.filter(w => w.status !== 'draft').length,
+        ...aggregatedData,
+        members: memberDetails
+      });
+    }
+
+    res.json({
+      report_type: 'projects',
+      date: today,
+      date_range: { start: startDate, end: endDate },
+      generated_at: moment.tz(IST).format(),
+      data: projectsData
+    });
+  } catch (error) {
+    console.error('Get projects report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /reports/manager-members - Get manager's assigned members with their worksheet data
+app.get('/reports/manager-members', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
+  try {
+    const { manager_id, start_date, end_date } = req.query;
+    const db = getDatabase();
+    const userRole = req.user.role;
+    const userId = req.user._id.toString();
+
+    const today = moment.tz(IST).format('YYYY-MM-DD');
+    const startDate = start_date || today;
+    const endDate = end_date || today;
+
+    // Determine which manager's data to fetch
+    let targetManagerId = userId;
+    if ((userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) && manager_id) {
+      targetManagerId = manager_id;
+    }
+
+    // Get all managers for dropdown (admin/DM only)
+    let allManagers = [];
+    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
+      allManagers = await db.collection('users').find({
+        role: UserRole.MANAGER,
+        is_active: true
+      }).toArray();
+    }
+
+    // Get members under the manager
+    const members = await db.collection('users').find({
+      manager_id: targetManagerId,
+      is_active: true
+    }).toArray();
+
+    const memberIds = members.map(m => m._id.toString());
+
+    // Get today's attendance
+    const todayAttendance = await db.collection('time_sessions').find({
+      employee_id: { $in: memberIds },
+      date: today
+    }).toArray();
+    const attendanceMap = {};
+    todayAttendance.forEach(a => {
+      attendanceMap[a.employee_id] = a;
+    });
+
+    // Get worksheets for date range
+    const worksheets = await db.collection('worksheets').find({
+      employee_id: { $in: memberIds },
+      date: { $gte: startDate, $lte: endDate }
+    }).toArray();
+
+    // Get forms for form names
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    const forms = formIds.length > 0 ? await db.collection('forms').find({
+      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    }).toArray() : [];
+    const formMap = {};
+    forms.forEach(f => {
+      formMap[f._id.toString()] = f.name;
+    });
+
+    // Build member data with worksheet details
+    const memberData = members.map(member => {
+      const memberId = member._id.toString();
+      const memberWorksheets = worksheets.filter(w => w.employee_id === memberId);
+      const attendance = attendanceMap[memberId];
+
+      // Aggregate worksheet data
+      let totalHours = 0;
+      let totalImageCount = 0;
+      let totalPleoCount = 0;
+
+      const worksheetDetails = memberWorksheets.map(ws => {
+        let imageCount = 0;
+        let pleoCount = 0;
+
+        if (ws.form_responses) {
+          ws.form_responses.forEach(resp => {
+            if (resp.field_id === 'image_count' ||
+                (resp.field_label && resp.field_label.toLowerCase().includes('image'))) {
+              imageCount += parseInt(resp.value) || 0;
+            }
+            if (resp.field_id === 'pleo_validation_count' ||
+                resp.field_id === 'pleo_count' ||
+                (resp.field_label && (resp.field_label.toLowerCase().includes('pleo') ||
+                 resp.field_label.toLowerCase().includes('validation')))) {
+              pleoCount += parseInt(resp.value) || 0;
+            }
+          });
+        }
+
+        totalHours += ws.total_hours || 0;
+        totalImageCount += imageCount;
+        totalPleoCount += pleoCount;
+
+        return {
+          id: ws._id.toString(),
+          date: ws.date,
+          form_name: formMap[ws.form_id] || null,
+          status: ws.status,
+          total_hours: ws.total_hours || 0,
+          image_count: imageCount,
+          pleo_validation_count: pleoCount,
+          notes: ws.notes
+        };
+      });
+
+      return {
+        id: memberId,
+        name: member.full_name,
+        employee_id: member.employee_id,
+        email: member.email,
+        role: member.role,
+        department: member.department,
+        is_logged_in: attendance ? ['active', 'on_break'].includes(attendance.status) : false,
+        login_time: attendance?.login_time || null,
+        total_worksheets: memberWorksheets.length,
+        total_hours: Math.round(totalHours * 100) / 100,
+        total_image_count: totalImageCount,
+        total_pleo_validation: totalPleoCount,
+        worksheets: worksheetDetails
+      };
+    });
+
+    res.json({
+      managers: allManagers.map(m => ({
+        id: m._id.toString(),
+        name: m.full_name
+      })),
+      selected_manager_id: targetManagerId,
+      date_range: { start: startDate, end: endDate },
+      generated_at: moment.tz(IST).format(),
+      data: memberData
+    });
+  } catch (error) {
+    console.error('Get manager members report error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
 // GET /reports/export/productivity - Export productivity report as CSV
 app.get('/reports/export/productivity', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
