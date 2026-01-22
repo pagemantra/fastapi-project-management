@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../api/services';
-import { message } from 'antd';
+import { message, Spin } from 'antd';
 
 const AuthContext = createContext(null);
 
@@ -16,10 +16,6 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    checkAuth();
-  }, []);
-
   const checkAuth = async () => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -27,12 +23,20 @@ export const AuthProvider = ({ children }) => {
         const response = await authService.getMe();
         setUser(response.data);
       } catch (error) {
+        console.error('Auth check failed:', error);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        setUser(null);
       }
+    } else {
+      setUser(null);
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
 
   const login = async (employee_id, password) => {
     try {
@@ -85,6 +89,15 @@ export const AuthProvider = ({ children }) => {
     hasRole,
     checkAuth,
   };
+
+  // Show loading spinner while checking auth
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <Spin size="large" tip="Loading..." />
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider value={value}>

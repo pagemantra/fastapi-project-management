@@ -36,6 +36,9 @@ const Worksheets = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
 
   useEffect(() => {
+    // Only fetch data when user is available
+    if (!user) return;
+
     fetchWorksheets();
     if (isTeamLead()) {
       fetchPendingVerification();
@@ -47,7 +50,7 @@ const Worksheets = () => {
     if (isEmployee() || isTeamLead() || isManager()) {
       fetchTeamAndForm();
     }
-  }, []);
+  }, [user]);
 
   const fetchWorksheets = async () => {
     try {

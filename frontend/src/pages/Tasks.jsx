@@ -22,11 +22,12 @@ const Tasks = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
 
   useEffect(() => {
+    if (!user) return;
     fetchTasks();
     if (!isEmployee()) {
       fetchEmployees();
     }
-  }, []);
+  }, [user]);
 
   const fetchTasks = async () => {
     try {

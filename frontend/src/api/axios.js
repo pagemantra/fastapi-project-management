@@ -49,11 +49,17 @@ api.interceptors.response.use(
         // Bad request - let the calling component handle the specific error message
         break;
       case 401:
-        // Unauthorized - redirect to login
+        // Unauthorized - clear tokens and let ProtectedRoute handle redirect
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        message.error('Session expired - please login again');
-        window.location.href = '/login';
+        // Only show message and redirect if not already on login page
+        if (!window.location.pathname.includes('/login')) {
+          message.error('Session expired - please login again');
+          // Use a small delay to ensure message is shown before redirect
+          setTimeout(() => {
+            window.location.href = '/login';
+          }, 100);
+        }
         break;
       case 403:
         // Forbidden

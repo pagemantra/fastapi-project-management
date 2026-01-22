@@ -26,8 +26,9 @@ const Dashboard = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (!user) return;
     fetchDashboardData();
-  }, []);
+  }, [user]);
 
   const fetchDashboardData = async () => {
     try {

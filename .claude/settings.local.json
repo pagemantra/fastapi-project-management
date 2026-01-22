@@ -15,7 +15,10 @@
       "Bash(node create-admin.js:*)",
       "Bash(node verify-users.js:*)",
       "Bash(del update-users.js create-admin.js verify-users.js)",
-      "Bash(node fix-admin.js:*)"
+      "Bash(node fix-admin.js:*)",
+      "Bash(dir:*)",
+      "Bash(npm run lint)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []

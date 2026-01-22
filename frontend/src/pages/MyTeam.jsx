@@ -24,8 +24,9 @@ const MyTeam = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (!user) return;
     fetchTeamData();
-  }, []);
+  }, [user]);
 
   const fetchTeamData = async () => {
     try {
