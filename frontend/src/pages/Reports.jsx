@@ -11,7 +11,6 @@ import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
-const { TabPane } = Tabs;
 
 const Reports = () => {
   const [loading, setLoading] = useState(false);
@@ -249,125 +248,144 @@ const Reports = () => {
       )}
 
       <Spin spinning={loading}>
-        <Tabs defaultActiveKey="productivity">
-          <TabPane tab="Productivity" key="productivity">
-            <Card
-              title="Associate Productivity Report"
-              extra={
-                <Button icon={<DownloadOutlined />} onClick={() => handleExport('productivity')}>
-                  Export CSV
-                </Button>
-              }
-            >
-              {productivityChartData.length > 0 && (
-                <div style={{ marginBottom: 24 }}>
-                  <Column
-                    data={productivityChartData}
-                    xField="name"
-                    yField="value"
-                    label={{
-                      position: 'top',
-                      formatter: ({ value }) => `${value}%`,
-                    }}
-                    height={250}
-                    meta={{
-                      value: { alias: 'Completion Rate (%)' },
-                    }}
+        <Tabs
+          defaultActiveKey="productivity"
+          items={[
+            {
+              key: 'productivity',
+              label: 'Productivity',
+              children: (
+                <Card
+                  title="Associate Productivity Report"
+                  extra={
+                    <Button icon={<DownloadOutlined />} onClick={() => handleExport('productivity')}>
+                      Export CSV
+                    </Button>
+                  }
+                >
+                  {productivityChartData.length > 0 && (
+                    <div style={{ marginBottom: 24 }}>
+                      <Column
+                        data={productivityChartData}
+                        xField="name"
+                        yField="value"
+                        label={{
+                          position: 'top',
+                          formatter: ({ value }) => `${value}%`,
+                        }}
+                        height={250}
+                        meta={{
+                          value: { alias: 'Completion Rate (%)' },
+                        }}
+                      />
+                    </div>
+                  )}
+                  <Table
+                    dataSource={productivityData}
+                    columns={productivityColumns}
+                    rowKey="employee_id"
+                    pagination={{ pageSize: 10 }}
+                    scroll={{ x: true }}
                   />
-                </div>
-              )}
-              <Table
-                dataSource={productivityData}
-                columns={productivityColumns}
-                rowKey="employee_id"
-                pagination={{ pageSize: 10 }}
-                scroll={{ x: true }}
-              />
-            </Card>
-          </TabPane>
-
-          <TabPane tab="Attendance" key="attendance">
-            <Card
-              title="Attendance Report"
-              extra={
-                <Button icon={<DownloadOutlined />} onClick={() => handleExport('attendance')}>
-                  Export CSV
-                </Button>
-              }
-            >
-              <Table
-                dataSource={attendanceData}
-                columns={attendanceColumns}
-                rowKey={(r) => `${r.employee_id}_${r.date}`}
-                pagination={{ pageSize: 15 }}
-                scroll={{ x: true }}
-              />
-            </Card>
-          </TabPane>
-
-          <TabPane tab="Overtime" key="overtime">
-            <Card
-              title="Overtime Report"
-              extra={
-                <Button icon={<DownloadOutlined />} onClick={() => handleExport('overtime')}>
-                  Export CSV
-                </Button>
-              }
-            >
-              <Table
-                dataSource={overtimeData}
-                columns={overtimeColumns}
-                rowKey="employee_id"
-                pagination={{ pageSize: 10 }}
-              />
-            </Card>
-          </TabPane>
-
-          <TabPane tab="Worksheet Analytics" key="worksheets">
-            <Card title="Worksheet Analytics">
-              <Row gutter={[16, 16]}>
-                <Col xs={24} md={12}>
-                  {worksheetChartData.length > 0 && (
-                    <Pie
-                      data={worksheetChartData}
-                      angleField="count"
-                      colorField="status"
-                      radius={0.8}
-                      label={{
-                        type: 'outer',
-                        formatter: ({ status, count }) => `${status}: ${count}`,
-                      }}
-                      height={300}
-                    />
-                  )}
-                </Col>
-                <Col xs={24} md={12}>
-                  <Title level={5}>Daily Submission Trend</Title>
-                  {worksheetAnalytics?.daily_trend?.length > 0 && (
-                    <Column
-                      data={worksheetAnalytics.daily_trend}
-                      xField="date"
-                      yField="submitted"
-                      height={250}
-                    />
-                  )}
-                </Col>
-              </Row>
-            </Card>
-          </TabPane>
-
-          <TabPane tab="Team Performance" key="team">
-            <Card title="Team Performance Report">
-              <Table
-                dataSource={teamPerformance}
-                columns={teamColumns}
-                rowKey="team_id"
-                pagination={{ pageSize: 10 }}
-                scroll={{ x: true }}
-              />
-            </Card>
-          </TabPane>
-        </Tabs>
+                </Card>
+              ),
+            },
+            {
+              key: 'attendance',
+              label: 'Attendance',
+              children: (
+                <Card
+                  title="Attendance Report"
+                  extra={
+                    <Button icon={<DownloadOutlined />} onClick={() => handleExport('attendance')}>
+                      Export CSV
+                    </Button>
+                  }
+                >
+                  <Table
+                    dataSource={attendanceData}
+                    columns={attendanceColumns}
+                    rowKey={(r) => `${r.employee_id}_${r.date}`}
+                    pagination={{ pageSize: 15 }}
+                    scroll={{ x: true }}
+                  />
+                </Card>
+              ),
+            },
+            {
+              key: 'overtime',
+              label: 'Overtime',
+              children: (
+                <Card
+                  title="Overtime Report"
+                  extra={
+                    <Button icon={<DownloadOutlined />} onClick={() => handleExport('overtime')}>
+                      Export CSV
+                    </Button>
+                  }
+                >
+                  <Table
+                    dataSource={overtimeData}
+                    columns={overtimeColumns}
+                    rowKey="employee_id"
+                    pagination={{ pageSize: 10 }}
+                  />
+                </Card>
+              ),
+            },
+            {
+              key: 'worksheets',
+              label: 'Worksheet Analytics',
+              children: (
+                <Card title="Worksheet Analytics">
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} md={12}>
+                      {worksheetChartData.length > 0 && (
+                        <Pie
+                          data={worksheetChartData}
+                          angleField="count"
+                          colorField="status"
+                          radius={0.8}
+                          label={{
+                            type: 'outer',
+                            formatter: ({ status, count }) => `${status}: ${count}`,
+                          }}
+                          height={300}
+                        />
+                      )}
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Title level={5}>Daily Submission Trend</Title>
+                      {worksheetAnalytics?.daily_trend?.length > 0 && (
+                        <Column
+                          data={worksheetAnalytics.daily_trend}
+                          xField="date"
+                          yField="submitted"
+                          height={250}
+                        />
+                      )}
+                    </Col>
+                  </Row>
+                </Card>
+              ),
+            },
+            {
+              key: 'team',
+              label: 'Team Performance',
+              children: (
+                <Card title="Team Performance Report">
+                  <Table
+                    dataSource={teamPerformance}
+                    columns={teamColumns}
+                    rowKey="team_id"
+                    pagination={{ pageSize: 10 }}
+                    scroll={{ x: true }}
+                  />
+                </Card>
+              ),
+            },
+          ]}
+        />
       </Spin>
     </div>
   );

@@ -10,7 +10,6 @@ import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
-const { TabPane } = Tabs;
 const { RangePicker } = DatePicker;
 
 const Worksheets = () => {
@@ -893,84 +892,93 @@ const Worksheets = () => {
         />
       )}
 
-      <Tabs defaultActiveKey="all">
-        <TabPane tab="All Worksheets" key="all">
-          <Card>
-            {/* Filter and Export Options - Only for Admin, Manager, Team Lead */}
-            {(isAdmin() || isManager() || isTeamLead()) && (
-              <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
-                <Col>
-                  <Space>
-                    <FilterOutlined />
-                    <Text>Filter by Date:</Text>
-                    <RangePicker
-                      value={dateRange}
-                      onChange={handleDateFilter}
-                      format="YYYY-MM-DD"
-                    />
-                    {dateRange && (
-                      <Button size="small" onClick={handleClearFilter}>
-                        Clear Filter
+      <Tabs
+        defaultActiveKey="all"
+        items={[
+          {
+            key: 'all',
+            label: 'All Worksheets',
+            children: (
+              <Card>
+                {/* Filter and Export Options - Only for Admin, Manager, Team Lead */}
+                {(isAdmin() || isManager() || isTeamLead()) && (
+                  <Row gutter={16} style={{ marginBottom: 16 }} align="middle">
+                    <Col>
+                      <Space>
+                        <FilterOutlined />
+                        <Text>Filter by Date:</Text>
+                        <RangePicker
+                          value={dateRange}
+                          onChange={handleDateFilter}
+                          format="YYYY-MM-DD"
+                        />
+                        {dateRange && (
+                          <Button size="small" onClick={handleClearFilter}>
+                            Clear Filter
+                          </Button>
+                        )}
+                      </Space>
+                    </Col>
+                    <Col flex="auto" style={{ textAlign: 'right' }}>
+                      <Button
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={handleExportCSV}
+                      >
+                        Export Data
                       </Button>
-                    )}
+                    </Col>
+                  </Row>
+                )}
+                <Table
+                  dataSource={getDisplayData()}
+                  columns={columns}
+                  rowKey="id"
+                  loading={loading}
+                  pagination={{ pageSize: 10 }}
+                />
+              </Card>
+            ),
+          },
+          ...(isTeamLead() ? [{
+            key: 'verification',
+            label: `Pending Verification (${pendingVerification.length})`,
+            children: (
+              <Card>
+                <Table
+                  dataSource={pendingVerification}
+                  columns={verificationColumns}
+                  rowKey="id"
+                  pagination={{ pageSize: 10 }}
+                />
+              </Card>
+            ),
+          }] : []),
+          ...((isManager() || isAdmin()) ? [{
+            key: 'approval',
+            label: `Pending Approval (${pendingApproval.length})`,
+            children: (
+              <Card>
+                {selectedRows.length > 0 && (
+                  <Space style={{ marginBottom: 16 }}>
+                    <Text>Selected: {selectedRows.length}</Text>
+                    <Button type="primary" onClick={handleBulkApprove}>
+                      Bulk Approve
+                    </Button>
                   </Space>
-                </Col>
-                <Col flex="auto" style={{ textAlign: 'right' }}>
-                  <Button
-                    type="primary"
-                    icon={<DownloadOutlined />}
-                    onClick={handleExportCSV}
-                  >
-                    Export Data
-                  </Button>
-                </Col>
-              </Row>
-            )}
-            <Table
-              dataSource={getDisplayData()}
-              columns={columns}
-              rowKey="id"
-              loading={loading}
-              pagination={{ pageSize: 10 }}
-            />
-          </Card>
-        </TabPane>
-
-        {isTeamLead() && (
-          <TabPane tab={`Pending Verification (${pendingVerification.length})`} key="verification">
-            <Card>
-              <Table
-                dataSource={pendingVerification}
-                columns={verificationColumns}
-                rowKey="id"
-                pagination={{ pageSize: 10 }}
-              />
-            </Card>
-          </TabPane>
-        )}
-
-        {(isManager() || isAdmin()) && (
-          <TabPane tab={`Pending Approval (${pendingApproval.length})`} key="approval">
-            <Card>
-              {selectedRows.length > 0 && (
-                <Space style={{ marginBottom: 16 }}>
-                  <Text>Selected: {selectedRows.length}</Text>
-                  <Button type="primary" onClick={handleBulkApprove}>
-                    Bulk Approve
-                  </Button>
-                </Space>
-              )}
-              <Table
-                dataSource={pendingApproval}
-                columns={approvalColumns}
-                rowKey="id"
-                rowSelection={rowSelection}
-                pagination={{ pageSize: 10 }}
-              />
-            </Card>
-          </TabPane>
-        )}
-      </Tabs>
+                )}
+                <Table
+                  dataSource={pendingApproval}
+                  columns={approvalColumns}
+                  rowKey="id"
+                  rowSelection={rowSelection}
+                  pagination={{ pageSize: 10 }}
+                />
+              </Card>
+            ),
+          }] : []),
+        ]}
+      />
 
       {/* Create Worksheet Modal */}
       <Modal
