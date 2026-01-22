@@ -4718,6 +4718,9 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
       const teamLead = team.team_lead_id ? userMap[team.team_lead_id] : null;
       const manager = team.manager_id ? userMap[team.manager_id] : null;
 
+      // Check if this is a project_managers type team (need worksheet details)
+      const isProjectManagersTeam = aggregatedData.type === 'project_managers';
+
       // Build member details with worksheet data
       const memberDetails = allTeamMembers.map(memberId => {
         const user = userMap[memberId];
@@ -4729,41 +4732,36 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
         let memberPleoCount = 0;
         let totalHours = 0;
 
-        // Build detailed worksheet list for this member
-        const worksheetDetails = memberWorksheets.map(ws => {
-          let imageCount = 0;
-          let pleoCount = 0;
-
+        // Calculate totals from worksheets
+        memberWorksheets.forEach(ws => {
+          totalHours += ws.total_hours || 0;
           if (ws.form_responses) {
             ws.form_responses.forEach(resp => {
               if (resp.field_id === 'image_count' ||
                   (resp.field_label && resp.field_label.toLowerCase().includes('image'))) {
-                imageCount += parseInt(resp.value) || 0;
+                memberImageCount += parseInt(resp.value) || 0;
               }
               if (resp.field_id === 'pleo_validation_count' ||
                   resp.field_id === 'pleo_count' ||
                   (resp.field_label && (resp.field_label.toLowerCase().includes('pleo') ||
                    resp.field_label.toLowerCase().includes('validation')))) {
-                pleoCount += parseInt(resp.value) || 0;
+                memberPleoCount += parseInt(resp.value) || 0;
               }
             });
           }
+        });
 
-          totalHours += ws.total_hours || 0;
-          memberImageCount += imageCount;
-          memberPleoCount += pleoCount;
-
-          return {
+        // Only build detailed worksheet list for project_managers type teams
+        let worksheetDetails = [];
+        if (isProjectManagersTeam) {
+          worksheetDetails = memberWorksheets.slice(0, 20).map(ws => ({
             id: ws._id.toString(),
             date: ws.date,
             form_name: formMap[ws.form_id] || null,
             status: ws.status,
-            total_hours: ws.total_hours || 0,
-            image_count: imageCount,
-            pleo_validation_count: pleoCount,
-            notes: ws.notes
-          };
-        });
+            total_hours: ws.total_hours || 0
+          }));
+        }
 
         // Get member's tasks
         const memberTasks = tasksByMember[memberId] || [];
@@ -4878,40 +4876,33 @@ app.get('/reports/manager-members', authenticate, requireRoles([UserRole.ADMIN, 
       let totalImageCount = 0;
       let totalPleoCount = 0;
 
-      const worksheetDetails = memberWorksheets.map(ws => {
-        let imageCount = 0;
-        let pleoCount = 0;
-
+      // Calculate totals first
+      memberWorksheets.forEach(ws => {
+        totalHours += ws.total_hours || 0;
         if (ws.form_responses) {
           ws.form_responses.forEach(resp => {
             if (resp.field_id === 'image_count' ||
                 (resp.field_label && resp.field_label.toLowerCase().includes('image'))) {
-              imageCount += parseInt(resp.value) || 0;
+              totalImageCount += parseInt(resp.value) || 0;
             }
             if (resp.field_id === 'pleo_validation_count' ||
                 resp.field_id === 'pleo_count' ||
                 (resp.field_label && (resp.field_label.toLowerCase().includes('pleo') ||
                  resp.field_label.toLowerCase().includes('validation')))) {
-              pleoCount += parseInt(resp.value) || 0;
+              totalPleoCount += parseInt(resp.value) || 0;
             }
           });
         }
-
-        totalHours += ws.total_hours || 0;
-        totalImageCount += imageCount;
-        totalPleoCount += pleoCount;
-
-        return {
-          id: ws._id.toString(),
-          date: ws.date,
-          form_name: formMap[ws.form_id] || null,
-          status: ws.status,
-          total_hours: ws.total_hours || 0,
-          image_count: imageCount,
-          pleo_validation_count: pleoCount,
-          notes: ws.notes
-        };
       });
+
+      // Limit worksheet details to most recent 15
+      const worksheetDetails = memberWorksheets.slice(0, 15).map(ws => ({
+        id: ws._id.toString(),
+        date: ws.date,
+        form_name: formMap[ws.form_id] || null,
+        status: ws.status,
+        total_hours: ws.total_hours || 0
+      }));
 
       return {
         id: memberId,

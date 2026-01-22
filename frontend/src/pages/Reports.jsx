@@ -15,7 +15,8 @@ const { Panel } = Collapse;
 const { Option } = Select;
 
 const Reports = () => {
-  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('productivity');
+  const [loading, setLoading] = useState({});
   const [dateRange, setDateRange] = useState([
     dayjs().subtract(30, 'day'),
     dayjs()
@@ -29,71 +30,92 @@ const Reports = () => {
   const [managerMembers, setManagerMembers] = useState({ managers: [], data: [] });
   const [selectedManager, setSelectedManager] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
-  const [selectedProjectMember, setSelectedProjectMember] = useState({}); // Per-project member selection
-  useAuth(); // Auth check
+  const [selectedProjectMember, setSelectedProjectMember] = useState({});
+  const [loadedTabs, setLoadedTabs] = useState({});
+  useAuth();
 
-  useEffect(() => {
-    fetchAllReports();
-  }, [dateRange]);
+  const getParams = () => ({
+    start_date: dateRange[0].format('YYYY-MM-DD'),
+    end_date: dateRange[1].format('YYYY-MM-DD'),
+  });
 
-  const fetchAllReports = async () => {
-    setLoading(true);
-    const params = {
-      start_date: dateRange[0].format('YYYY-MM-DD'),
-      end_date: dateRange[1].format('YYYY-MM-DD'),
-    };
+  // Fetch data for specific tab
+  const fetchTabData = async (tab, forceRefresh = false) => {
+    if (loadedTabs[tab] && !forceRefresh) return;
+
+    setLoading(prev => ({ ...prev, [tab]: true }));
+    const params = getParams();
 
     try {
-      // Fetch all reports in parallel including manager members
-      const [productivity, attendance, overtime, worksheet, team, projects, managerMembersRes] = await Promise.all([
-        reportService.getProductivityReport(params),
-        reportService.getAttendanceReport(params),
-        reportService.getOvertimeReport(params),
-        reportService.getWorksheetAnalytics(params),
-        reportService.getTeamPerformance(params),
-        reportService.getProjectsReport(params),
-        reportService.getManagerMembers(params),
-      ]);
-
-      setProductivityData(productivity.data.data || []);
-      setAttendanceData(attendance.data.data || []);
-      setOvertimeData(overtime.data.data || []);
-      setWorksheetAnalytics(worksheet.data);
-      setTeamPerformance(team.data.data || []);
-      setProjectsData(projects.data.data || []);
-      setManagerMembers({
-        managers: managerMembersRes.data.managers || [],
-        data: managerMembersRes.data.data || []
-      });
+      switch (tab) {
+        case 'productivity':
+          const productivity = await reportService.getProductivityReport(params);
+          setProductivityData(productivity.data.data || []);
+          break;
+        case 'projects':
+          const [projects, managerMembersRes] = await Promise.all([
+            reportService.getProjectsReport(params),
+            reportService.getManagerMembers(params),
+          ]);
+          setProjectsData(projects.data.data || []);
+          setManagerMembers({
+            managers: managerMembersRes.data.managers || [],
+            data: managerMembersRes.data.data || []
+          });
+          break;
+        case 'attendance':
+          const attendance = await reportService.getAttendanceReport(params);
+          setAttendanceData(attendance.data.data || []);
+          break;
+        case 'overtime':
+          const overtime = await reportService.getOvertimeReport(params);
+          setOvertimeData(overtime.data.data || []);
+          break;
+        case 'worksheets':
+          const worksheet = await reportService.getWorksheetAnalytics(params);
+          setWorksheetAnalytics(worksheet.data);
+          break;
+        case 'team':
+          const team = await reportService.getTeamPerformance(params);
+          setTeamPerformance(team.data.data || []);
+          break;
+      }
+      setLoadedTabs(prev => ({ ...prev, [tab]: true }));
     } catch {
-      message.error('Failed to fetch reports');
+      message.error('Failed to fetch report data');
     } finally {
-      setLoading(false);
+      setLoading(prev => ({ ...prev, [tab]: false }));
     }
   };
 
-  const fetchManagerMembers = async (params) => {
-    try {
-      const managerParams = {
-        ...params,
-        ...(selectedManager && { manager_id: selectedManager })
-      };
-      const response = await reportService.getManagerMembers(managerParams);
-      setManagerMembers({
-        managers: response.data.managers || [],
-        data: response.data.data || []
-      });
-    } catch (error) {
-      console.error('Failed to fetch manager members:', error);
-    }
+  // Load initial tab on mount
+  useEffect(() => {
+    fetchTabData('productivity');
+  }, []);
+
+  // Refetch current tab when date range changes
+  useEffect(() => {
+    setLoadedTabs({});
+    fetchTabData(activeTab, true);
+  }, [dateRange]);
+
+  // Load data when tab changes
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    fetchTabData(tab);
+  };
+
+  // Refresh all loaded tabs
+  const handleRefresh = () => {
+    setLoadedTabs({});
+    fetchTabData(activeTab, true);
   };
 
   const handleManagerChange = async (managerId) => {
     setSelectedManager(managerId);
     setSelectedMember(null);
     const params = {
-      start_date: dateRange[0].format('YYYY-MM-DD'),
-      end_date: dateRange[1].format('YYYY-MM-DD'),
+      ...getParams(),
       manager_id: managerId
     };
     try {
@@ -248,7 +270,7 @@ const Reports = () => {
               value={dateRange}
               onChange={(dates) => setDateRange(dates)}
             />
-            <Button icon={<ReloadOutlined />} onClick={fetchAllReports}>
+            <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
               Refresh
             </Button>
           </Space>
@@ -297,9 +319,10 @@ const Reports = () => {
         </Row>
       )}
 
-      <Spin spinning={loading}>
+      <Spin spinning={loading[activeTab]}>
         <Tabs
-          defaultActiveKey="productivity"
+          activeKey={activeTab}
+          onChange={handleTabChange}
           items={[
             {
               key: 'productivity',
