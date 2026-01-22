@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col
@@ -10,59 +10,81 @@ import { useAuth } from '../contexts/AuthContext';
 const { Title } = Typography;
 const { Option } = Select;
 
+// Module-level cache for instant loading
+const usersCache = {
+  users: null,
+  managers: null,
+  teamLeads: null
+};
+
 const Users = () => {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState(usersCache.users || []);
+  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [managers, setManagers] = useState([]);
-  const [teamLeads, setTeamLeads] = useState([]);
+  const [managers, setManagers] = useState(usersCache.managers || []);
+  const [teamLeads, setTeamLeads] = useState(usersCache.teamLeads || []);
   const [form] = Form.useForm();
   const { user: currentUser, isAdmin, isManager } = useAuth();
+  const fetchingRef = useRef(false);
 
-  useEffect(() => {
-    fetchUsers();
-    fetchManagers();
-    fetchTeamLeads();
-  }, []);
+  const fetchUsers = useCallback(async (showLoading = false) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
 
-  const fetchUsers = async () => {
     try {
-      setLoading(true);
+      if (showLoading && !usersCache.users) setLoading(true);
       const response = await userService.getUsers({});
-      setUsers(response.data || []);
+      const data = response.data || [];
+      usersCache.users = data;
+      setUsers(data);
     } catch (error) {
       console.error('Failed to fetch users:', error);
-      message.error('Failed to load users');
-      setUsers([]);
+      if (!usersCache.users) setUsers([]);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
-  };
+  }, []);
 
-  const fetchManagers = async () => {
+  const fetchManagers = useCallback(async () => {
     try {
       if (isAdmin()) {
         const response = await userService.getManagers();
-        setManagers(response.data || []);
+        const data = response.data || [];
+        usersCache.managers = data;
+        setManagers(data);
       }
     } catch (error) {
       console.error('Failed to fetch managers:', error);
-      message.error('Failed to load managers');
-      setManagers([]);
+      if (!usersCache.managers) setManagers([]);
     }
-  };
+  }, [isAdmin]);
 
-  const fetchTeamLeads = async () => {
+  const fetchTeamLeads = useCallback(async () => {
     try {
       const response = await userService.getTeamLeads();
-      setTeamLeads(response.data || []);
+      const data = response.data || [];
+      usersCache.teamLeads = data;
+      setTeamLeads(data);
     } catch (error) {
       console.error('Failed to fetch team leads:', error);
-      message.error('Failed to load team leads');
-      setTeamLeads([]);
+      if (!usersCache.teamLeads) setTeamLeads([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Use cached data if available
+    if (usersCache.users) {
+      setUsers(usersCache.users);
+      setManagers(usersCache.managers || []);
+      setTeamLeads(usersCache.teamLeads || []);
+    }
+
+    fetchUsers(!usersCache.users);
+    fetchManagers();
+    fetchTeamLeads();
+  }, [fetchUsers, fetchManagers, fetchTeamLeads]);
 
   const handleCreate = () => {
     setEditingUser(null);
@@ -83,7 +105,7 @@ const Users = () => {
     try {
       await userService.deleteUser(id);
       message.success('User deactivated successfully');
-      fetchUsers();
+      fetchUsers(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to deactivate user');
     }
@@ -99,7 +121,7 @@ const Users = () => {
         message.success('User created successfully');
       }
       setModalVisible(false);
-      fetchUsers();
+      fetchUsers(false);
     } catch (error) {
       const detail = error.response?.data?.detail;
       if (Array.isArray(detail)) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   message, Typography, Row, Col, DatePicker, Tabs, Checkbox, Popconfirm, TimePicker, Alert
@@ -12,21 +12,33 @@ const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { RangePicker } = DatePicker;
 
+// Module-level cache for instant loading
+const worksheetsCache = {
+  worksheets: null,
+  pendingVerification: null,
+  pendingApproval: null,
+  forms: null,
+  teamForm: null,
+  myTeam: null,
+  userId: null
+};
+
 const Worksheets = () => {
-  const [worksheets, setWorksheets] = useState([]);
-  const [pendingVerification, setPendingVerification] = useState([]);
-  const [pendingApproval, setPendingApproval] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [worksheets, setWorksheets] = useState(worksheetsCache.worksheets || []);
+  const [pendingVerification, setPendingVerification] = useState(worksheetsCache.pendingVerification || []);
+  const [pendingApproval, setPendingApproval] = useState(worksheetsCache.pendingApproval || []);
+  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedWorksheet, setSelectedWorksheet] = useState(null);
   const [selectedRows, setSelectedRows] = useState([]);
-  const [forms, setForms] = useState([]);
-  const [teamForm, setTeamForm] = useState(null);  // Default form from team
-  const [myTeam, setMyTeam] = useState(null);  // User's team info
+  const [forms, setForms] = useState(worksheetsCache.forms || []);
+  const [teamForm, setTeamForm] = useState(worksheetsCache.teamForm);
+  const [myTeam, setMyTeam] = useState(worksheetsCache.myTeam);
   const [dateRange, setDateRange] = useState(null);
+  const fetchingRef = useRef(false);
   const [filteredWorksheets, setFilteredWorksheets] = useState([]);
   const [totalHours, setTotalHours] = useState(0);  // Calculated total hours
   const [editTotalHours, setEditTotalHours] = useState(0);  // For edit modal
@@ -39,7 +51,17 @@ const Worksheets = () => {
     // Only fetch data when user is available
     if (!user) return;
 
-    fetchWorksheets();
+    // Use cached data if available for same user
+    if (worksheetsCache.userId === user._id && worksheetsCache.worksheets) {
+      setWorksheets(worksheetsCache.worksheets);
+      setPendingVerification(worksheetsCache.pendingVerification || []);
+      setPendingApproval(worksheetsCache.pendingApproval || []);
+      setForms(worksheetsCache.forms || []);
+      setTeamForm(worksheetsCache.teamForm);
+      setMyTeam(worksheetsCache.myTeam);
+    }
+
+    fetchWorksheets(!worksheetsCache.worksheets);
     if (isTeamLead()) {
       fetchPendingVerification();
     }
@@ -52,43 +74,52 @@ const Worksheets = () => {
     }
   }, [user]);
 
-  const fetchWorksheets = async () => {
+  const fetchWorksheets = async (showLoading = false) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+
     try {
-      setLoading(true);
+      if (showLoading && !worksheetsCache.worksheets) setLoading(true);
       // Employees, Team Leads, and Managers get their own worksheets
       // Admin gets all worksheets
       const response = (isEmployee() || isTeamLead() || isManager())
         ? await worksheetService.getMyWorksheets({})
         : await worksheetService.getWorksheets({});
-      setWorksheets(response.data || []);
+      const data = response.data || [];
+      worksheetsCache.worksheets = data;
+      worksheetsCache.userId = user?._id;
+      setWorksheets(data);
     } catch (error) {
       console.error('Failed to fetch worksheets:', error);
       message.error('Failed to load worksheets');
-      setWorksheets([]);
+      if (!worksheetsCache.worksheets) setWorksheets([]);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   };
 
   const fetchPendingVerification = async () => {
     try {
       const response = await worksheetService.getPendingVerification();
-      setPendingVerification(response.data || []);
+      const data = response.data || [];
+      worksheetsCache.pendingVerification = data;
+      setPendingVerification(data);
     } catch (error) {
       console.error('Failed to fetch pending verification:', error);
-      message.error('Failed to load pending worksheets');
-      setPendingVerification([]);
+      if (!worksheetsCache.pendingVerification) setPendingVerification([]);
     }
   };
 
   const fetchPendingApproval = async () => {
     try {
       const response = await worksheetService.getPendingApproval();
-      setPendingApproval(response.data || []);
+      const data = response.data || [];
+      worksheetsCache.pendingApproval = data;
+      setPendingApproval(data);
     } catch (error) {
       console.error('Failed to fetch pending approval:', error);
-      message.error('Failed to load pending approvals');
-      setPendingApproval([]);
+      if (!worksheetsCache.pendingApproval) setPendingApproval([]);
     }
   };
 
@@ -111,25 +142,29 @@ const Worksheets = () => {
           }
         }
 
+        worksheetsCache.myTeam = selectedTeam;
         setMyTeam(selectedTeam);
 
         // Get forms assigned to this team
         const formsResponse = await formService.getTeamForms(selectedTeam.id);
         const teamForms = formsResponse.data || [];
+        worksheetsCache.forms = teamForms;
         setForms(teamForms);
 
         if (teamForms.length > 0) {
+          worksheetsCache.teamForm = teamForms[0];
           setTeamForm(teamForms[0]);  // Default form for the team
         }
       } else {
         // Fallback: get all active forms if no team found
         const response = await formService.getForms({ is_active: true });
-        setForms(response.data || []);
+        const data = response.data || [];
+        worksheetsCache.forms = data;
+        setForms(data);
       }
     } catch (error) {
       console.error('Failed to fetch team/forms:', error);
-      message.error('Failed to load forms');
-      setForms([]);
+      if (!worksheetsCache.forms) setForms([]);
     }
   };
 
@@ -237,7 +272,7 @@ const Worksheets = () => {
           setModalVisible(false);
           form.resetFields();
           setTotalHours(0);
-          fetchWorksheets();
+          fetchWorksheets(false);
           return;
         }
       } else {
@@ -247,7 +282,7 @@ const Worksheets = () => {
       setModalVisible(false);
       form.resetFields();
       setTotalHours(0);
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       console.error('Worksheet creation failed:', error);
       message.error(error.response?.data?.detail || error.message || 'Failed to create worksheet');
@@ -258,7 +293,7 @@ const Worksheets = () => {
     try {
       await worksheetService.submitWorksheet(worksheetId);
       message.success('Worksheet submitted for verification');
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to submit worksheet');
     }
@@ -269,7 +304,7 @@ const Worksheets = () => {
       await worksheetService.verifyWorksheet(worksheetId);
       message.success('Worksheet verified');
       fetchPendingVerification();
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to verify worksheet');
     }
@@ -280,7 +315,7 @@ const Worksheets = () => {
       await worksheetService.approveWorksheet(worksheetId);
       message.success('Worksheet approved');
       fetchPendingApproval();
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to approve worksheet');
     }
@@ -292,7 +327,7 @@ const Worksheets = () => {
       message.success(`${selectedRows.length} worksheets approved`);
       setSelectedRows([]);
       fetchPendingApproval();
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       message.error('Failed to bulk approve');
     }
@@ -313,7 +348,7 @@ const Worksheets = () => {
       setRejectModalVisible(false);
       fetchPendingVerification();
       fetchPendingApproval();
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       message.error('Failed to reject worksheet');
     }
@@ -422,7 +457,7 @@ const Worksheets = () => {
       }
 
       setEditModalVisible(false);
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to update worksheet');
     }
@@ -433,7 +468,7 @@ const Worksheets = () => {
     try {
       await worksheetService.submitWorksheet(worksheetId);
       message.success('Worksheet resubmitted for verification');
-      fetchWorksheets();
+      fetchWorksheets(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to resubmit worksheet');
     }

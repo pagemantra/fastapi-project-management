@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col, List, Avatar
@@ -10,75 +10,100 @@ import { useAuth } from '../contexts/AuthContext';
 const { Title, Text } = Typography;
 const { Option } = Select;
 
+// Module-level cache for instant loading
+const teamsCache = {
+  teams: null,
+  managers: null,
+  teamLeads: null,
+  employees: null
+};
+
 const Teams = () => {
-  const [teams, setTeams] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [teams, setTeams] = useState(teamsCache.teams || []);
+  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [memberModalVisible, setMemberModalVisible] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState(null);
-  const [managers, setManagers] = useState([]);
-  const [teamLeads, setTeamLeads] = useState([]);
-  const [employees, setEmployees] = useState([]);
+  const [managers, setManagers] = useState(teamsCache.managers || []);
+  const [teamLeads, setTeamLeads] = useState(teamsCache.teamLeads || []);
+  const [employees, setEmployees] = useState(teamsCache.employees || []);
   const [form] = Form.useForm();
   const [memberForm] = Form.useForm();
   const { isAdmin, isManager } = useAuth();
+  const fetchingRef = useRef(false);
 
-  useEffect(() => {
-    fetchTeams();
-    fetchManagers();
-    fetchTeamLeads();
-    fetchEmployees();
-  }, []);
+  const fetchTeams = useCallback(async (showLoading = false) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
 
-  const fetchTeams = async () => {
     try {
-      setLoading(true);
+      if (showLoading && !teamsCache.teams) setLoading(true);
       const response = await teamService.getTeams({});
-      setTeams(response.data || []);
+      const data = response.data || [];
+      teamsCache.teams = data;
+      setTeams(data);
     } catch (error) {
       console.error('Failed to fetch teams:', error);
-      message.error('Failed to load teams');
-      setTeams([]);
+      if (!teamsCache.teams) setTeams([]);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
-  };
+  }, []);
 
-  const fetchManagers = async () => {
+  const fetchManagers = useCallback(async () => {
     try {
       if (isAdmin()) {
         const response = await userService.getManagers();
-        setManagers(response.data || []);
+        const data = response.data || [];
+        teamsCache.managers = data;
+        setManagers(data);
       }
     } catch (error) {
       console.error('Failed to fetch managers:', error);
-      message.error('Failed to load managers');
-      setManagers([]);
+      if (!teamsCache.managers) setManagers([]);
     }
-  };
+  }, [isAdmin]);
 
-  const fetchTeamLeads = async () => {
+  const fetchTeamLeads = useCallback(async () => {
     try {
       const response = await userService.getTeamLeads();
-      setTeamLeads(response.data || []);
+      const data = response.data || [];
+      teamsCache.teamLeads = data;
+      setTeamLeads(data);
     } catch (error) {
       console.error('Failed to fetch team leads:', error);
-      message.error('Failed to load team leads');
-      setTeamLeads([]);
+      if (!teamsCache.teamLeads) setTeamLeads([]);
     }
-  };
+  }, []);
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       const response = await userService.getEmployees();
-      setEmployees(response.data || []);
+      const data = response.data || [];
+      teamsCache.employees = data;
+      setEmployees(data);
     } catch (error) {
       console.error('Failed to fetch employees:', error);
-      message.error('Failed to load employees');
-      setEmployees([]);
+      if (!teamsCache.employees) setEmployees([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Use cached data if available
+    if (teamsCache.teams) {
+      setTeams(teamsCache.teams);
+      setManagers(teamsCache.managers || []);
+      setTeamLeads(teamsCache.teamLeads || []);
+      setEmployees(teamsCache.employees || []);
+    }
+
+    fetchTeams(!teamsCache.teams);
+    fetchManagers();
+    fetchTeamLeads();
+    fetchEmployees();
+  }, [fetchTeams, fetchManagers, fetchTeamLeads, fetchEmployees]);
 
   const handleCreate = () => {
     setEditingTeam(null);
@@ -96,7 +121,7 @@ const Teams = () => {
     try {
       await teamService.deleteTeam(id);
       message.success('Team deactivated successfully');
-      fetchTeams();
+      fetchTeams(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to deactivate team');
     }
@@ -112,7 +137,7 @@ const Teams = () => {
         message.success('Team created successfully');
       }
       setModalVisible(false);
-      fetchTeams();
+      fetchTeams(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Operation failed');
     }
@@ -150,7 +175,7 @@ const Teams = () => {
     try {
       await teamService.addMember(selectedTeam.id, { employee_id: values.employee_id });
       message.success('Member added successfully');
-      fetchTeams();
+      fetchTeams(false);
       // Refresh selected team
       const updatedTeam = await teamService.getTeam(selectedTeam.id);
       setSelectedTeam(updatedTeam.data);
@@ -164,7 +189,7 @@ const Teams = () => {
     try {
       await teamService.removeMember(selectedTeam.id, employeeId);
       message.success('Member removed successfully');
-      fetchTeams();
+      fetchTeams(false);
       // Refresh selected team
       const updatedTeam = await teamService.getTeam(selectedTeam.id);
       setSelectedTeam(updatedTeam.data);

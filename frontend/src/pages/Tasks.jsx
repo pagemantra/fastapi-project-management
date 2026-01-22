@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col, DatePicker, InputNumber
@@ -12,47 +12,71 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
+// Module-level cache for instant loading
+const tasksCache = {
+  tasks: null,
+  employees: null,
+  userId: null
+};
+
 const Tasks = () => {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [tasks, setTasks] = useState(tasksCache.tasks || []);
+  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-  const [employees, setEmployees] = useState([]);
+  const [employees, setEmployees] = useState(tasksCache.employees || []);
   const [form] = Form.useForm();
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
+  const fetchingRef = useRef(false);
 
-  useEffect(() => {
-    if (!user) return;
-    fetchTasks();
-    if (!isEmployee()) {
-      fetchEmployees();
-    }
-  }, [user]);
+  const fetchTasks = useCallback(async (showLoading = false) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
 
-  const fetchTasks = async () => {
     try {
-      setLoading(true);
+      if (showLoading && !tasksCache.tasks) setLoading(true);
       const response = isEmployee()
         ? await taskService.getMyTasks({})
         : await taskService.getTasks({});
-      setTasks(response.data || []);
+      const data = response.data || [];
+      tasksCache.tasks = data;
+      tasksCache.userId = user?._id;
+      setTasks(data);
     } catch (error) {
       console.error('Failed to fetch tasks:', error);
-      setTasks([]);
+      if (!tasksCache.tasks) setTasks([]);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
-  };
+  }, [isEmployee, user]);
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     try {
       const response = await userService.getEmployees();
-      setEmployees(response.data || []);
+      const data = response.data || [];
+      tasksCache.employees = data;
+      setEmployees(data);
     } catch (error) {
       console.error('Failed to fetch employees');
-      setEmployees([]);
+      if (!tasksCache.employees) setEmployees([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    // Use cached data if available for same user
+    if (tasksCache.userId === user._id && tasksCache.tasks) {
+      setTasks(tasksCache.tasks);
+      setEmployees(tasksCache.employees || []);
+    }
+
+    fetchTasks(!tasksCache.tasks);
+    if (!isEmployee()) {
+      fetchEmployees();
+    }
+  }, [user, fetchTasks, fetchEmployees, isEmployee]);
 
   const handleCreate = () => {
     setEditingTask(null);
@@ -73,7 +97,7 @@ const Tasks = () => {
     try {
       await taskService.deleteTask(id);
       message.success('Task deleted successfully');
-      fetchTasks();
+      fetchTasks(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to delete task');
     }
@@ -94,7 +118,7 @@ const Tasks = () => {
         message.success('Task created successfully');
       }
       setModalVisible(false);
-      fetchTasks();
+      fetchTasks(false);
     } catch (error) {
       const detail = error.response?.data?.detail;
       if (Array.isArray(detail)) {
@@ -111,7 +135,7 @@ const Tasks = () => {
     try {
       await taskService.updateTask(taskId, { status: newStatus });
       message.success('Status updated');
-      fetchTasks();
+      fetchTasks(false);
     } catch (error) {
       message.error('Failed to update status');
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   message, Typography, Row, Col, Collapse, Checkbox, InputNumber, Popconfirm
@@ -28,42 +28,63 @@ const fieldTypes = [
   { value: 'rating', label: 'Rating' },
 ];
 
+// Module-level cache for instant loading
+const formsCache = {
+  forms: null,
+  teams: null
+};
+
 const Forms = () => {
-  const [forms, setForms] = useState([]);
-  const [teams, setTeams] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [forms, setForms] = useState(formsCache.forms || []);
+  const [teams, setTeams] = useState(formsCache.teams || []);
+  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingForm, setEditingForm] = useState(null);
   const [fields, setFields] = useState([]);
   const [form] = Form.useForm();
   const { isAdmin, isManager } = useAuth();
+  const fetchingRef = useRef(false);
 
-  useEffect(() => {
-    fetchForms();
-    fetchTeams();
-  }, []);
+  const fetchForms = useCallback(async (showLoading = false) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
 
-  const fetchForms = async () => {
     try {
-      setLoading(true);
+      if (showLoading && !formsCache.forms) setLoading(true);
       const response = await formService.getForms({});
-      setForms(response.data);
+      const data = response.data || [];
+      formsCache.forms = data;
+      setForms(data);
     } catch (error) {
-      message.error('Failed to fetch forms');
+      if (!formsCache.forms) setForms([]);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
-  };
+  }, []);
 
-  const fetchTeams = async () => {
+  const fetchTeams = useCallback(async () => {
     try {
       const response = await teamService.getTeams({});
-      setTeams(response.data);
+      const data = response.data || [];
+      formsCache.teams = data;
+      setTeams(data);
     } catch (error) {
       console.error('Failed to fetch teams:', error);
-      message.error('Failed to load teams');
+      if (!formsCache.teams) setTeams([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Use cached data if available
+    if (formsCache.forms) {
+      setForms(formsCache.forms);
+      setTeams(formsCache.teams || []);
+    }
+
+    fetchForms(!formsCache.forms);
+    fetchTeams();
+  }, [fetchForms, fetchTeams]);
 
   const handleCreate = () => {
     setEditingForm(null);
@@ -87,7 +108,7 @@ const Forms = () => {
     try {
       await formService.deleteForm(id);
       message.success('Form deactivated');
-      fetchForms();
+      fetchForms(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to delete form');
     }
@@ -110,7 +131,7 @@ const Forms = () => {
         message.success('Form created');
       }
       setModalVisible(false);
-      fetchForms();
+      fetchForms(false);
     } catch (error) {
       message.error(error.response?.data?.detail || 'Operation failed');
     }

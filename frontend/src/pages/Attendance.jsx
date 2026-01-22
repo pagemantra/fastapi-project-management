@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Table, DatePicker, Space, Typography, Row, Col, Tag, Statistic, Select, Button, Form, InputNumber, Switch, Modal, message } from 'antd';
 import { ClockCircleOutlined, CoffeeOutlined, FieldTimeOutlined, SettingOutlined } from '@ant-design/icons';
 import { attendanceService, teamService } from '../api/services';
@@ -9,49 +9,77 @@ import dayjs from '../utils/dayjs';
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
+// Module-level cache for instant loading
+const attendanceCache = {
+  history: null,
+  teams: null,
+  dateKey: null
+};
+
 const Attendance = () => {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [history, setHistory] = useState(attendanceCache.history || []);
+  const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState([dayjs().subtract(7, 'day'), dayjs()]);
-  const [teams, setTeams] = useState([]);
+  const [teams, setTeams] = useState(attendanceCache.teams || []);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [breakSettings, setBreakSettings] = useState(null);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [form] = Form.useForm();
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
+  const fetchingRef = useRef(false);
 
-  useEffect(() => {
-    fetchHistory();
-    if (isAdmin() || isManager()) {
-      fetchTeams();
-    }
-  }, [dateRange]);
+  const fetchHistory = useCallback(async (showLoading = false) => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
 
-  const fetchHistory = async () => {
+    const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
+
     try {
-      setLoading(true);
+      if (showLoading && !attendanceCache.history) setLoading(true);
       const params = {
         start_date: dateRange[0].format('YYYY-MM-DD'),
         end_date: dateRange[1].format('YYYY-MM-DD'),
       };
       const response = await attendanceService.getHistory(params);
-      setHistory(response.data);
+      const data = response.data || [];
+      attendanceCache.history = data;
+      attendanceCache.dateKey = dateKey;
+      setHistory(data);
     } catch (error) {
-      message.error('Failed to fetch attendance history');
+      if (!attendanceCache.history) setHistory([]);
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
-  };
+  }, [dateRange]);
 
-  const fetchTeams = async () => {
+  const fetchTeams = useCallback(async () => {
     try {
       const response = await teamService.getTeams({});
-      setTeams(response.data);
+      const data = response.data || [];
+      attendanceCache.teams = data;
+      setTeams(data);
     } catch (error) {
       console.error('Failed to fetch teams:', error);
-      message.error('Failed to load teams');
+      if (!attendanceCache.teams) setTeams([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
+    const needsFetch = attendanceCache.dateKey !== dateKey;
+
+    // Use cached data if available for same date range
+    if (!needsFetch && attendanceCache.history) {
+      setHistory(attendanceCache.history);
+      setTeams(attendanceCache.teams || []);
+    }
+
+    fetchHistory(needsFetch && !attendanceCache.history);
+    if (isAdmin() || isManager()) {
+      fetchTeams();
+    }
+  }, [dateRange, fetchHistory, fetchTeams, isAdmin, isManager]);
 
   const fetchBreakSettings = async (teamId) => {
     try {
