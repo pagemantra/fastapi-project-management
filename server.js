@@ -3458,6 +3458,21 @@ app.get('/worksheets/my-worksheets', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
+    // Fetch form names
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    const forms = formIds.length > 0
+      ? await db.collection('forms').find({
+          _id: { $in: formIds.map(id => new ObjectId(id)) }
+        }).toArray()
+      : [];
+    const formMap = {};
+    forms.forEach(f => {
+      formMap[f._id.toString()] = f.name;
+    });
+
+    // Get current user's name
+    const employeeName = req.user.full_name;
+
     res.json(worksheets.map(w => ({
       id: w._id.toString(),
       employee_id: w.employee_id,
@@ -3478,8 +3493,8 @@ app.get('/worksheets/my-worksheets', authenticate, async (req, res) => {
       rejected_at: w.rejected_at,
       created_at: w.created_at,
       updated_at: w.updated_at,
-      employee_name: null,
-      form_name: null
+      employee_name: employeeName,
+      form_name: formMap[w.form_id] || null
     })));
   } catch (error) {
     console.error('Get my worksheets error:', error);
@@ -3705,6 +3720,17 @@ app.get('/worksheets/:id', authenticate, async (req, res) => {
       return res.status(403).json({ detail: 'Access denied' });
     }
 
+    // Fetch employee name
+    const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
+    const employeeName = employee?.full_name || null;
+
+    // Fetch form name
+    let formName = null;
+    if (worksheet.form_id) {
+      const form = await db.collection('forms').findOne({ _id: new ObjectId(worksheet.form_id) });
+      formName = form?.name || null;
+    }
+
     res.json({
       id: worksheet._id.toString(),
       employee_id: worksheet.employee_id,
@@ -3724,7 +3750,9 @@ app.get('/worksheets/:id', authenticate, async (req, res) => {
       rejected_by: worksheet.rejected_by,
       rejected_at: worksheet.rejected_at,
       created_at: worksheet.created_at,
-      updated_at: worksheet.updated_at
+      updated_at: worksheet.updated_at,
+      employee_name: employeeName,
+      form_name: formName
     });
   } catch (error) {
     console.error('Get worksheet error:', error);
