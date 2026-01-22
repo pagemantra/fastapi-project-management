@@ -217,8 +217,10 @@ const MainLayout = () => {
   const getRoleColor = (role) => {
     const colors = {
       admin: '#f50',
+      delivery_manager: '#722ed1',
       manager: '#2db7f5',
       team_lead: '#87d068',
+      employee: '#108ee9',
       associate: '#108ee9',
     };
     return colors[role] || '#108ee9';

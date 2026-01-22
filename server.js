@@ -2790,7 +2790,7 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
 
     // Team Leads and Managers skip TL verification - go directly to manager approval
     if (employeeRole === UserRole.TEAM_LEAD || employeeRole === UserRole.MANAGER) {
-      newStatus = WorksheetStatus.VERIFIED;
+      newStatus = WorksheetStatus.TL_VERIFIED;
       updateFields.tl_verified_by = userId; // Self-verified
       updateFields.tl_verified_at = now;
     }
@@ -4354,7 +4354,7 @@ app.get('/reports/team-performance', authenticate, requireRoles([UserRole.ADMIN,
       }).toArray();
 
       const submittedWorksheets = worksheets.filter(w => w.status !== WorksheetStatus.DRAFT).length;
-      const approvedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.APPROVED).length;
+      const approvedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.MANAGER_APPROVED).length;
 
       // Get attendance
       const sessions = await db.collection('time_sessions').find({
@@ -4453,8 +4453,8 @@ app.get('/reports/worksheet-analytics', authenticate, requireRoles([UserRole.ADM
       const totalWorksheets = worksheets.length;
       const draftWorksheets = worksheets.filter(w => w.status === WorksheetStatus.DRAFT).length;
       const submittedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.SUBMITTED).length;
-      const verifiedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.VERIFIED).length;
-      const approvedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.APPROVED).length;
+      const verifiedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.TL_VERIFIED).length;
+      const approvedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.MANAGER_APPROVED).length;
       const rejectedWorksheets = worksheets.filter(w => w.status === WorksheetStatus.REJECTED).length;
 
       const submissionRate = totalWorksheets > 0 ? Math.round((submittedWorksheets / totalWorksheets) * 100 * 100) / 100 : 0;

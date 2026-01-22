@@ -49,7 +49,7 @@ const Dashboard = () => {
             data: {
               total_tasks: res.data?.length || 0,
               by_status: {
-                pending: res.data?.filter(t => t.status === 'pending').length || 0,
+                pending: res.data?.filter(t => t.status === 'todo' || t.status === 'pending').length || 0,
                 in_progress: res.data?.filter(t => t.status === 'in_progress').length || 0,
                 completed: res.data?.filter(t => t.status === 'completed').length || 0,
               }

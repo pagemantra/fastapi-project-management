@@ -216,18 +216,39 @@ const Worksheets = () => {
 
       const response = await worksheetService.createWorksheet(data);
 
+      if (!response?.data?.id) {
+        throw new Error('Invalid response from server - missing worksheet ID');
+      }
+
       // Auto-submit if requested
       if (values.submit_now) {
-        await worksheetService.submitWorksheet(response.data.id);
-        message.success('Worksheet created and submitted!');
+        try {
+          await worksheetService.submitWorksheet(response.data.id);
+          message.success('Worksheet created and submitted!');
+        } catch (submitError) {
+          console.error('Submission failed:', submitError);
+          message.warning(
+            submitError.response?.data?.detail ||
+            'Worksheet saved but submission failed. Please submit it manually from the list.'
+          );
+          // Still close modal and refresh since worksheet was created
+          setModalVisible(false);
+          form.resetFields();
+          setTotalHours(0);
+          fetchWorksheets();
+          return;
+        }
       } else {
         message.success('Worksheet saved as draft');
       }
 
       setModalVisible(false);
+      form.resetFields();
+      setTotalHours(0);
       fetchWorksheets();
     } catch (error) {
-      message.error(error.response?.data?.detail || 'Failed to create worksheet');
+      console.error('Worksheet creation failed:', error);
+      message.error(error.response?.data?.detail || error.message || 'Failed to create worksheet');
     }
   };
 
