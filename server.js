@@ -861,9 +861,17 @@ app.get('/teams', authenticate, async (req, res) => {
     if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
       // Admin and Delivery Manager see all
     } else if (userRole === UserRole.MANAGER) {
-      query.manager_id = userId;
+      // Managers see teams they manage OR teams where they're members
+      query.$or = [
+        { manager_id: userId },
+        { members: userId }
+      ];
     } else if (userRole === UserRole.TEAM_LEAD) {
-      query.team_lead_id = userId;
+      // Team Leads see teams they lead OR teams where they're members
+      query.$or = [
+        { team_lead_id: userId },
+        { members: userId }
+      ];
     } else {
       query.members = userId;
     }

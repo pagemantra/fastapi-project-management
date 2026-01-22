@@ -92,16 +92,27 @@ const Worksheets = () => {
 
   const fetchTeamAndForm = async () => {
     try {
-      // Get user's team
+      // Get user's teams
       const teamsResponse = await teamService.getTeams({});
       const teams = teamsResponse.data || [];
 
       if (teams.length > 0) {
-        const team = teams[0];  // User's team
-        setMyTeam(team);
+        // For managers and team leads, prioritize teams where they are members
+        // (not teams they manage/lead) for worksheet submission
+        let selectedTeam = teams[0];
+
+        if ((isManager() || isTeamLead()) && user?.id) {
+          // Find team where user is in members array (not managing/leading)
+          const memberTeam = teams.find(t => t.members && t.members.includes(user.id));
+          if (memberTeam) {
+            selectedTeam = memberTeam;
+          }
+        }
+
+        setMyTeam(selectedTeam);
 
         // Get forms assigned to this team
-        const formsResponse = await formService.getTeamForms(team.id);
+        const formsResponse = await formService.getTeamForms(selectedTeam.id);
         const teamForms = formsResponse.data || [];
         setForms(teamForms);
 
