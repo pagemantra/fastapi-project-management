@@ -294,7 +294,18 @@ const Forms = () => {
         footer={null}
         width={800}
       >
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSubmit}
+          onKeyPress={(e) => {
+            // Prevent form submission when Enter is pressed inside a textarea
+            // This allows TextArea to properly handle newlines
+            if (e.key === 'Enter' && e.target.tagName === 'TEXTAREA') {
+              e.stopPropagation();
+            }
+          }}
+        >
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
@@ -404,31 +415,42 @@ const Forms = () => {
 
                   {['select', 'multi_select', 'checkbox'].includes(field.field_type) && (
                     <Form.Item label="Options (one per line)" help="Enter each option on a new line. Press Enter after each option.">
-                      <TextArea
-                        rows={5}
-                        autoSize={{ minRows: 5, maxRows: 10 }}
-                        value={field.optionsText !== undefined ? field.optionsText : (field.options?.join('\n') || '')}
-                        onChange={(e) => {
-                          const text = e.target.value;
-                          // Store raw text for editing, and parsed options for saving - update both at once
-                          const options = text.split('\n').map(s => s.trim()).filter(Boolean);
-                          updateField(index, 'optionsText', text, { options });
-                        }}
-                        onBlur={(e) => {
-                          // Clean up on blur - remove optionsText and normalize options
-                          const text = e.target.value;
-                          const options = text.split('\n').map(s => s.trim()).filter(Boolean);
-                          updateField(index, 'options', options, { optionsText: undefined });
-                        }}
+                      <div
                         onKeyDown={(e) => {
-                          // Prevent Enter from submitting the form - allow newlines in TextArea
+                          // Stop all keyboard events from bubbling to the form
+                          if (e.key === 'Enter') {
+                            e.stopPropagation();
+                            if (e.nativeEvent) {
+                              e.nativeEvent.stopImmediatePropagation();
+                            }
+                          }
+                        }}
+                        onKeyPress={(e) => {
                           if (e.key === 'Enter') {
                             e.stopPropagation();
                           }
                         }}
-                        placeholder={`Option 1\nOption 2\nOption 3\nOption 4\nOption 5`}
-                        style={{ fontFamily: 'monospace' }}
-                      />
+                      >
+                        <TextArea
+                          rows={5}
+                          autoSize={{ minRows: 5, maxRows: 10 }}
+                          value={field.optionsText !== undefined ? field.optionsText : (field.options?.join('\n') || '')}
+                          onChange={(e) => {
+                            const text = e.target.value;
+                            // Store raw text for editing, and parsed options for saving - update both at once
+                            const options = text.split('\n').map(s => s.trim()).filter(Boolean);
+                            updateField(index, 'optionsText', text, { options });
+                          }}
+                          onBlur={(e) => {
+                            // Clean up on blur - remove optionsText and normalize options
+                            const text = e.target.value;
+                            const options = text.split('\n').map(s => s.trim()).filter(Boolean);
+                            updateField(index, 'options', options, { optionsText: undefined });
+                          }}
+                          placeholder={`Option 1\nOption 2\nOption 3\nOption 4\nOption 5`}
+                          style={{ fontFamily: 'monospace' }}
+                        />
+                      </div>
                     </Form.Item>
                   )}
 
