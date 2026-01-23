@@ -420,6 +420,12 @@ const Forms = () => {
                           const options = text.split('\n').map(s => s.trim()).filter(Boolean);
                           updateField(index, 'options', options, { optionsText: undefined });
                         }}
+                        onKeyDown={(e) => {
+                          // Prevent Enter from submitting the form - allow newlines in TextArea
+                          if (e.key === 'Enter') {
+                            e.stopPropagation();
+                          }
+                        }}
                         placeholder={`Option 1\nOption 2\nOption 3\nOption 4\nOption 5`}
                         style={{ fontFamily: 'monospace' }}
                       />
