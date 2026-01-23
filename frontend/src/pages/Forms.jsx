@@ -150,9 +150,9 @@ const Forms = () => {
     setFields([...fields, newField]);
   };
 
-  const updateField = (index, key, value) => {
+  const updateField = (index, key, value, additionalUpdates = {}) => {
     const newFields = [...fields];
-    newFields[index] = { ...newFields[index], [key]: value };
+    newFields[index] = { ...newFields[index], [key]: value, ...additionalUpdates };
     setFields(newFields);
   };
 
@@ -403,12 +403,23 @@ const Forms = () => {
                   </Row>
 
                   {['select', 'multi_select', 'checkbox'].includes(field.field_type) && (
-                    <Form.Item label="Options (one per line)" help="Enter each option on a new line">
+                    <Form.Item label="Options (one per line)" help="Enter each option on a new line. Press Enter after each option.">
                       <TextArea
                         rows={5}
                         autoSize={{ minRows: 5, maxRows: 10 }}
-                        value={field.options?.join('\n') || ''}
-                        onChange={(e) => updateField(index, 'options', e.target.value.split('\n').filter(Boolean))}
+                        value={field.optionsText !== undefined ? field.optionsText : (field.options?.join('\n') || '')}
+                        onChange={(e) => {
+                          const text = e.target.value;
+                          // Store raw text for editing, and parsed options for saving - update both at once
+                          const options = text.split('\n').map(s => s.trim()).filter(Boolean);
+                          updateField(index, 'optionsText', text, { options });
+                        }}
+                        onBlur={(e) => {
+                          // Clean up on blur - remove optionsText and normalize options
+                          const text = e.target.value;
+                          const options = text.split('\n').map(s => s.trim()).filter(Boolean);
+                          updateField(index, 'options', options, { optionsText: undefined });
+                        }}
                         placeholder={`Option 1\nOption 2\nOption 3\nOption 4\nOption 5`}
                         style={{ fontFamily: 'monospace' }}
                       />

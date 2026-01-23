@@ -1,16 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Card, Tabs, DatePicker, Button, Table, Space, Typography, Row, Col,
+  Card, Tabs, Button, Table, Space, Typography, Row, Col,
   Statistic, message, Select, Tag, Collapse, Badge, Skeleton
 } from 'antd';
-import { DownloadOutlined, ReloadOutlined, TeamOutlined, UserOutlined, CheckCircleOutlined, PictureOutlined, FileTextOutlined } from '@ant-design/icons';
+import { DownloadOutlined, TeamOutlined, UserOutlined, CheckCircleOutlined, PictureOutlined, FileTextOutlined } from '@ant-design/icons';
 import { Column, Pie } from '@ant-design/charts';
 import { reportService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
-const { RangePicker } = DatePicker;
 const { Panel } = Collapse;
 const { Option } = Select;
 
@@ -28,12 +27,12 @@ const dataCache = {
 
 const Reports = () => {
   const [activeTab, setActiveTab] = useState('productivity');
-  const [dateRange, setDateRange] = useState([
+  const [dateRange] = useState([
     dayjs().subtract(30, 'day'),
     dayjs()
   ]);
   // Separate date range for Projects tab - defaults to today
-  const [projectsDateRange, setProjectsDateRange] = useState([dayjs(), dayjs()]);
+  const [projectsDateRange] = useState([dayjs(), dayjs()]);
   const [productivityData, setProductivityData] = useState(dataCache.productivity || []);
   const [attendanceData, setAttendanceData] = useState(dataCache.attendance || []);
   const [overtimeData, setOvertimeData] = useState(dataCache.overtime || []);
@@ -45,7 +44,6 @@ const Reports = () => {
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedProjectMember, setSelectedProjectMember] = useState({});
   const [initialLoading, setInitialLoading] = useState(!dataCache.productivity);
-  const [projectsLoading, setProjectsLoading] = useState(false);
   const fetchingRef = useRef({});
   useAuth();
 
@@ -70,7 +68,6 @@ const Reports = () => {
   const fetchProjectsData = useCallback(async (params) => {
     if (fetchingRef.current.projectsSpecific) return;
     fetchingRef.current.projectsSpecific = true;
-    setProjectsLoading(true);
 
     try {
       const [projects, mm] = await Promise.all([
@@ -84,7 +81,6 @@ const Reports = () => {
     } catch (error) {
       console.error('Failed to fetch projects data:', error);
     } finally {
-      setProjectsLoading(false);
       fetchingRef.current.projectsSpecific = false;
     }
   }, []);
@@ -183,26 +179,6 @@ const Reports = () => {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-  };
-
-  const handleRefresh = () => {
-    dataCache.lastParams = null;
-    fetchingRef.current = {};
-    fetchAllDataBackground();
-    // Also refresh projects with current projects date range
-    fetchProjectsData(getProjectsParams());
-  };
-
-  // Handle projects date filter change
-  const handleProjectsDateChange = (dates) => {
-    if (dates && dates.length === 2) {
-      setProjectsDateRange(dates);
-    }
-  };
-
-  // Reset projects to today's data
-  const handleProjectsToday = () => {
-    setProjectsDateRange([dayjs(), dayjs()]);
   };
 
   const handleManagerChange = async (managerId) => {
@@ -322,12 +298,6 @@ const Reports = () => {
     <div>
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
         <Col><Title level={3}>Reports & Analytics</Title></Col>
-        <Col>
-          <Space>
-            <RangePicker value={dateRange} onChange={(dates) => dates && setDateRange(dates)} />
-            <Button icon={<ReloadOutlined />} onClick={handleRefresh}>Refresh</Button>
-          </Space>
-        </Col>
       </Row>
 
       {worksheetAnalytics && (
@@ -367,40 +337,6 @@ const Reports = () => {
           label: 'Projects',
           children: (
             <div>
-              {/* Projects Date Filter */}
-              <Card size="small" style={{ marginBottom: 16 }}>
-                <Row align="middle" gutter={16}>
-                  <Col>
-                    <Text strong>Date Filter:</Text>
-                  </Col>
-                  <Col>
-                    <Button
-                      type={projectsDateRange[0].isSame(dayjs(), 'day') && projectsDateRange[1].isSame(dayjs(), 'day') ? 'primary' : 'default'}
-                      onClick={handleProjectsToday}
-                      size="small"
-                    >
-                      Today
-                    </Button>
-                  </Col>
-                  <Col>
-                    <RangePicker
-                      value={projectsDateRange}
-                      onChange={handleProjectsDateChange}
-                      size="small"
-                      allowClear={false}
-                    />
-                  </Col>
-                  <Col>
-                    {projectsLoading && <Text type="secondary">Loading...</Text>}
-                  </Col>
-                  <Col flex="auto" style={{ textAlign: 'right' }}>
-                    <Text type="secondary">
-                      Showing data from {projectsDateRange[0].format('MMM D, YYYY')} to {projectsDateRange[1].format('MMM D, YYYY')}
-                    </Text>
-                  </Col>
-                </Row>
-              </Card>
-
               <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                 {projectsData.map(project => (
                   <Col xs={24} sm={12} lg={8} key={project.id}>
@@ -413,6 +349,7 @@ const Reports = () => {
                         <Col span={12}><Statistic title="Team Lead" value={project.team_lead} valueStyle={{ fontSize: 14 }} /></Col>
                         <Col span={12}><Statistic title="Logged In Today" value={project.logged_in_today} suffix={`/ ${project.total_members}`} valueStyle={{ fontSize: 14, color: project.logged_in_today > 0 ? '#52c41a' : '#999' }} prefix={<UserOutlined />} /></Col>
                         <Col span={12}><Statistic title="Worksheets" value={project.worksheets_submitted} valueStyle={{ fontSize: 14 }} prefix={<FileTextOutlined />} /></Col>
+                        {project.type === 'annotation' && <Col span={12}><Statistic title="Total Hours" value={project.total_hours || 0} valueStyle={{ fontSize: 14, color: '#52c41a' }} /></Col>}
                         {project.type === 'annotation' && <Col span={12}><Statistic title="Total Images" value={project.total_image_count || 0} valueStyle={{ fontSize: 14, color: '#1890ff' }} prefix={<PictureOutlined />} /></Col>}
                         {project.type === 'finance_pleo' && <Col span={12}><Statistic title="Pleo Validations" value={project.total_pleo_validation || 0} valueStyle={{ fontSize: 14, color: '#722ed1' }} prefix={<CheckCircleOutlined />} /></Col>}
                       </Row>
@@ -449,16 +386,37 @@ const Reports = () => {
                         </div>
                       )}
 
-                      <Collapse ghost size="small" style={{ marginTop: 12 }}>
-                        <Panel header={`View Members (${project.total_members})`} key="1">
-                          <Table dataSource={project.members} columns={[
-                            { title: 'Name', dataIndex: 'name', key: 'name', render: (name, record) => <Space><Tag color={record.is_logged_in ? 'green' : 'default'}>{record.is_logged_in ? 'Online' : 'Offline'}</Tag>{name}</Space> },
-                            { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
-                            ...(project.type === 'annotation' ? [{ title: 'Images', dataIndex: 'image_count', key: 'image_count' }] : []),
-                            ...(project.type === 'finance_pleo' ? [{ title: 'Pleo', dataIndex: 'pleo_validation_count', key: 'pleo_validation_count' }] : []),
-                          ]} rowKey="id" size="small" pagination={false} />
-                        </Panel>
-                      </Collapse>
+                      {/* For annotation projects, show members table directly (always visible) */}
+                      {project.type === 'annotation' && project.members?.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <Text strong style={{ display: 'block', marginBottom: 8 }}>Team Members ({project.total_members})</Text>
+                          <Table
+                            dataSource={project.members}
+                            columns={[
+                              { title: 'Name', dataIndex: 'name', key: 'name', render: (name, record) => <Space><Tag color={record.is_logged_in ? 'green' : 'default'}>{record.is_logged_in ? 'Online' : 'Offline'}</Tag>{name}</Space> },
+                              { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
+                              { title: 'Images', dataIndex: 'image_count', key: 'image_count' },
+                              { title: 'Form', dataIndex: 'form_name', key: 'form_name', render: (form) => form || '-' },
+                            ]}
+                            rowKey="id"
+                            size="small"
+                            pagination={false}
+                          />
+                        </div>
+                      )}
+
+                      {/* For non-annotation projects, use collapsible section */}
+                      {project.type !== 'annotation' && (
+                        <Collapse ghost size="small" style={{ marginTop: 12 }}>
+                          <Panel header={`View Members (${project.total_members})`} key="1">
+                            <Table dataSource={project.members} columns={[
+                              { title: 'Name', dataIndex: 'name', key: 'name', render: (name, record) => <Space><Tag color={record.is_logged_in ? 'green' : 'default'}>{record.is_logged_in ? 'Online' : 'Offline'}</Tag>{name}</Space> },
+                              { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
+                              ...(project.type === 'finance_pleo' ? [{ title: 'Pleo', dataIndex: 'pleo_validation_count', key: 'pleo_validation_count' }] : []),
+                            ]} rowKey="id" size="small" pagination={false} />
+                          </Panel>
+                        </Collapse>
+                      )}
                     </Card>
                   </Col>
                 ))}
