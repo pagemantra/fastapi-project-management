@@ -3417,15 +3417,18 @@ app.get('/worksheets', authenticate, async (req, res) => {
       employeeMap[e._id.toString()] = e.full_name;
     });
 
-    // Fetch form names
+    // Fetch form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
-    const forms = await db.collection('forms').find({
-      _id: { $in: formIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const formMap = {};
-    forms.forEach(f => {
-      formMap[f._id.toString()] = f.name;
-    });
+    if (validFormIds.length > 0) {
+      const forms = await db.collection('forms').find({
+        _id: { $in: validFormIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      forms.forEach(f => {
+        formMap[f._id.toString()] = f.name;
+      });
+    }
 
     // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
     const verifierIds = [
@@ -3433,10 +3436,11 @@ app.get('/worksheets', authenticate, async (req, res) => {
       ...worksheets.map(w => w.manager_approved_by),
       ...worksheets.map(w => w.rejected_by)
     ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+    const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
 
-    const verifiers = await db.collection('users').find({
-      _id: { $in: verifierIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    const verifiers = validVerifierIds.length > 0 ? await db.collection('users').find({
+      _id: { $in: validVerifierIds.map(id => new ObjectId(id)) }
+    }).toArray() : [];
     const verifierMap = {};
     verifiers.forEach(v => {
       verifierMap[v._id.toString()] = v.full_name;
@@ -3498,11 +3502,12 @@ app.get('/worksheets/my-worksheets', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
-    // Fetch form names
+    // Fetch form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
-    const forms = formIds.length > 0
+    const validFormIds = formIds.filter(id => ObjectId.isValid(id));
+    const forms = validFormIds.length > 0
       ? await db.collection('forms').find({
-          _id: { $in: formIds.map(id => new ObjectId(id)) }
+          _id: { $in: validFormIds.map(id => new ObjectId(id)) }
         }).toArray()
       : [];
     const formMap = {};
@@ -3593,15 +3598,18 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       employeeMap[e._id.toString()] = e.full_name;
     });
 
-    // Fetch form names
+    // Fetch form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
-    const forms = await db.collection('forms').find({
-      _id: { $in: formIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const formMap = {};
-    forms.forEach(f => {
-      formMap[f._id.toString()] = f.name;
-    });
+    if (validFormIds.length > 0) {
+      const forms = await db.collection('forms').find({
+        _id: { $in: validFormIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      forms.forEach(f => {
+        formMap[f._id.toString()] = f.name;
+      });
+    }
 
     // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
     const verifierIds = [
@@ -3609,10 +3617,11 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       ...worksheets.map(w => w.manager_approved_by),
       ...worksheets.map(w => w.rejected_by)
     ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+    const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
 
-    const verifiers = await db.collection('users').find({
-      _id: { $in: verifierIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    const verifiers = validVerifierIds.length > 0 ? await db.collection('users').find({
+      _id: { $in: validVerifierIds.map(id => new ObjectId(id)) }
+    }).toArray() : [];
     const verifierMap = {};
     verifiers.forEach(v => {
       verifierMap[v._id.toString()] = v.full_name;
@@ -3704,15 +3713,18 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       employeeMap[e._id.toString()] = e.full_name;
     });
 
-    // Fetch form names
+    // Fetch form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
-    const forms = await db.collection('forms').find({
-      _id: { $in: formIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const formMap = {};
-    forms.forEach(f => {
-      formMap[f._id.toString()] = f.name;
-    });
+    if (validFormIds.length > 0) {
+      const forms = await db.collection('forms').find({
+        _id: { $in: validFormIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      forms.forEach(f => {
+        formMap[f._id.toString()] = f.name;
+      });
+    }
 
     // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
     const verifierIds = [
@@ -3720,10 +3732,11 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       ...worksheets.map(w => w.manager_approved_by),
       ...worksheets.map(w => w.rejected_by)
     ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+    const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
 
-    const verifiers = await db.collection('users').find({
-      _id: { $in: verifierIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    const verifiers = validVerifierIds.length > 0 ? await db.collection('users').find({
+      _id: { $in: validVerifierIds.map(id => new ObjectId(id)) }
+    }).toArray() : [];
     const verifierMap = {};
     verifiers.forEach(v => {
       verifierMap[v._id.toString()] = v.full_name;
@@ -4715,10 +4728,11 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
 
     const loggedInUserIds = new Set(todayAttendance.map(a => a.employee_id));
 
-    // Get forms for form names
+    // Get forms for form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
-    const forms = formIds.length > 0 ? await db.collection('forms').find({
-      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    const validFormIds = formIds.filter(id => ObjectId.isValid(id));
+    const forms = validFormIds.length > 0 ? await db.collection('forms').find({
+      _id: { $in: validFormIds.map(id => new ObjectId(id)) }
     }).toArray() : [];
     const formMap = {};
     forms.forEach(f => {
@@ -4937,10 +4951,11 @@ app.get('/reports/manager-members', authenticate, requireRoles([UserRole.ADMIN, 
       attendanceMap[a.employee_id] = a;
     });
 
-    // Get forms for form names
+    // Get forms for form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
-    const forms = formIds.length > 0 ? await db.collection('forms').find({
-      _id: { $in: formIds.map(id => new ObjectId(id)) }
+    const validFormIds = formIds.filter(id => ObjectId.isValid(id));
+    const forms = validFormIds.length > 0 ? await db.collection('forms').find({
+      _id: { $in: validFormIds.map(id => new ObjectId(id)) }
     }).toArray() : [];
     const formMap = {};
     forms.forEach(f => {
