@@ -886,12 +886,32 @@ app.get('/teams', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
+    // Fetch team lead and manager names
+    const teamLeadIds = [...new Set(teams.map(t => t.team_lead_id).filter(Boolean))];
+    const managerIds = [...new Set(teams.map(t => t.manager_id).filter(Boolean))];
+    const allUserIds = [...new Set([...teamLeadIds, ...managerIds])];
+
+    const userMap = {};
+    if (allUserIds.length > 0) {
+      const validUserIds = allUserIds.filter(id => ObjectId.isValid(id));
+      if (validUserIds.length > 0) {
+        const users = await db.collection('users').find({
+          _id: { $in: validUserIds.map(id => new ObjectId(id)) }
+        }).toArray();
+        users.forEach(u => {
+          userMap[u._id.toString()] = u.full_name;
+        });
+      }
+    }
+
     res.json(teams.map(team => ({
       id: team._id.toString(),
       name: team.name,
       description: team.description,
       team_lead_id: team.team_lead_id,
+      team_lead_name: userMap[team.team_lead_id] || null,
       manager_id: team.manager_id,
+      manager_name: userMap[team.manager_id] || null,
       members: team.members || [],
       is_active: team.is_active,
       created_at: team.created_at,

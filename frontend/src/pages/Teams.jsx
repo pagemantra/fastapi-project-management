@@ -198,13 +198,17 @@ const Teams = () => {
     }
   };
 
-  const getTeamLeadName = (teamLeadId) => {
-    const tl = teamLeads.find(t => t.id === teamLeadId);
+  const getTeamLeadName = (record) => {
+    // Use team_lead_name from API if available, otherwise fall back to lookup
+    if (record.team_lead_name) return record.team_lead_name;
+    const tl = teamLeads.find(t => t.id === record.team_lead_id);
     return tl?.full_name || 'Unknown';
   };
 
-  const getManagerName = (managerId) => {
-    const m = managers.find(m => m.id === managerId);
+  const getManagerName = (record) => {
+    // Use manager_name from API if available, otherwise fall back to lookup
+    if (record.manager_name) return record.manager_name;
+    const m = managers.find(m => m.id === record.manager_id);
     return m?.full_name || 'Unknown';
   };
 
@@ -229,7 +233,7 @@ const Teams = () => {
       title: 'Team Lead',
       dataIndex: 'team_lead_id',
       key: 'team_lead_id',
-      render: (id) => getTeamLeadName(id),
+      render: (_, record) => getTeamLeadName(record),
     },
     {
       title: 'Members',
