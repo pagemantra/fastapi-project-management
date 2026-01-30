@@ -3440,8 +3440,8 @@ app.get('/worksheets', authenticate, async (req, res) => {
       });
     }
 
-    // Fetch form names - filter out invalid ObjectIds
-    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    // Fetch form names - filter out invalid ObjectIds and handle both string and ObjectId formats
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean).map(id => id.toString ? id.toString() : String(id)))];
     const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const formMap = {};
     if (validFormIds.length > 0) {
@@ -3490,7 +3490,7 @@ app.get('/worksheets', authenticate, async (req, res) => {
       created_at: w.created_at,
       updated_at: w.updated_at,
       employee_name: employeeMap[w.employee_id] || null,
-      form_name: formMap[w.form_id] || null
+      form_name: w.form_id ? formMap[w.form_id.toString ? w.form_id.toString() : String(w.form_id)] || null : null
     })));
   } catch (error) {
     console.error('Get worksheets error:', error);
@@ -3525,8 +3525,8 @@ app.get('/worksheets/my-worksheets', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
-    // Fetch form names - filter out invalid ObjectIds
-    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    // Fetch form names - filter out invalid ObjectIds and handle both string and ObjectId formats
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean).map(id => id.toString ? id.toString() : String(id)))];
     const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const forms = validFormIds.length > 0
       ? await db.collection('forms').find({
@@ -3562,7 +3562,7 @@ app.get('/worksheets/my-worksheets', authenticate, async (req, res) => {
       created_at: w.created_at,
       updated_at: w.updated_at,
       employee_name: employeeName,
-      form_name: formMap[w.form_id] || null
+      form_name: w.form_id ? formMap[w.form_id.toString ? w.form_id.toString() : String(w.form_id)] || null : null
     })));
   } catch (error) {
     console.error('Get my worksheets error:', error);
@@ -3624,8 +3624,8 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       });
     }
 
-    // Fetch form names - filter out invalid ObjectIds
-    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    // Fetch form names - filter out invalid ObjectIds and handle both string and ObjectId formats
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean).map(id => id.toString ? id.toString() : String(id)))];
     const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const formMap = {};
     if (validFormIds.length > 0) {
@@ -3674,7 +3674,7 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       created_at: w.created_at,
       updated_at: w.updated_at,
       employee_name: employeeMap[w.employee_id] || null,
-      form_name: formMap[w.form_id] || null
+      form_name: w.form_id ? formMap[w.form_id.toString ? w.form_id.toString() : String(w.form_id)] || null : null
     })));
   } catch (error) {
     console.error('Get pending verification error:', error);
@@ -3742,8 +3742,8 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       });
     }
 
-    // Fetch form names - filter out invalid ObjectIds
-    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    // Fetch form names - filter out invalid ObjectIds and handle both string and ObjectId formats
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean).map(id => id.toString ? id.toString() : String(id)))];
     const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const formMap = {};
     if (validFormIds.length > 0) {
@@ -3792,7 +3792,7 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       created_at: w.created_at,
       updated_at: w.updated_at,
       employee_name: employeeMap[w.employee_id] || null,
-      form_name: formMap[w.form_id] || null
+      form_name: w.form_id ? formMap[w.form_id.toString ? w.form_id.toString() : String(w.form_id)] || null : null
     })));
   } catch (error) {
     console.error('Get pending approval error:', error);
@@ -4757,8 +4757,8 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
 
     const loggedInUserIds = new Set(todayAttendance.map(a => a.employee_id));
 
-    // Get forms for form names - filter out invalid ObjectIds
-    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    // Get forms for form names - filter out invalid ObjectIds and handle both string and ObjectId formats
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean).map(id => id.toString ? id.toString() : String(id)))];
     const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const forms = validFormIds.length > 0 ? await db.collection('forms').find({
       _id: { $in: validFormIds.map(id => new ObjectId(id)) }
@@ -4882,7 +4882,7 @@ app.get('/reports/projects', authenticate, requireRoles([UserRole.ADMIN, UserRol
           worksheetDetails = memberWorksheets.slice(0, 20).map(ws => ({
             id: ws._id.toString(),
             date: ws.date,
-            form_name: formMap[ws.form_id] || null,
+            form_name: ws.form_id ? formMap[ws.form_id.toString ? ws.form_id.toString() : String(ws.form_id)] || null : null,
             status: ws.status,
             total_hours: ws.total_hours || 0
           }));
@@ -4980,8 +4980,8 @@ app.get('/reports/manager-members', authenticate, requireRoles([UserRole.ADMIN, 
       attendanceMap[a.employee_id] = a;
     });
 
-    // Get forms for form names - filter out invalid ObjectIds
-    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
+    // Get forms for form names - filter out invalid ObjectIds and handle both string and ObjectId formats
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean).map(id => id.toString ? id.toString() : String(id)))];
     const validFormIds = formIds.filter(id => ObjectId.isValid(id));
     const forms = validFormIds.length > 0 ? await db.collection('forms').find({
       _id: { $in: validFormIds.map(id => new ObjectId(id)) }
@@ -5025,7 +5025,7 @@ app.get('/reports/manager-members', authenticate, requireRoles([UserRole.ADMIN, 
       const worksheetDetails = memberWorksheets.slice(0, 15).map(ws => ({
         id: ws._id.toString(),
         date: ws.date,
-        form_name: formMap[ws.form_id] || null,
+        form_name: ws.form_id ? formMap[ws.form_id.toString ? ws.form_id.toString() : String(ws.form_id)] || null : null,
         status: ws.status,
         total_hours: ws.total_hours || 0
       }));
