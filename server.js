@@ -3427,15 +3427,18 @@ app.get('/worksheets', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
-    // Fetch employee names
-    const employeeIds = [...new Set(worksheets.map(w => w.employee_id))];
-    const employees = await db.collection('users').find({
-      _id: { $in: employeeIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    // Fetch employee names - filter out invalid ObjectIds
+    const employeeIds = [...new Set(worksheets.map(w => w.employee_id).filter(Boolean))];
+    const validEmployeeIds = employeeIds.filter(id => ObjectId.isValid(id));
     const employeeMap = {};
-    employees.forEach(e => {
-      employeeMap[e._id.toString()] = e.full_name;
-    });
+    if (validEmployeeIds.length > 0) {
+      const employees = await db.collection('users').find({
+        _id: { $in: validEmployeeIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      employees.forEach(e => {
+        employeeMap[e._id.toString()] = e.full_name;
+      });
+    }
 
     // Fetch form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
@@ -3608,15 +3611,18 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       .limit(100)
       .toArray();
 
-    // Fetch employee names
-    const employeeIds = [...new Set(worksheets.map(w => w.employee_id))];
-    const employees = await db.collection('users').find({
-      _id: { $in: employeeIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    // Fetch employee names - filter out invalid ObjectIds
+    const employeeIds = [...new Set(worksheets.map(w => w.employee_id).filter(Boolean))];
+    const validEmployeeIds = employeeIds.filter(id => ObjectId.isValid(id));
     const employeeMap = {};
-    employees.forEach(e => {
-      employeeMap[e._id.toString()] = e.full_name;
-    });
+    if (validEmployeeIds.length > 0) {
+      const employees = await db.collection('users').find({
+        _id: { $in: validEmployeeIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      employees.forEach(e => {
+        employeeMap[e._id.toString()] = e.full_name;
+      });
+    }
 
     // Fetch form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
@@ -3723,15 +3729,18 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       .limit(100)
       .toArray();
 
-    // Fetch employee names
-    const employeeIds = [...new Set(worksheets.map(w => w.employee_id))];
-    const employees = await db.collection('users').find({
-      _id: { $in: employeeIds.map(id => new ObjectId(id)) }
-    }).toArray();
+    // Fetch employee names - filter out invalid ObjectIds
+    const employeeIds = [...new Set(worksheets.map(w => w.employee_id).filter(Boolean))];
+    const validEmployeeIds = employeeIds.filter(id => ObjectId.isValid(id));
     const employeeMap = {};
-    employees.forEach(e => {
-      employeeMap[e._id.toString()] = e.full_name;
-    });
+    if (validEmployeeIds.length > 0) {
+      const employees = await db.collection('users').find({
+        _id: { $in: validEmployeeIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      employees.forEach(e => {
+        employeeMap[e._id.toString()] = e.full_name;
+      });
+    }
 
     // Fetch form names - filter out invalid ObjectIds
     const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean))];
