@@ -80,9 +80,9 @@ const Worksheets = () => {
 
     try {
       if (showLoading && !worksheetsCache.worksheets) setLoading(true);
-      // Employees, Team Leads, and Managers get their own worksheets
-      // Admin gets all worksheets
-      const response = (isEmployee() || isTeamLead() || isManager())
+      // Only employees (Associates) get their own worksheets via getMyWorksheets
+      // Team Leads, Managers, and Admins use getWorksheets to see team/all worksheets
+      const response = isEmployee()
         ? await worksheetService.getMyWorksheets({})
         : await worksheetService.getWorksheets({});
       const data = response.data || [];

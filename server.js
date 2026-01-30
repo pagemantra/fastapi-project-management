@@ -3234,25 +3234,44 @@ app.get('/worksheets/summary', authenticate, async (req, res) => {
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
-    // Build employee filter
+    // Build employee filter - filter by assigned teams
     let employeeFilter = {};
     if (userRole === UserRole.ASSOCIATE) {
       employeeFilter = { employee_id: userId };
     } else if (userRole === UserRole.TEAM_LEAD) {
-      const teamMembers = await db.collection('users').find({ team_lead_id: userId }).toArray();
-      const memberIds = teamMembers.map(m => m._id.toString());
-      if (employee_id && memberIds.includes(employee_id)) {
+      // Get all teams where user is team_lead
+      const assignedTeams = await db.collection('teams').find({ team_lead_id: userId, is_active: true }).toArray();
+      const memberIds = new Set();
+      memberIds.add(userId); // Include Team Lead's own worksheets
+      assignedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(memberId => memberIds.add(memberId));
+        }
+      });
+      const memberIdsArray = Array.from(memberIds);
+      if (employee_id && memberIdsArray.includes(employee_id)) {
         employeeFilter = { employee_id };
       } else {
-        employeeFilter = { employee_id: { $in: memberIds } };
+        employeeFilter = { employee_id: { $in: memberIdsArray } };
       }
     } else if (userRole === UserRole.MANAGER) {
-      const managedEmployees = await db.collection('users').find({ manager_id: userId }).toArray();
-      const employeeIds = managedEmployees.map(e => e._id.toString());
-      if (employee_id && employeeIds.includes(employee_id)) {
+      // Get all teams where user is manager
+      const assignedTeams = await db.collection('teams').find({ manager_id: userId, is_active: true }).toArray();
+      const employeeIds = new Set();
+      employeeIds.add(userId); // Include Manager's own worksheets
+      assignedTeams.forEach(team => {
+        if (team.team_lead_id) {
+          employeeIds.add(team.team_lead_id);
+        }
+        if (team.members) {
+          team.members.forEach(memberId => employeeIds.add(memberId));
+        }
+      });
+      const employeeIdsArray = Array.from(employeeIds);
+      if (employee_id && employeeIdsArray.includes(employee_id)) {
         employeeFilter = { employee_id };
       } else {
-        employeeFilter = { employee_id: { $in: employeeIds } };
+        employeeFilter = { employee_id: { $in: employeeIdsArray } };
       }
     } else if (employee_id) {
       employeeFilter = { employee_id };
@@ -3319,27 +3338,48 @@ app.get('/worksheets', authenticate, async (req, res) => {
     const userId = req.user._id.toString();
     const query = {};
 
-    // Role-based filtering
+    // Role-based filtering - filter by assigned teams
     if (userRole === UserRole.ASSOCIATE) {
       query.employee_id = userId;
     } else if (userRole === UserRole.TEAM_LEAD) {
-      const teamMembers = await db.collection('users').find({ team_lead_id: userId }).toArray();
-      const memberIds = teamMembers.map(m => m._id.toString());
-      if (employee_id && memberIds.includes(employee_id)) {
+      // Get all teams where user is team_lead
+      const assignedTeams = await db.collection('teams').find({ team_lead_id: userId, is_active: true }).toArray();
+      // Collect all member IDs from assigned teams
+      const memberIds = new Set();
+      memberIds.add(userId); // Include Team Lead's own worksheets
+      assignedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(memberId => memberIds.add(memberId));
+        }
+      });
+      const memberIdsArray = Array.from(memberIds);
+      if (employee_id && memberIdsArray.includes(employee_id)) {
         query.employee_id = employee_id;
       } else {
-        query.employee_id = { $in: memberIds };
+        query.employee_id = { $in: memberIdsArray };
       }
       if (!status) {
         query.status = { $ne: WorksheetStatus.REJECTED };
       }
     } else if (userRole === UserRole.MANAGER) {
-      const employees = await db.collection('users').find({ manager_id: userId }).toArray();
-      const employeeIds = employees.map(e => e._id.toString());
-      if (employee_id && employeeIds.includes(employee_id)) {
+      // Get all teams where user is manager
+      const assignedTeams = await db.collection('teams').find({ manager_id: userId, is_active: true }).toArray();
+      // Collect all member IDs and team lead IDs from assigned teams
+      const employeeIds = new Set();
+      employeeIds.add(userId); // Include Manager's own worksheets
+      assignedTeams.forEach(team => {
+        if (team.team_lead_id) {
+          employeeIds.add(team.team_lead_id);
+        }
+        if (team.members) {
+          team.members.forEach(memberId => employeeIds.add(memberId));
+        }
+      });
+      const employeeIdsArray = Array.from(employeeIds);
+      if (employee_id && employeeIdsArray.includes(employee_id)) {
         query.employee_id = employee_id;
       } else {
-        query.employee_id = { $in: employeeIds };
+        query.employee_id = { $in: employeeIdsArray };
       }
       if (!status) {
         query.status = { $in: [WorksheetStatus.TL_VERIFIED, WorksheetStatus.MANAGER_APPROVED] };
@@ -3511,16 +3551,29 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
 
     let query = { status: WorksheetStatus.SUBMITTED };
 
-    // Team Leads see worksheets from their team members
+    // Team Leads see worksheets from members of their assigned teams
     if (userRole === UserRole.TEAM_LEAD) {
-      const teamMembers = await db.collection('users').find({ team_lead_id: userId }).toArray();
-      const memberIds = teamMembers.map(m => m._id.toString());
-      query.employee_id = { $in: memberIds };
+      const assignedTeams = await db.collection('teams').find({ team_lead_id: userId, is_active: true }).toArray();
+      const memberIds = new Set();
+      assignedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(memberId => memberIds.add(memberId));
+        }
+      });
+      query.employee_id = { $in: Array.from(memberIds) };
     } else if (userRole === UserRole.MANAGER) {
-      // Managers see worksheets from their department
-      const employees = await db.collection('users').find({ manager_id: userId }).toArray();
-      const employeeIds = employees.map(e => e._id.toString());
-      query.employee_id = { $in: employeeIds };
+      // Managers see worksheets from members and team leads of their assigned teams
+      const assignedTeams = await db.collection('teams').find({ manager_id: userId, is_active: true }).toArray();
+      const employeeIds = new Set();
+      assignedTeams.forEach(team => {
+        if (team.team_lead_id) {
+          employeeIds.add(team.team_lead_id);
+        }
+        if (team.members) {
+          team.members.forEach(memberId => employeeIds.add(memberId));
+        }
+      });
+      query.employee_id = { $in: Array.from(employeeIds) };
     }
     // Admins see all pending verification
 
@@ -3604,10 +3657,18 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
     let query = { status: WorksheetStatus.TL_VERIFIED };
 
     if (userRole === UserRole.MANAGER) {
-      // Managers see worksheets from employees under them (associates and team leads)
-      const employees = await db.collection('users').find({ manager_id: userId }).toArray();
-      const employeeIds = employees.map(e => e._id.toString());
-      query.employee_id = { $in: employeeIds };
+      // Managers see worksheets from members and team leads of their assigned teams
+      const assignedTeams = await db.collection('teams').find({ manager_id: userId, is_active: true }).toArray();
+      const employeeIds = new Set();
+      assignedTeams.forEach(team => {
+        if (team.team_lead_id) {
+          employeeIds.add(team.team_lead_id);
+        }
+        if (team.members) {
+          team.members.forEach(memberId => employeeIds.add(memberId));
+        }
+      });
+      query.employee_id = { $in: Array.from(employeeIds) };
     } else if (userRole === UserRole.DELIVERY_MANAGER) {
       // Delivery Managers see worksheets from all managers plus regular pending approval
       const managers = await db.collection('users').find({
@@ -4494,22 +4555,43 @@ app.get('/reports/worksheet-analytics', authenticate, requireRoles([UserRole.ADM
     const startDate = start_date ? new Date(start_date) : moment.tz(IST).subtract(30, 'days').toDate();
     const endDate = end_date ? new Date(end_date) : moment.tz(IST).toDate();
 
-    // Build employee filter
-    const employeeQuery = {};
+    // Build employee filter based on assigned teams
+    let employeeIds = [];
     if (userRole === UserRole.TEAM_LEAD) {
-      employeeQuery.team_lead_id = userId;
+      // Get all teams where user is team_lead
+      const assignedTeams = await db.collection('teams').find({ team_lead_id: userId, is_active: true }).toArray();
+      const memberIds = new Set();
+      assignedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(memberId => memberIds.add(memberId));
+        }
+      });
+      employeeIds = Array.from(memberIds);
     } else if (userRole === UserRole.MANAGER) {
-      employeeQuery.manager_id = userId;
+      // Get all teams where user is manager
+      const assignedTeams = await db.collection('teams').find({ manager_id: userId, is_active: true }).toArray();
+      const memberIds = new Set();
+      assignedTeams.forEach(team => {
+        if (team.team_lead_id) {
+          memberIds.add(team.team_lead_id);
+        }
+        if (team.members) {
+          team.members.forEach(memberId => memberIds.add(memberId));
+        }
+      });
+      employeeIds = Array.from(memberIds);
     }
 
+    // Build employee query
+    const employeeQuery = { role: UserRole.ASSOCIATE };
+    if (userRole === UserRole.TEAM_LEAD || userRole === UserRole.MANAGER) {
+      employeeQuery._id = { $in: employeeIds.map(id => new ObjectId(id)) };
+    }
     if (employee_id && ObjectId.isValid(employee_id)) {
       employeeQuery._id = new ObjectId(employee_id);
     }
 
-    const employees = await db.collection('users').find({
-      ...employeeQuery,
-      role: UserRole.ASSOCIATE
-    }).toArray();
+    const employees = await db.collection('users').find(employeeQuery).toArray();
 
     const reportData = [];
 

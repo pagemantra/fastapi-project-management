@@ -431,38 +431,20 @@ const Reports = () => {
                         </div>
                       )}
 
-                      {/* For annotation projects, use collapsible View Team Members */}
-                      {project.type === 'annotation' && project.members?.length > 0 && (
-                        <Collapse ghost size="small" style={{ marginTop: 12 }}>
-                          <Panel header={`View Team Members (${project.total_members})`} key="1">
-                            <Table
-                              dataSource={project.members}
-                              columns={[
-                                { title: 'Name', dataIndex: 'name', key: 'name', render: (name, record) => <Space><Tag color={record.is_logged_in ? 'green' : 'default'}>{record.is_logged_in ? 'Online' : 'Offline'}</Tag>{name}</Space> },
-                                { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
-                                { title: 'Images', dataIndex: 'image_count', key: 'image_count' },
-                                { title: 'Form', dataIndex: 'form_name', key: 'form_name', render: (form) => form || '-' },
-                              ]}
-                              rowKey="id"
-                              size="small"
-                              pagination={false}
-                            />
-                          </Panel>
-                        </Collapse>
-                      )}
-
-                      {/* For non-annotation projects (except project_managers), use collapsible section */}
-                      {project.type !== 'annotation' && project.type !== 'project_managers' && (
-                        <Collapse ghost size="small" style={{ marginTop: 12 }}>
-                          <Panel header={`View Team Members (${project.total_members})`} key="1">
-                            <Table dataSource={project.members} columns={[
-                              { title: 'Name', dataIndex: 'name', key: 'name', render: (name, record) => <Space><Tag color={record.is_logged_in ? 'green' : 'default'}>{record.is_logged_in ? 'Online' : 'Offline'}</Tag>{name}</Space> },
-                              { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
-                              ...(project.type === 'finance_pleo' ? [{ title: 'Pleo', dataIndex: 'pleo_validation_count', key: 'pleo_validation_count' }] : []),
-                            ]} rowKey="id" size="small" pagination={false} />
-                          </Panel>
-                        </Collapse>
-                      )}
+                      {/* View Team Members - collapsible section for all projects */}
+                      <Collapse ghost size="small" style={{ marginTop: 12 }}>
+                        <Panel header={`View Team Members (${project.total_members})`} key="1">
+                          <Table dataSource={project.members} columns={[
+                            { title: 'Name', dataIndex: 'name', key: 'name', render: (name, record) => <Space><Tag color={record.is_logged_in ? 'green' : 'default'}>{record.is_logged_in ? 'Online' : 'Offline'}</Tag>{name}</Space> },
+                            { title: 'Hours', dataIndex: 'total_hours', key: 'total_hours' },
+                            ...(project.type === 'annotation' ? [
+                              { title: 'Images', dataIndex: 'image_count', key: 'image_count' },
+                              { title: 'Form', dataIndex: 'form_name', key: 'form_name', render: (form) => form || '-' },
+                            ] : []),
+                            ...(project.type === 'finance_pleo' ? [{ title: 'Pleo', dataIndex: 'pleo_validation_count', key: 'pleo_validation_count' }] : []),
+                          ]} rowKey="id" size="small" pagination={false} />
+                        </Panel>
+                      </Collapse>
                     </Card>
                   </Col>
                 ))}
