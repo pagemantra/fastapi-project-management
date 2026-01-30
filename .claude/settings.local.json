@@ -23,7 +23,10 @@
       "Bash(node --check:*)",
       "Bash(npm run lint:*)",
       "Bash(TL_TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTMwNTE1ZGQwYTcwMDA5Y2NhNjU4ZDAiLCJlbWFpbCI6bnVsbCwiZW1wbG95ZWVfaWQiOiJKU0FOMjY3Iiwicm9sZSI6InRlYW1fbGVhZCIsImlhdCI6MTc2OTc2MTM1MiwiZXhwIjoxNzY5ODQ3NzUyfQ.XoRa6ZPb-PFWD-C9lppfiTx6roaAzCl55sK9wi0yGSM\")",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(timeout /t 5 /nobreak)",
+      "Bash(node fix-worksheet-forms.js:*)"
     ],
     "deny": [],
     "ask": []
