@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Row, Col, Card, Statistic, Table, Tag, Typography, Skeleton, message } from 'antd';
+import { Row, Col, Card, Statistic, Table, Tag, Typography, Skeleton } from 'antd';
 import {
   ClockCircleOutlined,
   CheckCircleOutlined,
@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { taskService, worksheetService, attendanceService, userService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
 import TimeTracker from '../components/TimeTracker';
+import ScreenActiveTime from '../components/ScreenActiveTime';
 
 const { Title } = Typography;
 
@@ -230,6 +231,11 @@ const Dashboard = () => {
             </Col>
           </>
         )}
+        {(isEmployee() || isTeamLead() || isManager()) && (
+          <Col xs={24} sm={12} lg={6}>
+            <ScreenActiveTime />
+          </Col>
+        )}
         <Col xs={24} sm={12} lg={6}>
           <Card><Statistic title="Total Tasks" value={stats.tasks?.total_tasks || 0} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#3f8600' }} /></Card>
         </Col>
@@ -243,7 +249,7 @@ const Dashboard = () => {
         )}
         {!isEmployee() && (
           <Col xs={24} sm={12} lg={6}>
-            <Card><Statistic title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'} value={isTeamLead() ? stats.worksheets?.pending_verification || 0 : stats.worksheets?.pending_approval || 0} prefix={<AlertOutlined />} valueStyle={{ color: '#cf1322' }} /></Card>
+            <Card><Statistic title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'} value={isTeamLead() ? (stats.worksheets?.pending_verification || 0) : (stats.worksheets?.pending_approval || 0)} prefix={<AlertOutlined />} valueStyle={{ color: '#cf1322' }} /></Card>
           </Col>
         )}
       </Row>
