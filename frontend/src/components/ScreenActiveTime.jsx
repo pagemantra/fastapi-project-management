@@ -6,24 +6,20 @@ import dayjs from '../utils/dayjs';
 
 const { Text } = Typography;
 
-// 3 minutes of no mouse/keyboard activity = inactive
-const IDLE_TIMEOUT_MS = 3 * 60 * 1000; // 180000ms = 3 minutes
+// If timer tick gap is > 2 seconds, screen was likely locked/sleeping
+const SCREEN_LOCK_THRESHOLD_MS = 2000;
 
 const ScreenActiveTime = () => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
-  const [isScreenOn, setIsScreenOn] = useState(true);
-  const [isUserActive, setIsUserActive] = useState(true);
+  const [isScreenLocked, setIsScreenLocked] = useState(false);
 
   // Refs for tracking state without causing re-renders
   const intervalRef = useRef(null);
-  const lastActivityTimeRef = useRef(Date.now());
-  const isPageVisibleRef = useRef(!document.hidden);
-  const isWindowFocusedRef = useRef(document.hasFocus());
+  const lastTickTimeRef = useRef(Date.now());
   const screenActiveSecondsRef = useRef(0);
   const sessionRef = useRef(null);
-  const wasActiveRef = useRef(true);
 
   // Fetch current session
   const fetchCurrentSession = useCallback(async (silent = false) => {
@@ -37,6 +33,7 @@ const ScreenActiveTime = () => {
            sessionRef.current._id !== newSession._id)) {
         screenActiveSecondsRef.current = 0;
         setScreenActiveSeconds(0);
+        lastTickTimeRef.current = Date.now();
       }
 
       sessionRef.current = newSession;
@@ -50,103 +47,19 @@ const ScreenActiveTime = () => {
     }
   }, []);
 
-  // Check if screen should be considered ON (not locked/sleeping)
-  const checkScreenStatus = useCallback(() => {
-    const pageVisible = isPageVisibleRef.current;
-    const timeSinceLastActivity = Date.now() - lastActivityTimeRef.current;
-    const userActiveRecently = timeSinceLastActivity < IDLE_TIMEOUT_MS;
-
-    // Screen is ON when page is visible
-    // (when screen locks/sleeps, page becomes hidden)
-    const screenOn = pageVisible;
-
-    // User is active ONLY if there was recent mouse/keyboard activity (within 3 mins)
-    const userActive = userActiveRecently;
-
-    setIsScreenOn(screenOn);
-    setIsUserActive(userActive);
-
-    // Timer should run only when screen is ON AND user is active
-    return screenOn && userActive;
-  }, []);
-
-  // Record user activity (mouse/keyboard events)
-  const recordActivity = useCallback(() => {
-    lastActivityTimeRef.current = Date.now();
-    setIsUserActive(true);
-  }, []);
-
-  // Handle page visibility change (screen lock/unlock, tab switch)
-  const handleVisibilityChange = useCallback(() => {
-    isPageVisibleRef.current = !document.hidden;
-
-    if (!document.hidden) {
-      // Page became visible (screen unlocked or tab focused)
-      recordActivity();
-    }
-
-    checkScreenStatus();
-  }, [recordActivity, checkScreenStatus]);
-
-  // Handle window focus
-  const handleWindowFocus = useCallback(() => {
-    isWindowFocusedRef.current = true;
-    recordActivity();
-    checkScreenStatus();
-  }, [recordActivity, checkScreenStatus]);
-
-  // Handle window blur
-  const handleWindowBlur = useCallback(() => {
-    isWindowFocusedRef.current = false;
-    checkScreenStatus();
-  }, [checkScreenStatus]);
-
-  // Setup event listeners
+  // Setup event listeners and session polling
   useEffect(() => {
     fetchCurrentSession();
 
-    // Mouse and keyboard activity events
-    const activityEvents = [
-      'mousedown', 'mousemove', 'keydown', 'keyup',
-      'touchstart', 'touchmove', 'scroll', 'click', 'wheel'
-    ];
-
-    const handleActivity = () => {
-      recordActivity();
-    };
-
-    activityEvents.forEach(event => {
-      document.addEventListener(event, handleActivity, { passive: true });
-    });
-
-    // Page visibility (detects screen lock/sleep/tab hidden)
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Window focus/blur
-    window.addEventListener('focus', handleWindowFocus);
-    window.addEventListener('blur', handleWindowBlur);
-
-    // Also listen to pageshow/pagehide for better detection
-    window.addEventListener('pageshow', handleWindowFocus);
-    window.addEventListener('pagehide', handleWindowBlur);
-
-    // Poll for session updates every 30 seconds
+    // Poll for session updates every 10 seconds to catch break status changes
     const sessionPollInterval = setInterval(() => {
       fetchCurrentSession(true);
-    }, 30000);
+    }, 10000);
 
     return () => {
-      activityEvents.forEach(event => {
-        document.removeEventListener(event, handleActivity);
-      });
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleWindowFocus);
-      window.removeEventListener('blur', handleWindowBlur);
-      window.removeEventListener('pageshow', handleWindowFocus);
-      window.removeEventListener('pagehide', handleWindowBlur);
       clearInterval(sessionPollInterval);
     };
-  }, [fetchCurrentSession, recordActivity, handleVisibilityChange, handleWindowFocus, handleWindowBlur]);
+  }, [fetchCurrentSession]);
 
   // Main timer logic
   useEffect(() => {
@@ -167,34 +80,36 @@ const ScreenActiveTime = () => {
       return;
     }
 
+    // Reset last tick time when starting
+    lastTickTimeRef.current = Date.now();
+
     // Timer runs every second
     intervalRef.current = setInterval(() => {
-      const pageVisible = isPageVisibleRef.current;
-      const timeSinceLastActivity = Date.now() - lastActivityTimeRef.current;
-      const userActiveRecently = timeSinceLastActivity < IDLE_TIMEOUT_MS;
+      const now = Date.now();
+      const elapsed = now - lastTickTimeRef.current;
+      lastTickTimeRef.current = now;
 
-      // Determine if timer should increment
-      // Screen must be ON (page visible = not locked/sleeping)
-      // AND user must have mouse/keyboard activity within last 3 minutes
-      const screenOn = pageVisible;
-      const userActive = userActiveRecently; // Only mouse/keyboard activity counts
-      const shouldIncrement = screenOn && userActive;
+      // Check if screen was locked (timer was suspended by browser)
+      // When screen locks, browser suspends JS timers
+      // When it unlocks, the timer resumes with a big gap
+      const screenWasLocked = elapsed > SCREEN_LOCK_THRESHOLD_MS;
 
-      // Update UI state
-      setIsScreenOn(screenOn);
-      setIsUserActive(userActive);
+      // Check if user is on break
+      const isOnBreak = sessionRef.current?.status === 'on_break';
 
-      // Log state changes for debugging (only when state changes)
-      const currentlyActive = shouldIncrement;
-      if (currentlyActive !== wasActiveRef.current) {
-        wasActiveRef.current = currentlyActive;
-        console.log(`Screen Active Time: ${currentlyActive ? 'RUNNING' : 'PAUSED'} | ` +
-          `PageVisible: ${pageVisible}, ` +
-          `LastActivity: ${Math.round(timeSinceLastActivity / 1000)}s ago`);
-      }
+      if (screenWasLocked) {
+        // Screen was locked - don't count this time
+        setIsScreenLocked(true);
+        console.log(`Screen Active Time: Screen was locked for ~${Math.round(elapsed / 1000)}s - not counted`);
 
-      // Increment counter only when conditions are met
-      if (shouldIncrement) {
+        // Reset the locked state after a short delay
+        setTimeout(() => setIsScreenLocked(false), 1000);
+      } else if (isOnBreak) {
+        // User is on break - don't count
+        // Timer keeps checking but doesn't increment
+      } else {
+        // Normal tick - screen is ON and user is not on break
+        setIsScreenLocked(false);
         screenActiveSecondsRef.current += 1;
         setScreenActiveSeconds(screenActiveSecondsRef.current);
       }
@@ -222,40 +137,59 @@ const ScreenActiveTime = () => {
     }
   };
 
-  const getTimerRunning = () => {
-    const isSessionActive = session && (session.status === 'active' || session.status === 'on_break');
-    return isSessionActive && isScreenOn && isUserActive;
+  const getTimerStatus = () => {
+    if (!session) return 'not_clocked_in';
+    if (session.status === 'completed') return 'completed';
+    if (session.status === 'on_break') return 'on_break';
+    if (isScreenLocked) return 'screen_locked';
+    return 'running';
   };
 
   const getStatusColor = () => {
-    if (!session) return '#8c8c8c';
-    if (session.status === 'completed') return '#1890ff';
-
-    const timerRunning = getTimerRunning();
-    if (timerRunning) return '#52c41a'; // Green - timer running
-    return '#faad14'; // Orange - timer paused
+    const status = getTimerStatus();
+    switch (status) {
+      case 'running': return '#52c41a'; // Green
+      case 'on_break': return '#faad14'; // Orange
+      case 'screen_locked': return '#ff4d4f'; // Red
+      case 'completed': return '#1890ff'; // Blue
+      default: return '#8c8c8c'; // Gray
+    }
   };
 
   const getStatusText = () => {
-    if (!session) return 'Not Clocked In';
-    if (session.status === 'completed') return 'Session Ended';
-
-    if (!isScreenOn) return 'Screen Off';
-    if (!isUserActive) return 'Inactive';
-    return 'Screen ON';
+    const status = getTimerStatus();
+    switch (status) {
+      case 'running': return 'Screen ON';
+      case 'on_break': return 'On Break';
+      case 'screen_locked': return 'Screen Off';
+      case 'completed': return 'Session Ended';
+      default: return 'Not Clocked In';
+    }
   };
 
   const getStatusTagColor = () => {
-    if (!session) return 'default';
-    if (session.status === 'completed') return 'blue';
+    const status = getTimerStatus();
+    switch (status) {
+      case 'running': return 'green';
+      case 'on_break': return 'orange';
+      case 'screen_locked': return 'red';
+      case 'completed': return 'blue';
+      default: return 'default';
+    }
+  };
 
-    const timerRunning = getTimerRunning();
-    if (timerRunning) return 'green';
-    return 'orange';
+  const getStatusMessage = () => {
+    const status = getTimerStatus();
+    switch (status) {
+      case 'running': return 'Timer running - screen is ON';
+      case 'on_break': return 'Timer paused - you are on break';
+      case 'screen_locked': return 'Timer paused - screen was locked';
+      case 'completed': return 'Session ended';
+      default: return '';
+    }
   };
 
   const isSessionActive = session && (session.status === 'active' || session.status === 'on_break');
-  const timerRunning = getTimerRunning();
 
   return (
     <Card loading={loading} style={{ height: '100%' }}>
@@ -285,11 +219,7 @@ const ScreenActiveTime = () => {
           type="secondary"
           style={{ fontSize: '12px', marginTop: 8, display: 'block' }}
         >
-          {timerRunning
-            ? 'Timer running - screen ON & active'
-            : !isScreenOn
-              ? 'Timer paused - screen locked/off'
-              : 'Timer paused - inactive for 3+ mins'}
+          {getStatusMessage()}
         </Text>
       )}
       {session && session.login_time && (
