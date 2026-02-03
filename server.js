@@ -227,6 +227,8 @@ function formatSessionWithCalculatedHours(session) {
     status: session.status,
     worksheet_submitted: session.worksheet_submitted || false,
     current_break_id: session.current_break_id,
+    screen_active_seconds: session.screen_active_seconds || 0,
+    last_screen_active_update: session.last_screen_active_update,
     created_at: session.created_at,
     updated_at: session.updated_at
   };
@@ -1710,6 +1712,8 @@ app.post('/attendance/clock-in', authenticate, async (req, res) => {
       status: SessionStatus.ACTIVE,
       worksheet_submitted: false,
       current_break_id: null,
+      screen_active_seconds: 0,
+      last_screen_active_update: now,
       created_at: now,
       updated_at: now
     };
@@ -1731,6 +1735,8 @@ app.post('/attendance/clock-in', authenticate, async (req, res) => {
       status: sessionDoc.status,
       worksheet_submitted: sessionDoc.worksheet_submitted,
       current_break_id: sessionDoc.current_break_id,
+      screen_active_seconds: sessionDoc.screen_active_seconds,
+      last_screen_active_update: sessionDoc.last_screen_active_update,
       created_at: sessionDoc.created_at,
       updated_at: sessionDoc.updated_at
     });
@@ -1923,6 +1929,48 @@ app.post('/attendance/break/end', authenticate, async (req, res) => {
     }));
   } catch (error) {
     console.error('End break error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /attendance/screen-active-time - Update screen active seconds
+app.post('/attendance/screen-active-time', authenticate, async (req, res) => {
+  try {
+    const { screen_active_seconds } = req.body;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+    const today = moment.tz(IST).format('YYYY-MM-DD');
+
+    // Validate input
+    if (typeof screen_active_seconds !== 'number' || screen_active_seconds < 0) {
+      return res.status(400).json({ detail: 'Invalid screen_active_seconds value' });
+    }
+
+    const session = await db.collection('time_sessions').findOne({
+      employee_id: userId,
+      date: today,
+      status: { $in: [SessionStatus.ACTIVE, SessionStatus.ON_BREAK] }
+    });
+
+    if (!session) {
+      return res.status(400).json({ detail: 'No active session found' });
+    }
+
+    const now = getNow();
+    await db.collection('time_sessions').updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          screen_active_seconds: screen_active_seconds,
+          last_screen_active_update: now,
+          updated_at: now
+        }
+      }
+    );
+
+    res.json({ success: true, screen_active_seconds });
+  } catch (error) {
+    console.error('Update screen active time error:', error);
     res.status(500).json({ detail: error.message });
   }
 });

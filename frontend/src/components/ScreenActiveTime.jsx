@@ -8,6 +8,8 @@ const { Text } = Typography;
 
 // If timer tick gap is > 2 seconds, screen was likely locked/sleeping
 const SCREEN_LOCK_THRESHOLD_MS = 2000;
+// Save to backend every 10 seconds
+const SAVE_INTERVAL_MS = 10000;
 
 const ScreenActiveTime = () => {
   const [session, setSession] = useState(null);
@@ -17,10 +19,33 @@ const ScreenActiveTime = () => {
 
   // Refs for tracking state without causing re-renders
   const intervalRef = useRef(null);
+  const saveIntervalRef = useRef(null);
   const lastTickTimeRef = useRef(Date.now());
   const screenActiveSecondsRef = useRef(0);
   const sessionRef = useRef(null);
-  const isPageVisibleRef = useRef(!document.hidden);
+  const lastSavedSecondsRef = useRef(0);
+  const isScreenLockedRef = useRef(false);
+  const sessionIdRef = useRef(null);
+
+  // Save screen active time to backend
+  const saveScreenActiveTime = useCallback(async (seconds) => {
+    if (!sessionRef.current || sessionRef.current.status === 'completed') {
+      return;
+    }
+
+    // Only save if value has changed
+    if (seconds === lastSavedSecondsRef.current) {
+      return;
+    }
+
+    try {
+      await attendanceService.updateScreenActiveTime({ screen_active_seconds: seconds });
+      lastSavedSecondsRef.current = seconds;
+      console.log(`Screen Active Time: Saved ${seconds}s to backend`);
+    } catch (error) {
+      console.error('Failed to save screen active time:', error);
+    }
+  }, []);
 
   // Fetch current session
   const fetchCurrentSession = useCallback(async (silent = false) => {
@@ -28,13 +53,27 @@ const ScreenActiveTime = () => {
       const response = await attendanceService.getCurrentSession();
       const newSession = response.data;
 
-      // Detect new clock-in (reset counter)
-      if (newSession && newSession.status === 'active' &&
-          (!sessionRef.current || sessionRef.current.status !== 'active' ||
-           sessionRef.current._id !== newSession._id)) {
-        screenActiveSecondsRef.current = 0;
-        setScreenActiveSeconds(0);
+      // Detect new clock-in (different session ID means new session)
+      if (newSession && newSession.id !== sessionIdRef.current) {
+        // New session - load persisted value or reset
+        sessionIdRef.current = newSession.id;
+
+        // Load persisted screen_active_seconds from backend
+        const persistedSeconds = newSession.screen_active_seconds || 0;
+        screenActiveSecondsRef.current = persistedSeconds;
+        lastSavedSecondsRef.current = persistedSeconds;
+        setScreenActiveSeconds(persistedSeconds);
         lastTickTimeRef.current = Date.now();
+        isScreenLockedRef.current = false;
+
+        console.log(`Screen Active Time: Loaded ${persistedSeconds}s from backend for session ${newSession.id}`);
+      }
+
+      // Detect session ended
+      if (!newSession && sessionRef.current) {
+        // Session ended - save final value
+        await saveScreenActiveTime(screenActiveSecondsRef.current);
+        sessionIdRef.current = null;
       }
 
       sessionRef.current = newSession;
@@ -48,7 +87,10 @@ const ScreenActiveTime = () => {
       } else if (newSession.status === 'on_break') {
         setTimerStatus('on_break');
       } else if (newSession.status === 'active') {
-        setTimerStatus('running');
+        // Keep screen_locked status if we detected screen was locked
+        if (!isScreenLockedRef.current) {
+          setTimerStatus('running');
+        }
       }
     } catch (error) {
       console.error('Failed to fetch session:', error);
@@ -57,28 +99,24 @@ const ScreenActiveTime = () => {
         setLoading(false);
       }
     }
-  }, []);
+  }, [saveScreenActiveTime]);
 
-  // Handle visibility change - only used to refresh session when page becomes visible
-  // NOT used to pause timer (tab switch should not pause timer)
+  // Handle visibility change - detect when page becomes visible again
   const handleVisibilityChange = useCallback(() => {
     const isVisible = !document.hidden;
-    isPageVisibleRef.current = isVisible;
 
     if (isVisible) {
       // Page visible again - refresh session to get latest status
       fetchCurrentSession(true);
       console.log('Screen Active Time: Page visible - refreshing session');
     }
-    // Note: We do NOT pause timer on page hidden (tab switch)
-    // Screen lock is detected via timer gap, not visibility
   }, [fetchCurrentSession]);
 
   // Setup event listeners and session polling
   useEffect(() => {
     fetchCurrentSession();
 
-    // Listen for visibility changes (screen lock/unlock)
+    // Listen for visibility changes
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Poll for session updates every 2 seconds for quick break detection
@@ -94,10 +132,14 @@ const ScreenActiveTime = () => {
 
   // Main timer logic
   useEffect(() => {
-    // Clear existing interval
+    // Clear existing intervals
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
+    }
+    if (saveIntervalRef.current) {
+      clearInterval(saveIntervalRef.current);
+      saveIntervalRef.current = null;
     }
 
     const currentSession = sessionRef.current;
@@ -106,8 +148,12 @@ const ScreenActiveTime = () => {
     if (!isSessionActive) {
       // Not clocked in or session completed - don't run timer
       if (!currentSession || currentSession.status !== 'completed') {
-        screenActiveSecondsRef.current = 0;
-        setScreenActiveSeconds(0);
+        // Don't reset counter for completed sessions (keep showing final value)
+        if (!currentSession) {
+          screenActiveSecondsRef.current = 0;
+          setScreenActiveSeconds(0);
+          lastSavedSecondsRef.current = 0;
+        }
       }
       return;
     }
@@ -128,7 +174,6 @@ const ScreenActiveTime = () => {
       // Check if screen was locked (timer was suspended by browser)
       // When screen locks, browser suspends JS timers
       // When unlocked, timer resumes with a large gap (> 2 seconds)
-      // Tab switching does NOT suspend timers, so gap stays ~1 second
       const screenWasLocked = elapsed > SCREEN_LOCK_THRESHOLD_MS;
 
       // Determine if we should count this second
@@ -139,22 +184,31 @@ const ScreenActiveTime = () => {
         // Session ended
         newStatus = 'completed';
         shouldCount = false;
+        isScreenLockedRef.current = false;
       } else if (isOnBreak) {
         // User is on break - DON'T count
         newStatus = 'on_break';
         shouldCount = false;
+        isScreenLockedRef.current = false;
       } else if (screenWasLocked) {
         // Screen was locked/sleeping - DON'T count
-        // This is detected by timer gap, NOT by visibility change
-        // So tab switching will NOT trigger this
         newStatus = 'screen_locked';
         shouldCount = false;
+        isScreenLockedRef.current = true;
         console.log(`Screen Active Time: Screen was locked for ~${Math.round(elapsed / 1000)}s - NOT counted`);
+
+        // After detecting screen lock, set a timeout to resume normal status
+        setTimeout(() => {
+          if (sessionRef.current?.status === 'active' && isScreenLockedRef.current) {
+            isScreenLockedRef.current = false;
+            setTimerStatus('running');
+          }
+        }, 1000);
       } else {
         // Normal operation - screen ON, not on break
-        // Timer keeps running even when tab is switched
         newStatus = 'running';
         shouldCount = true;
+        isScreenLockedRef.current = false;
       }
 
       // Update status
@@ -167,13 +221,57 @@ const ScreenActiveTime = () => {
       }
     }, 1000);
 
+    // Setup periodic save interval
+    saveIntervalRef.current = setInterval(() => {
+      if (sessionRef.current &&
+          (sessionRef.current.status === 'active' || sessionRef.current.status === 'on_break')) {
+        saveScreenActiveTime(screenActiveSecondsRef.current);
+      }
+    }, SAVE_INTERVAL_MS);
+
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      if (saveIntervalRef.current) {
+        clearInterval(saveIntervalRef.current);
+        saveIntervalRef.current = null;
+      }
+      // Save on unmount
+      if (sessionRef.current &&
+          (sessionRef.current.status === 'active' || sessionRef.current.status === 'on_break')) {
+        saveScreenActiveTime(screenActiveSecondsRef.current);
+      }
     };
-  }, [session]);
+  }, [session, saveScreenActiveTime]);
+
+  // Save on page unload/close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (sessionRef.current &&
+          (sessionRef.current.status === 'active' || sessionRef.current.status === 'on_break')) {
+        // Use synchronous XHR for beforeunload
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/api/attendance/screen-active-time', false); // false makes it synchronous
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          const token = localStorage.getItem('token');
+          if (token) {
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+          }
+          xhr.send(JSON.stringify({ screen_active_seconds: screenActiveSecondsRef.current }));
+        } catch (e) {
+          console.error('Failed to save on unload:', e);
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -221,9 +319,9 @@ const ScreenActiveTime = () => {
 
   const getStatusMessage = () => {
     switch (timerStatus) {
-      case 'running': return 'Timer running - screen is ON';
+      case 'running': return 'Timer running - screen is active';
       case 'on_break': return 'Timer paused - you are on break';
-      case 'screen_locked': return 'Timer paused - screen locked/off';
+      case 'screen_locked': return 'Timer paused - screen locked/sleep detected';
       case 'completed': return 'Session ended';
       default: return '';
     }

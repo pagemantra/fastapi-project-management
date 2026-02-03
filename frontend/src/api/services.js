@@ -56,6 +56,7 @@ export const attendanceService = {
   getBreakSettings: (teamId) => api.get(`/attendance/break-settings/${teamId}`),
   createBreakSettings: (data) => api.post('/attendance/break-settings', data),
   updateBreakSettings: (teamId, data) => api.put(`/attendance/break-settings/${teamId}`, data),
+  updateScreenActiveTime: (data) => api.post('/attendance/screen-active-time', data),
 };
 
 // Form Services
