@@ -9,6 +9,7 @@ const { Text } = Typography;
 // Save to backend every 10 seconds
 const SAVE_INTERVAL_MS = 10000;
 // Threshold for detecting screen lock via timer gap (3 seconds)
+// When screen locks/sleeps, browser suspends JS completely, causing large gaps
 const SCREEN_LOCK_THRESHOLD_MS = 3000;
 
 const ScreenActiveTime = () => {
@@ -25,8 +26,7 @@ const ScreenActiveTime = () => {
   const sessionRef = useRef(null);
   const lastSavedSecondsRef = useRef(0);
   const sessionIdRef = useRef(null);
-  const isPageVisibleRef = useRef(!document.hidden);
-  const pageHiddenTimeRef = useRef(null);
+  const isScreenLockedRef = useRef(false);
 
   // Save screen active time to backend
   const saveScreenActiveTime = useCallback(async (seconds) => {
@@ -79,7 +79,7 @@ const ScreenActiveTime = () => {
       sessionRef.current = newSession;
       setSession(newSession);
 
-      // Update timer status based on session (only if page is visible)
+      // Update timer status based on session
       if (!newSession) {
         setTimerStatus('not_clocked_in');
       } else if (newSession.status === 'completed') {
@@ -87,8 +87,8 @@ const ScreenActiveTime = () => {
       } else if (newSession.status === 'on_break') {
         setTimerStatus('on_break');
       } else if (newSession.status === 'active') {
-        // Only set to running if page is visible
-        if (isPageVisibleRef.current) {
+        // Only update to running if not screen locked
+        if (!isScreenLockedRef.current) {
           setTimerStatus('running');
         }
       }
@@ -101,43 +101,22 @@ const ScreenActiveTime = () => {
     }
   }, [saveScreenActiveTime]);
 
-  // Handle visibility change - PAUSE timer when hidden, RESUME when visible
+  // Handle visibility change - just save data, don't pause timer
+  // Timer continues running even when tab is switched or window minimized
   const handleVisibilityChange = useCallback(() => {
     const isVisible = !document.hidden;
-    const wasVisible = isPageVisibleRef.current;
-    isPageVisibleRef.current = isVisible;
 
-    if (!isVisible && wasVisible) {
-      // Page just became hidden (screen lock, sleep, tab switch, minimize)
-      pageHiddenTimeRef.current = Date.now();
-
-      // Save current value before going hidden
+    if (!isVisible) {
+      // Page became hidden - save current value (but DON'T pause timer)
       if (sessionRef.current &&
           (sessionRef.current.status === 'active' || sessionRef.current.status === 'on_break')) {
         saveScreenActiveTime(screenActiveSecondsRef.current);
       }
-
-      // Set status to screen_locked if we were running
-      if (sessionRef.current?.status === 'active') {
-        setTimerStatus('screen_locked');
-        console.log('Screen Active Time: Page hidden - timer PAUSED');
-      }
-    } else if (isVisible && !wasVisible) {
-      // Page just became visible again
-      const hiddenDuration = pageHiddenTimeRef.current ? Date.now() - pageHiddenTimeRef.current : 0;
-      console.log(`Screen Active Time: Page visible again after ${Math.round(hiddenDuration / 1000)}s - timer RESUMED`);
-
-      // Reset last tick time to avoid counting hidden time
-      lastTickTimeRef.current = Date.now();
-      pageHiddenTimeRef.current = null;
-
-      // Refresh session to get latest status
+      console.log('Screen Active Time: Page hidden - timer CONTINUES (tab switch/minimize)');
+    } else {
+      // Page became visible - refresh session to get latest status
       fetchCurrentSession(true);
-
-      // Resume timer if session is active
-      if (sessionRef.current?.status === 'active') {
-        setTimerStatus('running');
-      }
+      console.log('Screen Active Time: Page visible again');
     }
   }, [fetchCurrentSession, saveScreenActiveTime]);
 
@@ -145,15 +124,12 @@ const ScreenActiveTime = () => {
   useEffect(() => {
     fetchCurrentSession();
 
-    // Listen for visibility changes (screen lock, sleep, tab switch, minimize)
+    // Listen for visibility changes (for saving data, not for pausing)
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Poll for session updates every 2 seconds for quick break detection
     const sessionPollInterval = setInterval(() => {
-      // Only poll when page is visible
-      if (isPageVisibleRef.current) {
-        fetchCurrentSession(true);
-      }
+      fetchCurrentSession(true);
     }, 2000);
 
     return () => {
@@ -202,9 +178,10 @@ const ScreenActiveTime = () => {
       // Get current states
       const currentSessionStatus = sessionRef.current?.status;
       const isOnBreak = currentSessionStatus === 'on_break';
-      const isPageVisible = isPageVisibleRef.current;
 
-      // Check if there was a large gap (screen was locked/sleeping while timer was suspended)
+      // Check if there was a large gap (screen was locked/sleeping)
+      // When screen locks or system sleeps, browser completely suspends JS
+      // causing gaps > 3 seconds between timer ticks
       const hadLargeGap = elapsed > SCREEN_LOCK_THRESHOLD_MS;
 
       // Determine if we should count this second
@@ -215,24 +192,25 @@ const ScreenActiveTime = () => {
         // Session ended
         newStatus = 'completed';
         shouldCount = false;
+        isScreenLockedRef.current = false;
       } else if (isOnBreak) {
         // User is on break - DON'T count
         newStatus = 'on_break';
         shouldCount = false;
-      } else if (!isPageVisible) {
-        // Page is hidden (screen locked, sleep, tab switch, minimize) - DON'T count
-        newStatus = 'screen_locked';
-        shouldCount = false;
+        isScreenLockedRef.current = false;
       } else if (hadLargeGap) {
-        // Large gap detected (browser suspended timer) - DON'T count this tick
-        // but resume counting next tick
+        // Large gap detected = screen was locked/sleeping
+        // DON'T count this tick, but resume counting next tick
         newStatus = 'running';
         shouldCount = false;
-        console.log(`Screen Active Time: Large gap detected (${Math.round(elapsed / 1000)}s) - this tick NOT counted`);
+        isScreenLockedRef.current = false; // Reset after detecting
+        console.log(`Screen Active Time: Large gap detected (${Math.round(elapsed / 1000)}s) - screen was locked/sleeping - this tick NOT counted`);
       } else {
-        // Normal operation - screen ON, not on break, page visible
+        // Normal operation - screen ON, not on break
+        // Timer continues even when tab is switched or window minimized
         newStatus = 'running';
         shouldCount = true;
+        isScreenLockedRef.current = false;
       }
 
       // Update status
@@ -247,8 +225,7 @@ const ScreenActiveTime = () => {
 
     // Setup periodic save interval
     saveIntervalRef.current = setInterval(() => {
-      // Only save when page is visible
-      if (isPageVisibleRef.current && sessionRef.current &&
+      if (sessionRef.current &&
           (sessionRef.current.status === 'active' || sessionRef.current.status === 'on_break')) {
         saveScreenActiveTime(screenActiveSecondsRef.current);
       }
@@ -346,7 +323,7 @@ const ScreenActiveTime = () => {
     switch (timerStatus) {
       case 'running': return 'Timer running - screen is active';
       case 'on_break': return 'Timer paused - you are on break';
-      case 'screen_locked': return 'Timer paused - screen locked/inactive';
+      case 'screen_locked': return 'Timer paused - screen locked/sleeping';
       case 'completed': return 'Session ended';
       default: return '';
     }
