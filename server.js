@@ -56,6 +56,7 @@ const WorksheetStatus = {
   SUBMITTED: 'submitted',
   TL_VERIFIED: 'tl_verified',
   MANAGER_APPROVED: 'manager_approved',
+  DM_APPROVED: 'dm_approved',
   REJECTED: 'rejected'
 };
 
@@ -2856,11 +2857,20 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
       rejected_at: null
     };
 
-    // Team Leads and Managers skip TL verification - go directly to manager approval
-    if (employeeRole === UserRole.TEAM_LEAD || employeeRole === UserRole.MANAGER) {
+    // Role-based workflow:
+    // Associate: SUBMITTED -> TL verifies -> Manager approves -> DM approves
+    // Team Lead: TL_VERIFIED (self) -> Manager approves -> DM approves
+    // Manager: MANAGER_APPROVED (self) -> DM approves
+    if (employeeRole === UserRole.TEAM_LEAD) {
       newStatus = WorksheetStatus.TL_VERIFIED;
       updateFields.tl_verified_by = userId; // Self-verified
       updateFields.tl_verified_at = now;
+    } else if (employeeRole === UserRole.MANAGER) {
+      newStatus = WorksheetStatus.MANAGER_APPROVED;
+      updateFields.tl_verified_by = userId; // Self-verified
+      updateFields.tl_verified_at = now;
+      updateFields.manager_approved_by = userId; // Self-approved
+      updateFields.manager_approved_at = now;
     }
 
     updateFields.status = newStatus;
@@ -2877,6 +2887,9 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
     );
 
     // Notify appropriate approver based on role
+    // Workflow: Associate -> TL -> Manager -> DM
+    //           Team Lead -> Manager -> DM
+    //           Manager -> DM
     if (employeeRole === UserRole.ASSOCIATE) {
       // Associates: notify Team Lead for verification
       if (employee.team_lead_id) {
@@ -2889,18 +2902,18 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
         );
       }
     } else if (employeeRole === UserRole.TEAM_LEAD) {
-      // Team Leads: notify Manager for approval (skip verification)
+      // Team Leads: notify Manager for approval (self-verified, skip TL verification)
       if (employee.manager_id) {
         await createNotification(
           employee.manager_id,
           'WORKSHEET_VERIFIED',
-          'Worksheet Ready for Approval',
+          'Team Lead Worksheet for Approval',
           `${employee.full_name} (Team Lead) has submitted their worksheet for ${worksheet.date}`,
           worksheet_id
         );
       }
     } else if (employeeRole === UserRole.MANAGER) {
-      // Managers: notify Delivery Manager for approval
+      // Managers: notify Delivery Manager for final approval (self-verified & self-approved)
       const deliveryManagers = await db.collection('users').find({
         role: UserRole.DELIVERY_MANAGER,
         is_active: true
@@ -2909,9 +2922,9 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
       for (const dm of deliveryManagers) {
         await createNotification(
           dm._id.toString(),
-          'WORKSHEET_VERIFIED',
-          'Manager Worksheet for Approval',
-          `${employee.full_name} (Manager) has submitted their worksheet for ${worksheet.date}`,
+          'WORKSHEET_PENDING_DM',
+          'Manager Worksheet for Final Approval',
+          `${employee.full_name} (Manager) has submitted their worksheet for ${worksheet.date} - pending your approval`,
           worksheet_id
         );
       }
@@ -3080,14 +3093,31 @@ app.post('/worksheets/:worksheet_id/approve', authenticate, requireRoles([UserRo
       }
     );
 
-    // Notify Employee
+    // Notify Employee that Manager approved
     await createNotification(
       worksheet.employee_id,
       'WORKSHEET_VERIFIED',
-      'Worksheet Approved',
-      `Your worksheet for ${worksheet.date} has been approved by Manager`,
+      'Worksheet Approved by Manager',
+      `Your worksheet for ${worksheet.date} has been approved by Manager - pending Delivery Manager approval`,
       worksheet_id
     );
+
+    // Notify Delivery Managers for final approval
+    const deliveryManagers = await db.collection('users').find({
+      role: UserRole.DELIVERY_MANAGER,
+      is_active: true
+    }).toArray();
+
+    const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
+    for (const dm of deliveryManagers) {
+      await createNotification(
+        dm._id.toString(),
+        'WORKSHEET_PENDING_DM',
+        'Worksheet Pending Final Approval',
+        `${employee?.full_name || 'Employee'}'s worksheet for ${worksheet.date} is approved by Manager - pending your final approval`,
+        worksheet_id
+      );
+    }
 
     const updated = await db.collection('worksheets').findOne({ _id: new ObjectId(worksheet_id) });
     res.json({
@@ -3105,6 +3135,8 @@ app.post('/worksheets/:worksheet_id/approve', authenticate, requireRoles([UserRo
       tl_verified_at: updated.tl_verified_at,
       manager_approved_by: updated.manager_approved_by,
       manager_approved_at: updated.manager_approved_at,
+      dm_approved_by: updated.dm_approved_by,
+      dm_approved_at: updated.dm_approved_at,
       rejection_reason: updated.rejection_reason,
       rejected_by: updated.rejected_by,
       rejected_at: updated.rejected_at,
@@ -3159,6 +3191,11 @@ app.post('/worksheets/:id/reject', authenticate, requireRoles([UserRole.ADMIN, U
       const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
       if (!employee || employee.manager_id !== userId) {
         return res.status(403).json({ detail: 'Can only reject worksheets from employees under your management' });
+      }
+    } else if (userRole === UserRole.DELIVERY_MANAGER) {
+      // DM can reject worksheets in MANAGER_APPROVED status
+      if (worksheet.status !== WorksheetStatus.MANAGER_APPROVED) {
+        return res.status(400).json({ detail: 'Worksheet must be in MANAGER_APPROVED status for Delivery Manager rejection' });
       }
     }
 
@@ -3272,13 +3309,171 @@ app.post('/worksheets/bulk-approve', authenticate, requireRoles([UserRole.ADMIN,
       }
     );
 
+    // Notify all employees and DMs
+    const deliveryManagers = await db.collection('users').find({
+      role: UserRole.DELIVERY_MANAGER,
+      is_active: true
+    }).toArray();
+
+    for (const worksheet of worksheets) {
+      // Notify employee
+      await createNotification(
+        worksheet.employee_id,
+        'WORKSHEET_VERIFIED',
+        'Worksheet Approved by Manager',
+        `Your worksheet for ${worksheet.date} has been approved by Manager - pending Delivery Manager approval`,
+        worksheet._id.toString()
+      );
+
+      // Notify DMs
+      const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
+      for (const dm of deliveryManagers) {
+        await createNotification(
+          dm._id.toString(),
+          'WORKSHEET_PENDING_DM',
+          'Worksheet Pending Final Approval',
+          `${employee?.full_name || 'Employee'}'s worksheet for ${worksheet.date} is approved by Manager - pending your final approval`,
+          worksheet._id.toString()
+        );
+      }
+    }
+
+    res.json({
+      message: `Successfully approved ${result.modifiedCount} worksheets`,
+      approved_count: result.modifiedCount,
+      requested_count: worksheet_ids.length
+    });
+  } catch (error) {
+    console.error('Bulk approve worksheets error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /worksheets/:worksheet_id/dm-approve - Delivery Manager final approval
+app.post('/worksheets/:worksheet_id/dm-approve', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
+  try {
+    const { worksheet_id } = req.params;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+
+    if (!ObjectId.isValid(worksheet_id)) {
+      return res.status(400).json({ detail: 'Invalid worksheet ID format' });
+    }
+
+    const worksheet = await db.collection('worksheets').findOne({ _id: new ObjectId(worksheet_id) });
+    if (!worksheet) {
+      return res.status(404).json({ detail: 'Worksheet not found' });
+    }
+
+    if (worksheet.status !== WorksheetStatus.MANAGER_APPROVED) {
+      return res.status(400).json({ detail: 'Worksheet must be MANAGER_APPROVED for DM approval' });
+    }
+
+    const now = getNow();
+    await db.collection('worksheets').updateOne(
+      { _id: new ObjectId(worksheet_id) },
+      {
+        $set: {
+          status: WorksheetStatus.DM_APPROVED,
+          dm_approved_by: userId,
+          dm_approved_at: now,
+          updated_at: now
+        }
+      }
+    );
+
+    // Notify Employee
+    await createNotification(
+      worksheet.employee_id,
+      'WORKSHEET_FINAL_APPROVED',
+      'Worksheet Fully Approved',
+      `Your worksheet for ${worksheet.date} has been approved by Delivery Manager - fully approved!`,
+      worksheet_id
+    );
+
+    const updated = await db.collection('worksheets').findOne({ _id: new ObjectId(worksheet_id) });
+    res.json({
+      id: updated._id.toString(),
+      employee_id: updated.employee_id,
+      date: updated.date,
+      form_id: updated.form_id,
+      form_responses: updated.form_responses || [],
+      tasks_completed: updated.tasks_completed || [],
+      total_hours: updated.total_hours || 0,
+      notes: updated.notes,
+      status: updated.status,
+      submitted_at: updated.submitted_at,
+      tl_verified_by: updated.tl_verified_by,
+      tl_verified_at: updated.tl_verified_at,
+      manager_approved_by: updated.manager_approved_by,
+      manager_approved_at: updated.manager_approved_at,
+      dm_approved_by: updated.dm_approved_by,
+      dm_approved_at: updated.dm_approved_at,
+      rejection_reason: updated.rejection_reason,
+      rejected_by: updated.rejected_by,
+      rejected_at: updated.rejected_at,
+      created_at: updated.created_at,
+      updated_at: updated.updated_at,
+      employee_name: null,
+      form_name: null
+    });
+  } catch (error) {
+    console.error('DM approve worksheet error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /worksheets/bulk-dm-approve - Bulk DM approve multiple worksheets
+app.post('/worksheets/bulk-dm-approve', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
+  try {
+    const { worksheet_ids } = req.body;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+
+    if (!worksheet_ids || !Array.isArray(worksheet_ids) || worksheet_ids.length === 0) {
+      return res.status(400).json({ detail: 'worksheet_ids array is required' });
+    }
+
+    // Validate all IDs
+    for (const id of worksheet_ids) {
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ detail: `Invalid worksheet ID format: ${id}` });
+      }
+    }
+
+    const objectIds = worksheet_ids.map(id => new ObjectId(id));
+    const worksheets = await db.collection('worksheets').find({
+      _id: { $in: objectIds },
+      status: WorksheetStatus.MANAGER_APPROVED
+    }).toArray();
+
+    if (worksheets.length === 0) {
+      return res.status(400).json({ detail: 'No worksheets found with MANAGER_APPROVED status' });
+    }
+
+    const now = getNow();
+    const result = await db.collection('worksheets').updateMany(
+      {
+        _id: { $in: objectIds },
+        status: WorksheetStatus.MANAGER_APPROVED
+      },
+      {
+        $set: {
+          status: WorksheetStatus.DM_APPROVED,
+          dm_approved_by: userId,
+          dm_approved_at: now,
+          updated_at: now
+        }
+      }
+    );
+
     // Notify all employees
     for (const worksheet of worksheets) {
       await createNotification(
         worksheet.employee_id,
-        'WORKSHEET_VERIFIED',
-        'Worksheet Approved',
-        `Your worksheet for ${worksheet.date} has been approved by Manager`,
+        'WORKSHEET_FINAL_APPROVED',
+        'Worksheet Fully Approved',
+        `Your worksheet for ${worksheet.date} has been approved by Delivery Manager - fully approved!`,
         worksheet._id.toString()
       );
     }
@@ -3289,7 +3484,7 @@ app.post('/worksheets/bulk-approve', authenticate, requireRoles([UserRole.ADMIN,
       requested_count: worksheet_ids.length
     });
   } catch (error) {
-    console.error('Bulk approve worksheets error:', error);
+    console.error('Bulk DM approve worksheets error:', error);
     res.status(500).json({ detail: error.message });
   }
 });
@@ -3844,6 +4039,93 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
     })));
   } catch (error) {
     console.error('Get pending approval error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// GET /worksheets/pending-dm-approval - Get worksheets pending Delivery Manager approval
+app.get('/worksheets/pending-dm-approval', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
+  try {
+    const db = getDatabase();
+
+    // Get all worksheets with MANAGER_APPROVED status (pending DM final approval)
+    const query = { status: WorksheetStatus.MANAGER_APPROVED };
+
+    const worksheets = await db.collection('worksheets')
+      .find(query)
+      .sort({ manager_approved_at: -1 })
+      .limit(100)
+      .toArray();
+
+    // Fetch employee names
+    const employeeIds = [...new Set(worksheets.map(w => w.employee_id).filter(Boolean))];
+    const validEmployeeIds = employeeIds.filter(id => ObjectId.isValid(id));
+    const employeeMap = {};
+    if (validEmployeeIds.length > 0) {
+      const employees = await db.collection('users').find({
+        _id: { $in: validEmployeeIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      employees.forEach(e => {
+        employeeMap[e._id.toString()] = e.full_name;
+      });
+    }
+
+    // Fetch form names
+    const formIds = [...new Set(worksheets.map(w => w.form_id).filter(Boolean).map(id => id.toString ? id.toString() : String(id)))];
+    const validFormIds = formIds.filter(id => ObjectId.isValid(id));
+    const formMap = {};
+    if (validFormIds.length > 0) {
+      const forms = await db.collection('forms').find({
+        _id: { $in: validFormIds.map(id => new ObjectId(id)) }
+      }).toArray();
+      forms.forEach(f => {
+        formMap[f._id.toString()] = f.name;
+      });
+    }
+
+    // Fetch verifier names
+    const verifierIds = [
+      ...worksheets.map(w => w.tl_verified_by),
+      ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.rejected_by)
+    ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
+    const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
+
+    const verifiers = validVerifierIds.length > 0 ? await db.collection('users').find({
+      _id: { $in: validVerifierIds.map(id => new ObjectId(id)) }
+    }).toArray() : [];
+    const verifierMap = {};
+    verifiers.forEach(v => {
+      verifierMap[v._id.toString()] = v.full_name;
+    });
+
+    res.json(worksheets.map(w => ({
+      id: w._id.toString(),
+      employee_id: w.employee_id,
+      date: w.date,
+      form_id: w.form_id,
+      form_responses: w.form_responses || [],
+      tasks_completed: w.tasks_completed || [],
+      total_hours: w.total_hours || 0,
+      notes: w.notes,
+      status: w.status,
+      submitted_at: w.submitted_at,
+      tl_verified_by: verifierMap[w.tl_verified_by] || w.tl_verified_by || null,
+      tl_verified_at: w.tl_verified_at,
+      manager_approved_by: verifierMap[w.manager_approved_by] || w.manager_approved_by || null,
+      manager_approved_at: w.manager_approved_at,
+      dm_approved_by: verifierMap[w.dm_approved_by] || w.dm_approved_by || null,
+      dm_approved_at: w.dm_approved_at,
+      rejection_reason: w.rejection_reason,
+      rejected_by: verifierMap[w.rejected_by] || w.rejected_by || null,
+      rejected_at: w.rejected_at,
+      created_at: w.created_at,
+      updated_at: w.updated_at,
+      employee_name: employeeMap[w.employee_id] || null,
+      form_name: w.form_id ? formMap[w.form_id.toString ? w.form_id.toString() : String(w.form_id)] || null : null
+    })));
+  } catch (error) {
+    console.error('Get pending DM approval error:', error);
     res.status(500).json({ detail: error.message });
   }
 });

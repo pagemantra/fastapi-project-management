@@ -17,6 +17,7 @@ const worksheetsCache = {
   worksheets: null,
   pendingVerification: null,
   pendingApproval: null,
+  pendingDmApproval: null,
   forms: null,
   teamForm: null,
   myTeam: null,
@@ -27,6 +28,7 @@ const Worksheets = () => {
   const [worksheets, setWorksheets] = useState(worksheetsCache.worksheets || []);
   const [pendingVerification, setPendingVerification] = useState(worksheetsCache.pendingVerification || []);
   const [pendingApproval, setPendingApproval] = useState(worksheetsCache.pendingApproval || []);
+  const [pendingDmApproval, setPendingDmApproval] = useState(worksheetsCache.pendingDmApproval || []);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
@@ -45,7 +47,7 @@ const Worksheets = () => {
   const [form] = Form.useForm();
   const [rejectForm] = Form.useForm();
   const [editForm] = Form.useForm();
-  const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
+  const { user, isAdmin, isManager, isTeamLead, isEmployee, isDeliveryManager } = useAuth();
 
   useEffect(() => {
     // Only fetch data when user is available
@@ -56,6 +58,7 @@ const Worksheets = () => {
       setWorksheets(worksheetsCache.worksheets);
       setPendingVerification(worksheetsCache.pendingVerification || []);
       setPendingApproval(worksheetsCache.pendingApproval || []);
+      setPendingDmApproval(worksheetsCache.pendingDmApproval || []);
       setForms(worksheetsCache.forms || []);
       setTeamForm(worksheetsCache.teamForm);
       setMyTeam(worksheetsCache.myTeam);
@@ -67,6 +70,10 @@ const Worksheets = () => {
     }
     if (isManager() || isAdmin()) {
       fetchPendingApproval();
+    }
+    // Delivery Manager and Admin can see pending DM approval
+    if (isDeliveryManager() || isAdmin()) {
+      fetchPendingDmApproval();
     }
     // Managers, Team Leads, and Employees can submit worksheets
     if (isEmployee() || isTeamLead() || isManager()) {
@@ -120,6 +127,18 @@ const Worksheets = () => {
     } catch (error) {
       console.error('Failed to fetch pending approval:', error);
       if (!worksheetsCache.pendingApproval) setPendingApproval([]);
+    }
+  };
+
+  const fetchPendingDmApproval = async () => {
+    try {
+      const response = await worksheetService.getPendingDmApproval();
+      const data = response.data || [];
+      worksheetsCache.pendingDmApproval = data;
+      setPendingDmApproval(data);
+    } catch (error) {
+      console.error('Failed to fetch pending DM approval:', error);
+      if (!worksheetsCache.pendingDmApproval) setPendingDmApproval([]);
     }
   };
 
@@ -327,6 +346,30 @@ const Worksheets = () => {
       message.success(`${selectedRows.length} worksheets approved`);
       setSelectedRows([]);
       fetchPendingApproval();
+      fetchPendingDmApproval();
+      fetchWorksheets(false);
+    } catch (error) {
+      message.error('Failed to bulk approve');
+    }
+  };
+
+  const handleDmApprove = async (worksheetId) => {
+    try {
+      await worksheetService.dmApproveWorksheet(worksheetId);
+      message.success('Worksheet approved by Delivery Manager');
+      fetchPendingDmApproval();
+      fetchWorksheets(false);
+    } catch (error) {
+      message.error(error.response?.data?.detail || 'Failed to approve worksheet');
+    }
+  };
+
+  const handleBulkDmApprove = async () => {
+    try {
+      await worksheetService.bulkDmApprove({ worksheet_ids: selectedRows });
+      message.success(`${selectedRows.length} worksheets approved by Delivery Manager`);
+      setSelectedRows([]);
+      fetchPendingDmApproval();
       fetchWorksheets(false);
     } catch (error) {
       message.error('Failed to bulk approve');
@@ -348,6 +391,7 @@ const Worksheets = () => {
       setRejectModalVisible(false);
       fetchPendingVerification();
       fetchPendingApproval();
+      fetchPendingDmApproval();
       fetchWorksheets(false);
     } catch (error) {
       message.error('Failed to reject worksheet');
@@ -482,7 +526,8 @@ const Worksheets = () => {
       draft: 'default',
       submitted: 'blue',
       tl_verified: 'cyan',
-      manager_approved: 'green',
+      manager_approved: 'orange',
+      dm_approved: 'green',
       rejected: 'red',
     };
     return colors[status] || 'default';
@@ -785,6 +830,31 @@ const Worksheets = () => {
     },
   ];
 
+  const dmApprovalColumns = [
+    { title: 'Date', dataIndex: 'date', key: 'date' },
+    { title: 'Employee', dataIndex: 'employee_name', key: 'employee_name' },
+    { title: 'Form', dataIndex: 'form_name', key: 'form_name' },
+    { title: 'Verified By', dataIndex: 'tl_verified_by', key: 'tl_verified_by' },
+    { title: 'Approved By', dataIndex: 'manager_approved_by', key: 'manager_approved_by' },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          <Button type="link" icon={<EyeOutlined />} onClick={() => handleViewWorksheet(record)}>
+            View
+          </Button>
+          <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => handleDmApprove(record.id)}>
+            Final Approve
+          </Button>
+          <Button danger size="small" icon={<CloseOutlined />} onClick={() => handleReject(record)}>
+            Reject
+          </Button>
+        </Space>
+      ),
+    },
+  ];
+
   const rowSelection = {
     selectedRowKeys: selectedRows,
     onChange: setSelectedRows,
@@ -1008,6 +1078,29 @@ const Worksheets = () => {
                 <Table
                   dataSource={pendingApproval}
                   columns={approvalColumns}
+                  rowKey="id"
+                  rowSelection={rowSelection}
+                  pagination={{ pageSize: 10 }}
+                />
+              </Card>
+            ),
+          }] : []),
+          ...((isDeliveryManager() || isAdmin()) ? [{
+            key: 'dm-approval',
+            label: `Pending DM Approval (${pendingDmApproval.length})`,
+            children: (
+              <Card>
+                {selectedRows.length > 0 && (
+                  <Space style={{ marginBottom: 16 }}>
+                    <Text>Selected: {selectedRows.length}</Text>
+                    <Button type="primary" onClick={handleBulkDmApprove}>
+                      Bulk Final Approve
+                    </Button>
+                  </Space>
+                )}
+                <Table
+                  dataSource={pendingDmApproval}
+                  columns={dmApprovalColumns}
                   rowKey="id"
                   rowSelection={rowSelection}
                   pagination={{ pageSize: 10 }}

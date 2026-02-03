@@ -80,11 +80,14 @@ export const worksheetService = {
   submitWorksheet: (id) => api.post(`/worksheets/${id}/submit`),
   verifyWorksheet: (id) => api.post(`/worksheets/${id}/verify`),
   approveWorksheet: (id) => api.post(`/worksheets/${id}/approve`),
+  dmApproveWorksheet: (id) => api.post(`/worksheets/${id}/dm-approve`),
   rejectWorksheet: (id, data) => api.post(`/worksheets/${id}/reject`, data),
   bulkApprove: (data) => api.post('/worksheets/bulk-approve', data),
+  bulkDmApprove: (data) => api.post('/worksheets/bulk-dm-approve', data),
   getMyWorksheets: (params) => api.get('/worksheets/my-worksheets', { params }),
   getPendingVerification: () => api.get('/worksheets/pending-verification'),
   getPendingApproval: () => api.get('/worksheets/pending-approval'),
+  getPendingDmApproval: () => api.get('/worksheets/pending-dm-approval'),
   getSummary: (params) => api.get('/worksheets/summary', { params }),
 };
 
