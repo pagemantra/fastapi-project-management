@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Statistic, Typography, Tag, Space } from 'antd';
-import { DesktopOutlined } from '@ant-design/icons';
+import { DesktopOutlined, LockOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import { attendanceService } from '../api/services';
 import dayjs from '../utils/dayjs';
 
@@ -8,15 +8,16 @@ const { Text } = Typography;
 
 // Save to backend every 10 seconds
 const SAVE_INTERVAL_MS = 10000;
-// Threshold for detecting screen lock via timer gap (3 seconds)
-// When screen locks/sleeps, browser suspends JS completely, causing large gaps
-const SCREEN_LOCK_THRESHOLD_MS = 3000;
+
+// Threshold for detecting lock/sleep (in milliseconds)
+// If more than 3 seconds pass between ticks, screen was likely locked/sleeping
+const LOCK_SLEEP_THRESHOLD_MS = 3000;
 
 const ScreenActiveTime = () => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
-  const [timerStatus, setTimerStatus] = useState('not_clocked_in'); // running, on_break, screen_locked, completed, not_clocked_in
+  const [timerStatus, setTimerStatus] = useState('not_clocked_in'); // running, on_break, completed, not_clocked_in, screen_locked
 
   // Refs for tracking state without causing re-renders
   const intervalRef = useRef(null);
@@ -26,7 +27,11 @@ const ScreenActiveTime = () => {
   const sessionRef = useRef(null);
   const lastSavedSecondsRef = useRef(0);
   const sessionIdRef = useRef(null);
+
+  // Lock/Sleep detection refs
   const isScreenLockedRef = useRef(false);
+  const lockDetectionTimeoutRef = useRef(null);
+  const lastVisibilityChangeRef = useRef(Date.now());
 
   // Save screen active time to backend
   const saveScreenActiveTime = useCallback(async (seconds) => {
@@ -87,10 +92,7 @@ const ScreenActiveTime = () => {
       } else if (newSession.status === 'on_break') {
         setTimerStatus('on_break');
       } else if (newSession.status === 'active') {
-        // Only update to running if not screen locked
-        if (!isScreenLockedRef.current) {
-          setTimerStatus('running');
-        }
+        setTimerStatus('running');
       }
     } catch (error) {
       console.error('Failed to fetch session:', error);
@@ -101,22 +103,55 @@ const ScreenActiveTime = () => {
     }
   }, [saveScreenActiveTime]);
 
-  // Handle visibility change - just save data, don't pause timer
-  // Timer continues running even when tab is switched or window minimized
+  // Handle visibility change - detect lock/sleep
   const handleVisibilityChange = useCallback(() => {
     const isVisible = !document.hidden;
+    const now = Date.now();
+    const timeSinceLastChange = now - lastVisibilityChangeRef.current;
+    lastVisibilityChangeRef.current = now;
 
     if (!isVisible) {
-      // Page became hidden - save current value (but DON'T pause timer)
+      // Page became hidden - mark as potentially locked/sleeping
+      // Save current value before potential lock
       if (sessionRef.current &&
           (sessionRef.current.status === 'active' || sessionRef.current.status === 'on_break')) {
         saveScreenActiveTime(screenActiveSecondsRef.current);
       }
-      console.log('Screen Active Time: Page hidden - timer CONTINUES (tab switch/minimize)');
+
+      // Set screen as locked after a short delay (to distinguish from quick tab switch)
+      lockDetectionTimeoutRef.current = setTimeout(() => {
+        if (document.hidden) {
+          isScreenLockedRef.current = true;
+          setTimerStatus(prev => prev === 'running' ? 'screen_locked' : prev);
+          console.log('Screen Active Time: Screen locked/sleeping - timer PAUSED');
+        }
+      }, 1000); // 1 second delay to detect if it's a real lock vs quick tab switch
+
     } else {
-      // Page became visible - refresh session to get latest status
+      // Page became visible again
+      // Clear the lock detection timeout if it hasn't fired
+      if (lockDetectionTimeoutRef.current) {
+        clearTimeout(lockDetectionTimeoutRef.current);
+        lockDetectionTimeoutRef.current = null;
+      }
+
+      // Check if we were locked/sleeping (large time gap)
+      if (isScreenLockedRef.current || timeSinceLastChange > LOCK_SLEEP_THRESHOLD_MS) {
+        console.log(`Screen Active Time: Resumed from lock/sleep after ${Math.round(timeSinceLastChange / 1000)}s`);
+        isScreenLockedRef.current = false;
+
+        // Reset the last tick time to NOW to avoid counting lock/sleep time
+        lastTickTimeRef.current = now;
+      }
+
+      // Restore running status if session is active
+      if (sessionRef.current?.status === 'active') {
+        setTimerStatus('running');
+      }
+
+      // Refresh session to get latest status
       fetchCurrentSession(true);
-      console.log('Screen Active Time: Page visible again');
+      console.log('Screen Active Time: Screen active again - timer RESUMED');
     }
   }, [fetchCurrentSession, saveScreenActiveTime]);
 
@@ -124,7 +159,7 @@ const ScreenActiveTime = () => {
   useEffect(() => {
     fetchCurrentSession();
 
-    // Listen for visibility changes (for saving data, not for pausing)
+    // Listen for visibility changes (for saving data)
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Poll for session updates every 2 seconds for quick break detection
@@ -135,6 +170,10 @@ const ScreenActiveTime = () => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(sessionPollInterval);
+      if (lockDetectionTimeoutRef.current) {
+        clearTimeout(lockDetectionTimeoutRef.current);
+        lockDetectionTimeoutRef.current = null;
+      }
     };
   }, [fetchCurrentSession, handleVisibilityChange]);
 
@@ -172,53 +211,55 @@ const ScreenActiveTime = () => {
     // Timer runs every second
     intervalRef.current = setInterval(() => {
       const now = Date.now();
-      const elapsed = now - lastTickTimeRef.current;
-      lastTickTimeRef.current = now;
+      const elapsedMs = now - lastTickTimeRef.current;
+      const elapsedSeconds = Math.round(elapsedMs / 1000);
 
       // Get current states
       const currentSessionStatus = sessionRef.current?.status;
       const isOnBreak = currentSessionStatus === 'on_break';
+      const isScreenLocked = isScreenLockedRef.current || document.hidden;
 
-      // Check if there was a large gap (screen was locked/sleeping)
-      // When screen locks or system sleeps, browser completely suspends JS
-      // causing gaps > 3 seconds between timer ticks
-      const hadLargeGap = elapsed > SCREEN_LOCK_THRESHOLD_MS;
+      // Detect if screen was locked/sleeping (large time gap)
+      const wasLockedOrSleeping = elapsedMs > LOCK_SLEEP_THRESHOLD_MS;
 
-      // Determine if we should count this second
-      let shouldCount = false;
+      // Determine if we should count
+      let secondsToAdd = 0;
       let newStatus = 'running';
 
       if (!currentSessionStatus || currentSessionStatus === 'completed') {
         // Session ended
         newStatus = 'completed';
-        shouldCount = false;
-        isScreenLockedRef.current = false;
+        secondsToAdd = 0;
       } else if (isOnBreak) {
         // User is on break - DON'T count
         newStatus = 'on_break';
-        shouldCount = false;
-        isScreenLockedRef.current = false;
-      } else if (hadLargeGap) {
-        // Large gap detected = screen was locked/sleeping
-        // DON'T count this tick, but resume counting next tick
+        secondsToAdd = 0;
+      } else if (isScreenLocked) {
+        // Screen is locked/sleeping - DON'T count
+        newStatus = 'screen_locked';
+        secondsToAdd = 0;
+        console.log('Screen Active Time: Screen locked - not counting');
+      } else if (wasLockedOrSleeping) {
+        // Screen was locked/sleeping and just came back
+        // DON'T count the lock/sleep time, but resume counting now
         newStatus = 'running';
-        shouldCount = false;
-        isScreenLockedRef.current = false; // Reset after detecting
-        console.log(`Screen Active Time: Large gap detected (${Math.round(elapsed / 1000)}s) - screen was locked/sleeping - this tick NOT counted`);
+        secondsToAdd = 1; // Only add 1 second for this tick
+        console.log(`Screen Active Time: Skipped ${elapsedSeconds - 1}s of lock/sleep time`);
       } else {
-        // Normal operation - screen ON, not on break
-        // Timer continues even when tab is switched or window minimized
+        // Normal operation - screen is active, count time
         newStatus = 'running';
-        shouldCount = true;
-        isScreenLockedRef.current = false;
+        secondsToAdd = elapsedSeconds > 0 ? elapsedSeconds : 1;
       }
+
+      // Always update last tick time
+      lastTickTimeRef.current = now;
 
       // Update status
       setTimerStatus(newStatus);
 
-      // Increment counter only when we should count
-      if (shouldCount) {
-        screenActiveSecondsRef.current += 1;
+      // Add seconds to counter
+      if (secondsToAdd > 0) {
+        screenActiveSecondsRef.current += secondsToAdd;
         setScreenActiveSeconds(screenActiveSecondsRef.current);
       }
     }, 1000);
@@ -301,9 +342,9 @@ const ScreenActiveTime = () => {
 
   const getStatusText = () => {
     switch (timerStatus) {
-      case 'running': return 'Screen ON';
+      case 'running': return 'Running';
       case 'on_break': return 'On Break';
-      case 'screen_locked': return 'Screen Off';
+      case 'screen_locked': return 'Screen Locked';
       case 'completed': return 'Session Ended';
       default: return 'Not Clocked In';
     }
@@ -321,11 +362,19 @@ const ScreenActiveTime = () => {
 
   const getStatusMessage = () => {
     switch (timerStatus) {
-      case 'running': return 'Timer running - screen is active';
+      case 'running': return 'Timer running - tracking active screen time';
       case 'on_break': return 'Timer paused - you are on break';
       case 'screen_locked': return 'Timer paused - screen locked/sleeping';
       case 'completed': return 'Session ended';
       default: return '';
+    }
+  };
+
+  const getStatusIcon = () => {
+    switch (timerStatus) {
+      case 'screen_locked': return <LockOutlined />;
+      case 'on_break': return <PauseCircleOutlined />;
+      default: return <DesktopOutlined />;
     }
   };
 
@@ -336,7 +385,7 @@ const ScreenActiveTime = () => {
       <Statistic
         title={
           <Space>
-            <DesktopOutlined />
+            {getStatusIcon()}
             <span>Screen Active Time</span>
           </Space>
         }
@@ -354,7 +403,7 @@ const ScreenActiveTime = () => {
           </Tag>
         }
       />
-      {isSessionActive && (
+      {(isSessionActive || timerStatus === 'screen_locked') && (
         <Text
           type="secondary"
           style={{ fontSize: '12px', marginTop: 8, display: 'block' }}
