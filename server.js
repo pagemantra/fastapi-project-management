@@ -2870,33 +2870,17 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
     const employee = req.user;
     const employeeRole = employee.role;
 
-    // Determine workflow based on role
+    // All worksheets require manual verification - no auto-verify
+    // Workflow for all roles: SUBMITTED -> TL/Manager verifies -> Manager approves -> DM approves
     let newStatus = WorksheetStatus.SUBMITTED;
     let updateFields = {
+      status: newStatus,
       submitted_at: now,
       updated_at: now,
       rejection_reason: null,
       rejected_by: null,
       rejected_at: null
     };
-
-    // Role-based workflow:
-    // Associate: SUBMITTED -> TL verifies -> Manager approves -> DM approves
-    // Team Lead: TL_VERIFIED (self) -> Manager approves -> DM approves
-    // Manager: MANAGER_APPROVED (self) -> DM approves
-    if (employeeRole === UserRole.TEAM_LEAD) {
-      newStatus = WorksheetStatus.TL_VERIFIED;
-      updateFields.tl_verified_by = userId; // Self-verified
-      updateFields.tl_verified_at = now;
-    } else if (employeeRole === UserRole.MANAGER) {
-      newStatus = WorksheetStatus.MANAGER_APPROVED;
-      updateFields.tl_verified_by = userId; // Self-verified
-      updateFields.tl_verified_at = now;
-      updateFields.manager_approved_by = userId; // Self-approved
-      updateFields.manager_approved_at = now;
-    }
-
-    updateFields.status = newStatus;
 
     await db.collection('worksheets').updateOne(
       { _id: new ObjectId(worksheet_id) },
@@ -2909,10 +2893,8 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
       { $set: { worksheet_submitted: true } }
     );
 
-    // Notify appropriate approver based on role
-    // Workflow: Associate -> TL -> Manager -> DM
-    //           Team Lead -> Manager -> DM
-    //           Manager -> DM
+    // Notify appropriate verifier - all worksheets need manual verification
+    // Workflow for all: SUBMITTED -> TL/Manager verifies -> Manager approves -> DM approves
     if (employeeRole === UserRole.ASSOCIATE) {
       // Associates: notify Team Lead for verification
       if (employee.team_lead_id) {
@@ -2925,18 +2907,18 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
         );
       }
     } else if (employeeRole === UserRole.TEAM_LEAD) {
-      // Team Leads: notify Manager for approval (self-verified, skip TL verification)
+      // Team Leads: notify Manager for verification (no self-verify)
       if (employee.manager_id) {
         await createNotification(
           employee.manager_id,
-          'WORKSHEET_VERIFIED',
-          'Team Lead Worksheet for Approval',
-          `${employee.full_name} (Team Lead) has submitted their worksheet for ${worksheet.date}`,
+          'WORKSHEET_SUBMITTED',
+          'Team Lead Worksheet for Verification',
+          `${employee.full_name} (Team Lead) has submitted their worksheet for ${worksheet.date} - needs verification`,
           worksheet_id
         );
       }
     } else if (employeeRole === UserRole.MANAGER) {
-      // Managers: notify Delivery Manager for final approval (self-verified & self-approved)
+      // Managers: notify Delivery Manager for verification (no self-verify)
       const deliveryManagers = await db.collection('users').find({
         role: UserRole.DELIVERY_MANAGER,
         is_active: true
@@ -2945,9 +2927,9 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
       for (const dm of deliveryManagers) {
         await createNotification(
           dm._id.toString(),
-          'WORKSHEET_PENDING_DM',
-          'Manager Worksheet for Final Approval',
-          `${employee.full_name} (Manager) has submitted their worksheet for ${worksheet.date} - pending your approval`,
+          'WORKSHEET_SUBMITTED',
+          'Manager Worksheet for Verification',
+          `${employee.full_name} (Manager) has submitted their worksheet for ${worksheet.date} - needs verification`,
           worksheet_id
         );
       }
