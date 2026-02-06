@@ -599,7 +599,7 @@ app.get('/users/all-for-dashboard', authenticate, requireRoles([UserRole.ADMIN, 
 });
 
 // GET /users/managers
-app.get('/users/managers', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER]), async (req, res) => {
+app.get('/users/managers', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const db = getDatabase();
     const managers = await db.collection('users')
@@ -2966,11 +2966,12 @@ app.post('/worksheets/:worksheet_id/submit', authenticate, async (req, res) => {
 });
 
 // POST /worksheets/:worksheet_id/verify - Team Lead verification
-app.post('/worksheets/:worksheet_id/verify', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
+app.post('/worksheets/:worksheet_id/verify', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER, UserRole.TEAM_LEAD]), async (req, res) => {
   try {
     const { worksheet_id } = req.params;
     const db = getDatabase();
     const userId = req.user._id.toString();
+    const userRole = req.user.role;
 
     if (!ObjectId.isValid(worksheet_id)) {
       return res.status(400).json({ detail: 'Invalid worksheet ID format' });
@@ -2985,11 +2986,58 @@ app.post('/worksheets/:worksheet_id/verify', authenticate, requireRoles([UserRol
       return res.status(400).json({ detail: 'Worksheet must be in SUBMITTED status to verify' });
     }
 
-    // Verify employee is in TL's team
-    if (req.user.role === UserRole.TEAM_LEAD) {
+    // Verify employee is in user's team/management
+    if (userRole === UserRole.TEAM_LEAD) {
       const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
-      if (!employee || employee.team_lead_id !== userId) {
+      let hasAccess = employee && employee.team_lead_id === userId;
+
+      // Also check if employee is in a team led by this TL
+      if (!hasAccess) {
+        const ledTeams = await db.collection('teams').find({
+          team_lead_id: userId,
+          is_active: true
+        }).toArray();
+
+        for (const team of ledTeams) {
+          if (team.members && team.members.includes(worksheet.employee_id)) {
+            hasAccess = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasAccess) {
         return res.status(403).json({ detail: 'Can only verify worksheets from your team members' });
+      }
+    } else if (userRole === UserRole.MANAGER) {
+      // Managers can verify worksheets from their team leads and team members
+      const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
+      if (!employee) {
+        return res.status(404).json({ detail: 'Employee not found' });
+      }
+
+      let hasAccess = employee.manager_id === userId;
+
+      if (!hasAccess) {
+        const managedTeams = await db.collection('teams').find({
+          manager_id: userId,
+          is_active: true
+        }).toArray();
+
+        for (const team of managedTeams) {
+          if (team.members && team.members.includes(worksheet.employee_id)) {
+            hasAccess = true;
+            break;
+          }
+          if (team.team_lead_id === worksheet.employee_id) {
+            hasAccess = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasAccess) {
+        return res.status(403).json({ detail: 'Can only verify worksheets from employees under your management' });
       }
     }
 
@@ -3077,10 +3125,37 @@ app.post('/worksheets/:worksheet_id/approve', authenticate, requireRoles([UserRo
       return res.status(400).json({ detail: 'Worksheet must be TL_VERIFIED to approve' });
     }
 
-    // Verify employee is under this manager
+    // Verify employee is under this manager (either directly or through team)
     if (req.user.role === UserRole.MANAGER) {
       const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
-      if (!employee || employee.manager_id !== userId) {
+      if (!employee) {
+        return res.status(404).json({ detail: 'Employee not found' });
+      }
+
+      // Check direct manager relationship
+      let hasAccess = employee.manager_id === userId;
+
+      // If not direct, check if employee is in a team managed by this manager
+      if (!hasAccess) {
+        const managedTeams = await db.collection('teams').find({
+          manager_id: userId,
+          is_active: true
+        }).toArray();
+
+        for (const team of managedTeams) {
+          // Check if employee is a team member or team lead of this team
+          if (team.members && team.members.includes(worksheet.employee_id)) {
+            hasAccess = true;
+            break;
+          }
+          if (team.team_lead_id === worksheet.employee_id) {
+            hasAccess = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasAccess) {
         return res.status(403).json({ detail: 'Can only approve worksheets from employees under your management' });
       }
     }
