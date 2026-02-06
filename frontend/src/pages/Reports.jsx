@@ -247,13 +247,13 @@ const Reports = () => {
 
   const productivityColumns = [
     { title: 'Associate', dataIndex: 'employee_name', key: 'employee_name' },
-    { title: 'Department', dataIndex: 'department', key: 'department' },
-    { title: 'Tasks Completed', dataIndex: 'tasks_completed', key: 'tasks_completed' },
-    { title: 'Total Tasks', dataIndex: 'total_tasks', key: 'total_tasks' },
-    { title: 'Completion Rate', dataIndex: 'completion_rate', key: 'completion_rate', render: (v) => `${v}%`, sorter: (a, b) => a.completion_rate - b.completion_rate },
-    { title: 'Days Worked', dataIndex: 'days_worked', key: 'days_worked' },
-    { title: 'Total Hours', dataIndex: 'total_work_hours', key: 'total_work_hours', sorter: (a, b) => a.total_work_hours - b.total_work_hours },
-    { title: 'Overtime', dataIndex: 'total_overtime_hours', key: 'total_overtime_hours', render: (v) => <Text type={v > 0 ? 'warning' : 'secondary'}>{v} hrs</Text> },
+    { title: 'Department', dataIndex: 'department', key: 'department', render: (v) => v || '-' },
+    { title: 'Tasks Completed', dataIndex: 'tasks_completed', key: 'tasks_completed', render: (v) => v ?? 0 },
+    { title: 'Total Tasks', dataIndex: 'total_tasks', key: 'total_tasks', render: (v) => v ?? 0 },
+    { title: 'Completion Rate', dataIndex: 'completion_rate', key: 'completion_rate', render: (v) => `${v ?? 0}%`, sorter: (a, b) => (a.completion_rate ?? 0) - (b.completion_rate ?? 0) },
+    { title: 'Days Worked', dataIndex: 'days_worked', key: 'days_worked', render: (v) => v ?? 0 },
+    { title: 'Total Hours', dataIndex: 'total_work_hours', key: 'total_work_hours', render: (v) => (v ?? 0).toFixed(1), sorter: (a, b) => (a.total_work_hours ?? 0) - (b.total_work_hours ?? 0) },
+    { title: 'Overtime', dataIndex: 'total_overtime_hours', key: 'total_overtime_hours', render: (v) => <Text type={(v ?? 0) > 0 ? 'warning' : 'secondary'}>{(v ?? 0).toFixed(1)} hrs</Text> },
   ];
 
   const attendanceColumns = [
@@ -294,8 +294,8 @@ const Reports = () => {
     : [];
 
   const productivityChartData = productivityData.slice(0, 10).map(item => ({
-    name: item.employee_name,
-    value: item.completion_rate,
+    name: item.employee_name || 'Unknown',
+    value: item.completion_rate ?? 0,
   }));
 
   // Show skeleton only on very first load
@@ -342,7 +342,7 @@ const Reports = () => {
             <Card title="Associate Productivity Report" extra={<Button icon={<DownloadOutlined />} onClick={() => handleExport('productivity')}>Export CSV</Button>}>
               {productivityChartData.length > 0 && (
                 <div style={{ marginBottom: 24 }}>
-                  <Column data={productivityChartData} xField="name" yField="value" label={{ position: 'top', formatter: ({ value }) => `${value}%` }} height={250} meta={{ value: { alias: 'Completion Rate (%)' } }} />
+                  <Column data={productivityChartData} xField="name" yField="value" label={{ position: 'top', formatter: ({ value }) => `${value ?? 0}%` }} height={250} meta={{ value: { alias: 'Completion Rate (%)' } }} />
                 </div>
               )}
               <Table dataSource={productivityData} columns={productivityColumns} rowKey="employee_id" pagination={{ pageSize: 10 }} scroll={{ x: true }} />
