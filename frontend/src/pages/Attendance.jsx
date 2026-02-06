@@ -161,7 +161,24 @@ const Attendance = () => {
   // Calculate summary stats
   const totalHours = history.reduce((sum, h) => sum + (h.total_work_hours || 0), 0);
   const totalOvertime = history.reduce((sum, h) => sum + (h.overtime_hours || 0), 0);
-  const totalBreaks = history.reduce((sum, h) => sum + (h.total_break_minutes || 0), 0);
+  // Calculate total breaks from breaks array for accuracy
+  const totalBreaks = history.reduce((sum, h) => {
+    if (h.breaks && h.breaks.length > 0) {
+      const now = new Date();
+      const breakMins = h.breaks.reduce((bSum, b) => {
+        if (b.duration_minutes && b.duration_minutes > 0) {
+          return bSum + b.duration_minutes;
+        } else if (b.start_time && b.end_time) {
+          return bSum + Math.max(0, Math.round((new Date(b.end_time) - new Date(b.start_time)) / 60000));
+        } else if (b.start_time && !b.end_time) {
+          return bSum + Math.max(0, Math.round((now - new Date(b.start_time)) / 60000));
+        }
+        return bSum;
+      }, 0);
+      return sum + breakMins;
+    }
+    return sum + (h.total_break_minutes || 0);
+  }, 0);
   const totalScreenActiveSeconds = history.reduce((sum, h) => sum + (h.screen_active_seconds || 0), 0);
   const totalScreenActiveHours = (totalScreenActiveSeconds / 3600).toFixed(1);
   const avgHoursPerDay = history.length > 0 ? totalHours / history.length : 0;
@@ -201,19 +218,27 @@ const Attendance = () => {
       title: 'Break (min)',
       key: 'total_break_minutes',
       render: (_, record) => {
-        // Use total_break_minutes if available, otherwise calculate from breaks array
-        let minutes = record.total_break_minutes || 0;
-        if (minutes === 0 && record.breaks && record.breaks.length > 0) {
-          // Calculate from breaks if total_break_minutes is not set
+        // Always calculate from breaks array to ensure accuracy
+        let minutes = 0;
+        if (record.breaks && record.breaks.length > 0) {
+          const now = new Date();
           minutes = record.breaks.reduce((sum, b) => {
             if (b.duration_minutes && b.duration_minutes > 0) {
               return sum + b.duration_minutes;
             } else if (b.start_time && b.end_time) {
               const duration = Math.round((new Date(b.end_time) - new Date(b.start_time)) / 60000);
               return sum + Math.max(0, duration);
+            } else if (b.start_time && !b.end_time) {
+              // Ongoing break - calculate duration from start to now
+              const duration = Math.round((now - new Date(b.start_time)) / 60000);
+              return sum + Math.max(0, duration);
             }
             return sum;
           }, 0);
+        }
+        // Fall back to stored total_break_minutes if calculation is 0
+        if (minutes === 0 && record.total_break_minutes) {
+          minutes = record.total_break_minutes;
         }
         return <Text type={minutes > 0 ? 'success' : 'secondary'}>{minutes} min</Text>;
       },
@@ -229,16 +254,20 @@ const Attendance = () => {
             {breaks.map((breakItem, idx) => {
               // Calculate duration from timestamps if duration_minutes not set
               let duration = breakItem.duration_minutes || 0;
+              const isOngoing = breakItem.start_time && !breakItem.end_time;
               if (!duration && breakItem.start_time && breakItem.end_time) {
                 duration = Math.round((new Date(breakItem.end_time) - new Date(breakItem.start_time)) / 60000);
+              } else if (isOngoing) {
+                // Ongoing break - calculate from start to now
+                duration = Math.round((new Date() - new Date(breakItem.start_time)) / 60000);
               }
               return (
                 <div key={idx} style={{ fontSize: '11px', marginBottom: '2px' }}>
-                  <Tag color="cyan" style={{ fontSize: '10px' }}>
+                  <Tag color={isOngoing ? 'orange' : 'cyan'} style={{ fontSize: '10px' }}>
                     {breakItem.break_type?.replace('_', ' ').toUpperCase()}
                   </Tag>
                   {dayjs.utc(breakItem.start_time).tz('Asia/Kolkata').format('hh:mm A')} - {breakItem.end_time ? dayjs.utc(breakItem.end_time).tz('Asia/Kolkata').format('hh:mm A') : 'ongoing'}
-                  {duration > 0 && <Text type="success" style={{ fontSize: '10px', marginLeft: 4 }}>({duration} min)</Text>}
+                  {duration > 0 && <Text type={isOngoing ? 'warning' : 'success'} style={{ fontSize: '10px', marginLeft: 4 }}>({duration} min)</Text>}
                   {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> - {breakItem.comment}</Text>}
                 </div>
               );
@@ -249,10 +278,10 @@ const Attendance = () => {
     },
     {
       title: 'Screen Active Time',
-      dataIndex: 'screen_active_seconds',
       key: 'screen_active_time',
-      render: (seconds) => {
-        if (!seconds || seconds === 0) return <Text type="secondary">0 min</Text>;
+      render: (_, record) => {
+        const seconds = record.screen_active_seconds || 0;
+        if (!seconds || seconds === 0) return <Text type="secondary">-</Text>;
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
         if (hours > 0) {
