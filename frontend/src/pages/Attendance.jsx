@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Card, Table, DatePicker, Space, Typography, Row, Col, Tag, Statistic, Select, Button, Form, InputNumber, Switch, Modal, message } from 'antd';
-import { ClockCircleOutlined, CoffeeOutlined, FieldTimeOutlined, SettingOutlined, DesktopOutlined } from '@ant-design/icons';
+import { Card, Table, DatePicker, Space, Typography, Row, Col, Tag, Select, Button, Form, InputNumber, Switch, Modal, message } from 'antd';
+import { SettingOutlined } from '@ant-design/icons';
 import { attendanceService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import TimeTracker from '../components/TimeTracker';
@@ -158,31 +158,6 @@ const Attendance = () => {
     return colors[status] || 'default';
   };
 
-  // Calculate summary stats
-  const totalHours = history.reduce((sum, h) => sum + (h.total_work_hours || 0), 0);
-  const totalOvertime = history.reduce((sum, h) => sum + (h.overtime_hours || 0), 0);
-  // Calculate total breaks from breaks array for accuracy
-  const totalBreaks = history.reduce((sum, h) => {
-    if (h.breaks && h.breaks.length > 0) {
-      const now = new Date();
-      const breakMins = h.breaks.reduce((bSum, b) => {
-        if (b.duration_minutes && b.duration_minutes > 0) {
-          return bSum + b.duration_minutes;
-        } else if (b.start_time && b.end_time) {
-          return bSum + Math.max(0, Math.round((new Date(b.end_time) - new Date(b.start_time)) / 60000));
-        } else if (b.start_time && !b.end_time) {
-          return bSum + Math.max(0, Math.round((now - new Date(b.start_time)) / 60000));
-        }
-        return bSum;
-      }, 0);
-      return sum + breakMins;
-    }
-    return sum + (h.total_break_minutes || 0);
-  }, 0);
-  const totalScreenActiveSeconds = history.reduce((sum, h) => sum + (h.screen_active_seconds || 0), 0);
-  const totalScreenActiveHours = (totalScreenActiveSeconds / 3600).toFixed(1);
-  const avgHoursPerDay = history.length > 0 ? totalHours / history.length : 0;
-
   const columns = [
     {
       title: 'Date',
@@ -327,66 +302,10 @@ const Attendance = () => {
     <div>
       <Title level={3}>Attendance</Title>
 
-      {/* Time Tracker for associates only - managers and team leads see it on Dashboard */}
-      {isEmployee() && (
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-          <Col span={24}>
-            <TimeTracker />
-          </Col>
-        </Row>
-      )}
-
-      {/* Summary Statistics */}
+      {/* Time Tracker for all users */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} md={6} lg={4}>
-          <Card>
-            <Statistic
-              title="Total Work Hours"
-              value={totalHours.toFixed(1)}
-              suffix="hrs"
-              prefix={<ClockCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6} lg={4}>
-          <Card>
-            <Statistic
-              title="Average per Day"
-              value={avgHoursPerDay.toFixed(1)}
-              suffix="hrs"
-              prefix={<FieldTimeOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6} lg={4}>
-          <Card>
-            <Statistic
-              title="Total Break Time"
-              value={totalBreaks}
-              suffix="min"
-              prefix={<CoffeeOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6} lg={4}>
-          <Card>
-            <Statistic
-              title="Screen Active Time"
-              value={totalScreenActiveHours}
-              suffix="hrs"
-              prefix={<DesktopOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={6} lg={4}>
-          <Card>
-            <Statistic
-              title="Total Overtime"
-              value={totalOvertime.toFixed(1)}
-              suffix="hrs"
-              styles={{ value: { color: totalOvertime > 0 ? '#faad14' : '#52c41a'  } }}
-            />
-          </Card>
+        <Col span={24}>
+          <TimeTracker />
         </Col>
       </Row>
 
