@@ -342,7 +342,58 @@ const Reports = () => {
             <Card title="Associate Productivity Report" extra={<Button icon={<DownloadOutlined />} onClick={() => handleExport('productivity')}>Export CSV</Button>}>
               {productivityChartData.length > 0 && (
                 <div style={{ marginBottom: 24 }}>
-                  <Column data={productivityChartData} xField="name" yField="value" label={{ position: 'top', formatter: ({ value }) => `${value ?? 0}%` }} height={250} meta={{ value: { alias: 'Completion Rate (%)' } }} />
+                  <Column
+                    data={productivityChartData}
+                    xField="name"
+                    yField="value"
+                    height={300}
+                    color="#1890ff"
+                    columnWidthRatio={0.5}
+                    label={{
+                      position: 'top',
+                      offset: 10,
+                      formatter: ({ value }) => `${value ?? 0}%`,
+                      style: {
+                        fill: '#333',
+                        fontSize: 12,
+                        fontWeight: 500,
+                      }
+                    }}
+                    xAxis={{
+                      label: {
+                        autoRotate: true,
+                        autoHide: false,
+                        style: {
+                          fontSize: 11,
+                          fill: '#666',
+                        },
+                      },
+                    }}
+                    yAxis={{
+                      min: 0,
+                      max: 100,
+                      title: {
+                        text: 'Completion Rate (%)',
+                        style: { fontSize: 12 },
+                      },
+                      label: {
+                        formatter: (v) => `${v}%`,
+                      },
+                    }}
+                    meta={{
+                      value: {
+                        alias: 'Completion Rate (%)',
+                        min: 0,
+                        max: 100,
+                      }
+                    }}
+                    tooltip={{
+                      formatter: (datum) => ({
+                        name: 'Completion Rate',
+                        value: `${datum.value ?? 0}%`,
+                      }),
+                    }}
+                  />
                 </div>
               )}
               <Table dataSource={productivityData} columns={productivityColumns} rowKey="employee_id" pagination={{ pageSize: 10 }} scroll={{ x: true }} />
