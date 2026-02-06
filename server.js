@@ -3739,8 +3739,20 @@ app.post('/worksheets/:worksheet_id/dm-approve', authenticate, requireRoles([Use
       return res.status(404).json({ detail: 'Worksheet not found' });
     }
 
-    if (worksheet.status !== WorksheetStatus.MANAGER_APPROVED) {
-      return res.status(400).json({ detail: 'Worksheet must be MANAGER_APPROVED for DM approval' });
+    // Check if worksheet is from a manager - managers' worksheets can be directly approved by DM
+    const employee = await db.collection('users').findOne({ _id: new ObjectId(worksheet.employee_id) });
+    const isManagerWorksheet = employee && employee.role === UserRole.MANAGER;
+
+    // Manager worksheets can be approved from SUBMITTED status directly
+    // Other worksheets must be in MANAGER_APPROVED status
+    if (isManagerWorksheet) {
+      if (worksheet.status !== WorksheetStatus.SUBMITTED && worksheet.status !== WorksheetStatus.MANAGER_APPROVED) {
+        return res.status(400).json({ detail: 'Manager worksheet must be SUBMITTED or MANAGER_APPROVED for DM approval' });
+      }
+    } else {
+      if (worksheet.status !== WorksheetStatus.MANAGER_APPROVED) {
+        return res.status(400).json({ detail: 'Worksheet must be MANAGER_APPROVED for DM approval' });
+      }
     }
 
     const now = getNow();
@@ -3815,22 +3827,34 @@ app.post('/worksheets/bulk-dm-approve', authenticate, requireRoles([UserRole.ADM
       }
     }
 
+    // Get manager IDs for special handling of their worksheets
+    const managers = await db.collection('users').find({
+      role: UserRole.MANAGER,
+      is_active: true
+    }).toArray();
+    const managerIds = managers.map(m => m._id.toString());
+
     const objectIds = worksheet_ids.map(id => new ObjectId(id));
+
+    // Find worksheets that can be DM approved:
+    // - MANAGER_APPROVED status (from anyone)
+    // - SUBMITTED status (from managers only)
     const worksheets = await db.collection('worksheets').find({
       _id: { $in: objectIds },
-      status: WorksheetStatus.MANAGER_APPROVED
+      $or: [
+        { status: WorksheetStatus.MANAGER_APPROVED },
+        { status: WorksheetStatus.SUBMITTED, employee_id: { $in: managerIds } }
+      ]
     }).toArray();
 
     if (worksheets.length === 0) {
-      return res.status(400).json({ detail: 'No worksheets found with MANAGER_APPROVED status' });
+      return res.status(400).json({ detail: 'No worksheets found eligible for DM approval' });
     }
 
     const now = getNow();
+    const worksheetIdsToUpdate = worksheets.map(w => w._id);
     const result = await db.collection('worksheets').updateMany(
-      {
-        _id: { $in: objectIds },
-        status: WorksheetStatus.MANAGER_APPROVED
-      },
+      { _id: { $in: worksheetIdsToUpdate } },
       {
         $set: {
           status: WorksheetStatus.DM_APPROVED,
@@ -4422,12 +4446,24 @@ app.get('/worksheets/pending-dm-approval', authenticate, requireRoles([UserRole.
   try {
     const db = getDatabase();
 
-    // Get all worksheets with MANAGER_APPROVED status (pending DM final approval)
-    const query = { status: WorksheetStatus.MANAGER_APPROVED };
+    // Get all managers' IDs first (their worksheets can be directly approved by DM from SUBMITTED status)
+    const managers = await db.collection('users').find({
+      role: UserRole.MANAGER,
+      is_active: true
+    }).toArray();
+    const managerIds = managers.map(m => m._id.toString());
+
+    // Query: MANAGER_APPROVED worksheets (from all users) OR SUBMITTED worksheets (from managers only)
+    const query = {
+      $or: [
+        { status: WorksheetStatus.MANAGER_APPROVED },
+        { status: WorksheetStatus.SUBMITTED, employee_id: { $in: managerIds } }
+      ]
+    };
 
     const worksheets = await db.collection('worksheets')
       .find(query)
-      .sort({ manager_approved_at: -1 })
+      .sort({ submitted_at: -1 })
       .limit(100)
       .toArray();
 
