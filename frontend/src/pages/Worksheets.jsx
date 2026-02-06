@@ -695,10 +695,21 @@ const Worksheets = () => {
     // Build CSV with only columns that have data
     const csvRows = [columnsWithData.join(',')];
 
+    // Helper to escape CSV injection - prefix dangerous characters with single quote
+    const escapeCsvInjection = (value) => {
+      const str = String(value);
+      // If value starts with =, +, -, @, tab, or carriage return, prefix with single quote
+      if (/^[=+\-@\t\r]/.test(str)) {
+        return "'" + str;
+      }
+      return str;
+    };
+
     rawData.forEach(row => {
       const csvRow = columnsWithData.map(col => {
         const val = row[col] || '';
-        return `"${String(val).replace(/"/g, '""')}"`;
+        const escaped = escapeCsvInjection(val);
+        return `"${escaped.replace(/"/g, '""')}"`;
       });
       csvRows.push(csvRow.join(','));
     });
@@ -762,7 +773,8 @@ const Worksheets = () => {
         { text: 'Draft', value: 'draft' },
         { text: 'Submitted', value: 'submitted' },
         { text: 'TL Verified', value: 'tl_verified' },
-        { text: 'Approved', value: 'manager_approved' },
+        { text: 'Manager Approved', value: 'manager_approved' },
+        { text: 'DM Approved', value: 'dm_approved' },
         { text: 'Rejected', value: 'rejected' },
       ],
       onFilter: (value, record) => record.status === value,

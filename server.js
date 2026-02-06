@@ -74,9 +74,44 @@ async function connectToMongo() {
     await client.connect();
     db = client.db(config.DATABASE_NAME);
 
-    // Create indexes
+    // Create indexes for users collection
     await db.collection('users').createIndex({ email: 1 }, { unique: true, sparse: true });
     await db.collection('users').createIndex({ employee_id: 1 }, { unique: true, sparse: true });
+    await db.collection('users').createIndex({ role: 1 });
+    await db.collection('users').createIndex({ manager_id: 1 });
+    await db.collection('users').createIndex({ team_lead_id: 1 });
+    await db.collection('users').createIndex({ is_active: 1 });
+
+    // Create indexes for teams collection
+    await db.collection('teams').createIndex({ team_lead_id: 1 });
+    await db.collection('teams').createIndex({ manager_id: 1 });
+    await db.collection('teams').createIndex({ is_active: 1 });
+    await db.collection('teams').createIndex({ members: 1 });
+
+    // Create indexes for worksheets collection
+    await db.collection('worksheets').createIndex({ employee_id: 1 });
+    await db.collection('worksheets').createIndex({ status: 1 });
+    await db.collection('worksheets').createIndex({ date: -1 });
+    await db.collection('worksheets').createIndex({ form_id: 1 });
+    await db.collection('worksheets').createIndex({ employee_id: 1, date: -1 });
+
+    // Create indexes for attendance collection
+    await db.collection('attendance').createIndex({ employee_id: 1 });
+    await db.collection('attendance').createIndex({ date: -1 });
+    await db.collection('attendance').createIndex({ status: 1 });
+    await db.collection('attendance').createIndex({ employee_id: 1, date: -1 });
+
+    // Create indexes for tasks collection
+    await db.collection('tasks').createIndex({ assigned_to: 1 });
+    await db.collection('tasks').createIndex({ project_id: 1 });
+    await db.collection('tasks').createIndex({ status: 1 });
+    await db.collection('tasks').createIndex({ priority: 1 });
+    await db.collection('tasks').createIndex({ due_date: 1 });
+
+    // Create indexes for forms collection
+    await db.collection('forms').createIndex({ created_by: 1 });
+    await db.collection('forms').createIndex({ assigned_teams: 1 });
+    await db.collection('forms').createIndex({ is_active: 1 });
 
     console.log('Connected to MongoDB');
   } catch (error) {
@@ -110,6 +145,57 @@ function decodeToken(token) {
   } catch (error) {
     return null;
   }
+}
+
+// CSV injection protection - escape values that could be interpreted as formulas
+function escapeCsvValue(value) {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  // If value starts with =, +, -, @, tab, or carriage return, prefix with single quote
+  if (/^[=+\-@\t\r]/.test(str)) {
+    return "'" + str;
+  }
+  // Escape double quotes and wrap in double quotes if contains comma or quote
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+// Input validation helpers
+function validateRequired(value, fieldName) {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    return { valid: false, error: `${fieldName} is required` };
+  }
+  return { valid: true };
+}
+
+function validateEmail(email) {
+  if (!email) return { valid: true }; // Email is optional in this system
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return { valid: false, error: 'Invalid email format' };
+  }
+  return { valid: true };
+}
+
+function validatePassword(password) {
+  if (!password || password.length < 6) {
+    return { valid: false, error: 'Password must be at least 6 characters long' };
+  }
+  return { valid: true };
+}
+
+function validateEmployeeId(employeeId) {
+  if (!employeeId || employeeId.trim().length < 2) {
+    return { valid: false, error: 'Employee ID must be at least 2 characters long' };
+  }
+  // Only allow alphanumeric characters and underscores
+  const empIdRegex = /^[A-Za-z0-9_]+$/;
+  if (!empIdRegex.test(employeeId.trim())) {
+    return { valid: false, error: 'Employee ID can only contain letters, numbers, and underscores' };
+  }
+  return { valid: true };
 }
 
 // ==================== MIDDLEWARE ====================
@@ -322,6 +408,22 @@ app.post('/auth/register-admin', async (req, res) => {
     const { full_name, employee_id, email, password, phone, department } = req.body;
     const db = getDatabase();
 
+    // Input validation
+    const fullNameCheck = validateRequired(full_name, 'Full name');
+    if (!fullNameCheck.valid) return res.status(400).json({ detail: fullNameCheck.error });
+
+    const empIdRequiredCheck = validateRequired(employee_id, 'Employee ID');
+    if (!empIdRequiredCheck.valid) return res.status(400).json({ detail: empIdRequiredCheck.error });
+
+    const empIdCheck = validateEmployeeId(employee_id);
+    if (!empIdCheck.valid) return res.status(400).json({ detail: empIdCheck.error });
+
+    const passwordCheck = validatePassword(password);
+    if (!passwordCheck.valid) return res.status(400).json({ detail: passwordCheck.error });
+
+    const emailCheck = validateEmail(email);
+    if (!emailCheck.valid) return res.status(400).json({ detail: emailCheck.error });
+
     // Check if admin already exists
     const existingAdmin = await db.collection('users').findOne({ role: UserRole.ADMIN });
     if (existingAdmin) {
@@ -382,6 +484,10 @@ app.post('/auth/login', async (req, res) => {
       return res.status(400).json({ detail: 'Please provide email or employee ID' });
     }
 
+    // Validate password is provided
+    const passwordCheck = validateRequired(password, 'Password');
+    if (!passwordCheck.valid) return res.status(400).json({ detail: passwordCheck.error });
+
     let user;
     if (employee_id) {
       user = await db.collection('users').findOne({ employee_id: employee_id.toUpperCase() });
@@ -432,6 +538,25 @@ app.post('/users', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY
     const db = getDatabase();
     const creatorRole = req.user.role;
     const creatorId = req.user._id.toString();
+
+    // Input validation
+    const fullNameCheck = validateRequired(full_name, 'Full name');
+    if (!fullNameCheck.valid) return res.status(400).json({ detail: fullNameCheck.error });
+
+    const empIdRequiredCheck = validateRequired(employee_id, 'Employee ID');
+    if (!empIdRequiredCheck.valid) return res.status(400).json({ detail: empIdRequiredCheck.error });
+
+    const empIdCheck = validateEmployeeId(employee_id);
+    if (!empIdCheck.valid) return res.status(400).json({ detail: empIdCheck.error });
+
+    const passwordCheck = validatePassword(password);
+    if (!passwordCheck.valid) return res.status(400).json({ detail: passwordCheck.error });
+
+    const emailCheck = validateEmail(email);
+    if (!emailCheck.valid) return res.status(400).json({ detail: emailCheck.error });
+
+    const roleCheck = validateRequired(role, 'Role');
+    if (!roleCheck.valid) return res.status(400).json({ detail: roleCheck.error });
 
     let finalManagerId = manager_id;
     let finalTeamLeadId = team_lead_id;
@@ -2704,6 +2829,46 @@ app.get('/forms', authenticate, async (req, res) => {
   }
 });
 
+// GET /forms/team/:teamId - Get forms assigned to a team (MUST be before /forms/:id to avoid route conflict)
+app.get('/forms/team/:teamId', authenticate, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const db = getDatabase();
+
+    if (!ObjectId.isValid(teamId)) {
+      return res.status(400).json({ detail: 'Invalid team ID format' });
+    }
+
+    // Verify team exists
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(teamId) });
+    if (!team) {
+      return res.status(404).json({ detail: 'Team not found' });
+    }
+
+    // Find all forms assigned to this team
+    const forms = await db.collection('forms').find({
+      assigned_teams: teamId,
+      is_active: true
+    }).sort({ created_at: -1 }).toArray();
+
+    res.json(forms.map(form => ({
+      id: form._id.toString(),
+      name: form.name,
+      description: form.description,
+      fields: form.fields,
+      created_by: form.created_by,
+      assigned_teams: form.assigned_teams || [],
+      is_active: form.is_active,
+      version: form.version,
+      created_at: form.created_at,
+      updated_at: form.updated_at
+    })));
+  } catch (error) {
+    console.error('Get team forms error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
 // GET /forms/:id - Get single form
 app.get('/forms/:id', authenticate, async (req, res) => {
   try {
@@ -2807,46 +2972,6 @@ app.delete('/forms/:id', authenticate, requireRoles([UserRole.ADMIN, UserRole.DE
     res.json({ message: 'Form deleted successfully' });
   } catch (error) {
     console.error('Delete form error:', error);
-    res.status(500).json({ detail: error.message });
-  }
-});
-
-// GET /forms/team/:teamId - Get forms assigned to a team
-app.get('/forms/team/:teamId', authenticate, async (req, res) => {
-  try {
-    const { teamId } = req.params;
-    const db = getDatabase();
-
-    if (!ObjectId.isValid(teamId)) {
-      return res.status(400).json({ detail: 'Invalid team ID format' });
-    }
-
-    // Verify team exists
-    const team = await db.collection('teams').findOne({ _id: new ObjectId(teamId) });
-    if (!team) {
-      return res.status(404).json({ detail: 'Team not found' });
-    }
-
-    // Find all forms assigned to this team
-    const forms = await db.collection('forms').find({
-      assigned_teams: teamId,
-      is_active: true
-    }).sort({ created_at: -1 }).toArray();
-
-    res.json(forms.map(form => ({
-      id: form._id.toString(),
-      name: form.name,
-      description: form.description,
-      fields: form.fields,
-      created_by: form.created_by,
-      assigned_teams: form.assigned_teams || [],
-      is_active: form.is_active,
-      version: form.version,
-      created_at: form.created_at,
-      updated_at: form.updated_at
-    })));
-  } catch (error) {
-    console.error('Get team forms error:', error);
     res.status(500).json({ detail: error.message });
   }
 });
@@ -4108,10 +4233,11 @@ app.get('/worksheets', authenticate, async (req, res) => {
       });
     }
 
-    // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
+    // Fetch verifier names (tl_verified_by, manager_approved_by, dm_approved_by, rejected_by)
     const verifierIds = [
       ...worksheets.map(w => w.tl_verified_by),
       ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.dm_approved_by),
       ...worksheets.map(w => w.rejected_by)
     ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
     const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
@@ -4139,6 +4265,8 @@ app.get('/worksheets', authenticate, async (req, res) => {
       tl_verified_at: w.tl_verified_at,
       manager_approved_by: verifierMap[w.manager_approved_by] || w.manager_approved_by || null,
       manager_approved_at: w.manager_approved_at,
+      dm_approved_by: verifierMap[w.dm_approved_by] || w.dm_approved_by || null,
+      dm_approved_at: w.dm_approved_at,
       rejection_reason: w.rejection_reason,
       rejected_by: verifierMap[w.rejected_by] || w.rejected_by || null,
       rejected_at: w.rejected_at,
@@ -4211,6 +4339,8 @@ app.get('/worksheets/my-worksheets', authenticate, async (req, res) => {
       tl_verified_at: w.tl_verified_at,
       manager_approved_by: w.manager_approved_by,
       manager_approved_at: w.manager_approved_at,
+      dm_approved_by: w.dm_approved_by,
+      dm_approved_at: w.dm_approved_at,
       rejection_reason: w.rejection_reason,
       rejected_by: w.rejected_by,
       rejected_at: w.rejected_at,
@@ -4292,10 +4422,11 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       });
     }
 
-    // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
+    // Fetch verifier names (tl_verified_by, manager_approved_by, dm_approved_by, rejected_by)
     const verifierIds = [
       ...worksheets.map(w => w.tl_verified_by),
       ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.dm_approved_by),
       ...worksheets.map(w => w.rejected_by)
     ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
     const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
@@ -4323,6 +4454,8 @@ app.get('/worksheets/pending-verification', authenticate, requireRoles([UserRole
       tl_verified_at: w.tl_verified_at,
       manager_approved_by: verifierMap[w.manager_approved_by] || w.manager_approved_by || null,
       manager_approved_at: w.manager_approved_at,
+      dm_approved_by: verifierMap[w.dm_approved_by] || w.dm_approved_by || null,
+      dm_approved_at: w.dm_approved_at,
       rejection_reason: w.rejection_reason,
       rejected_by: verifierMap[w.rejected_by] || w.rejected_by || null,
       rejected_at: w.rejected_at,
@@ -4410,10 +4543,11 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       });
     }
 
-    // Fetch verifier names (tl_verified_by, manager_approved_by, rejected_by)
+    // Fetch verifier names (tl_verified_by, manager_approved_by, dm_approved_by, rejected_by)
     const verifierIds = [
       ...worksheets.map(w => w.tl_verified_by),
       ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.dm_approved_by),
       ...worksheets.map(w => w.rejected_by)
     ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
     const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
@@ -4441,6 +4575,8 @@ app.get('/worksheets/pending-approval', authenticate, requireRoles([UserRole.MAN
       tl_verified_at: w.tl_verified_at,
       manager_approved_by: verifierMap[w.manager_approved_by] || w.manager_approved_by || null,
       manager_approved_at: w.manager_approved_at,
+      dm_approved_by: verifierMap[w.dm_approved_by] || w.dm_approved_by || null,
+      dm_approved_at: w.dm_approved_at,
       rejection_reason: w.rejection_reason,
       rejected_by: verifierMap[w.rejected_by] || w.rejected_by || null,
       rejected_at: w.rejected_at,
@@ -4507,10 +4643,11 @@ app.get('/worksheets/pending-dm-approval', authenticate, requireRoles([UserRole.
       });
     }
 
-    // Fetch verifier names
+    // Fetch verifier names (tl_verified_by, manager_approved_by, dm_approved_by, rejected_by)
     const verifierIds = [
       ...worksheets.map(w => w.tl_verified_by),
       ...worksheets.map(w => w.manager_approved_by),
+      ...worksheets.map(w => w.dm_approved_by),
       ...worksheets.map(w => w.rejected_by)
     ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
     const validVerifierIds = verifierIds.filter(id => ObjectId.isValid(id));
@@ -5830,15 +5967,15 @@ app.get('/reports/export/productivity', authenticate, requireRoles([UserRole.ADM
 
     for (const emp of reportData.data) {
       csvRows.push([
-        emp.employee_name,
-        emp.employee_email,
-        emp.department,
-        emp.tasks_completed,
-        emp.tasks_in_progress,
-        emp.total_tasks,
-        emp.completion_rate,
-        emp.total_work_hours,
-        emp.average_hours_per_day
+        escapeCsvValue(emp.employee_name),
+        escapeCsvValue(emp.employee_email),
+        escapeCsvValue(emp.department),
+        escapeCsvValue(emp.tasks_completed),
+        escapeCsvValue(emp.tasks_in_progress),
+        escapeCsvValue(emp.total_tasks),
+        escapeCsvValue(emp.completion_rate),
+        escapeCsvValue(emp.total_work_hours),
+        escapeCsvValue(emp.average_hours_per_day)
       ].join(','));
     }
 
@@ -5866,19 +6003,19 @@ app.get('/reports/export/attendance', authenticate, requireRoles([UserRole.ADMIN
 
     for (const emp of reportData.data) {
       csvRows.push([
-        emp.employee_name,
-        emp.employee_email,
-        emp.department,
-        emp.expected_days,
-        emp.days_present,
-        emp.days_absent,
-        emp.attendance_rate,
-        emp.total_work_hours,
-        emp.average_hours_per_day,
-        emp.total_break_minutes,
-        emp.total_overtime_hours,
-        emp.late_arrivals,
-        emp.early_departures
+        escapeCsvValue(emp.employee_name),
+        escapeCsvValue(emp.employee_email),
+        escapeCsvValue(emp.department),
+        escapeCsvValue(emp.expected_days),
+        escapeCsvValue(emp.days_present),
+        escapeCsvValue(emp.days_absent),
+        escapeCsvValue(emp.attendance_rate),
+        escapeCsvValue(emp.total_work_hours),
+        escapeCsvValue(emp.average_hours_per_day),
+        escapeCsvValue(emp.total_break_minutes),
+        escapeCsvValue(emp.total_overtime_hours),
+        escapeCsvValue(emp.late_arrivals),
+        escapeCsvValue(emp.early_departures)
       ].join(','));
     }
 
@@ -5906,12 +6043,12 @@ app.get('/reports/export/overtime', authenticate, requireRoles([UserRole.ADMIN, 
 
     for (const emp of reportData.data) {
       csvRows.push([
-        emp.employee_name,
-        emp.employee_email,
-        emp.department,
-        emp.total_overtime_hours,
-        emp.days_with_overtime,
-        emp.average_overtime_per_day
+        escapeCsvValue(emp.employee_name),
+        escapeCsvValue(emp.employee_email),
+        escapeCsvValue(emp.department),
+        escapeCsvValue(emp.total_overtime_hours),
+        escapeCsvValue(emp.days_with_overtime),
+        escapeCsvValue(emp.average_overtime_per_day)
       ].join(','));
     }
 

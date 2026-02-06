@@ -46,7 +46,10 @@ api.interceptors.response.use(
 
     switch (status) {
       case 400:
-        // Bad request - let the calling component handle the specific error message
+        // Bad request - show specific error detail if available
+        if (error.response?.data?.detail) {
+          message.error(error.response.data.detail);
+        }
         break;
       case 401:
         // Unauthorized - clear tokens and let ProtectedRoute handle redirect
