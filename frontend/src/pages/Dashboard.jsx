@@ -117,7 +117,27 @@ const Dashboard = () => {
           dashboardCache.pendingWorksheets = data;
           setPendingWorksheets(data);
         }).catch(() => {});
-      } else if (isManager() || isAdmin()) {
+      } else if (isManager()) {
+        // Managers need to see both: worksheets to verify (from TLs) and worksheets to approve (TL_VERIFIED)
+        Promise.all([
+          worksheetService.getPendingVerification().catch(() => ({ data: [] })),
+          worksheetService.getPendingApproval().catch(() => ({ data: [] }))
+        ]).then(([verificationRes, approvalRes]) => {
+          const verificationData = verificationRes.data || [];
+          const approvalData = approvalRes.data || [];
+          // Combine both lists, avoiding duplicates by ID
+          const seenIds = new Set();
+          const combined = [];
+          [...verificationData, ...approvalData].forEach(w => {
+            if (!seenIds.has(w.id)) {
+              seenIds.add(w.id);
+              combined.push(w);
+            }
+          });
+          dashboardCache.pendingWorksheets = combined;
+          setPendingWorksheets(combined);
+        });
+      } else if (isAdmin()) {
         worksheetService.getPendingApproval().then(res => {
           const data = res.data || [];
           dashboardCache.pendingWorksheets = data;
@@ -249,7 +269,7 @@ const Dashboard = () => {
         )}
         {!isEmployee() && (
           <Col xs={24} sm={12} lg={6}>
-            <Card><Statistic title={isTeamLead() ? 'Pending Verification' : 'Pending Approval'} value={isTeamLead() ? (stats.worksheets?.pending_verification || 0) : (stats.worksheets?.pending_approval || 0)} prefix={<AlertOutlined />} valueStyle={{ color: '#cf1322' }} /></Card>
+            <Card><Statistic title={isTeamLead() ? 'Pending Verification' : (isManager() ? 'Pending Review' : 'Pending Approval')} value={pendingWorksheets.length || (isTeamLead() ? (stats.worksheets?.pending_verification || 0) : (stats.worksheets?.pending_approval || 0))} prefix={<AlertOutlined />} valueStyle={{ color: '#cf1322' }} /></Card>
           </Col>
         )}
       </Row>
@@ -262,7 +282,7 @@ const Dashboard = () => {
         </Col>
         {(isTeamLead() || isManager() || isAdmin()) && (
           <Col xs={24} lg={12}>
-            <Card title={isTeamLead() ? 'Worksheets to Verify' : 'Worksheets to Approve'} extra={<a onClick={() => navigate('/worksheets')}>View All</a>}>
+            <Card title={isTeamLead() ? 'Worksheets to Verify' : (isManager() ? 'Worksheets to Review' : 'Worksheets to Approve')} extra={<a onClick={() => navigate('/worksheets')}>View All</a>}>
               <Table dataSource={pendingWorksheets.slice(0, 5)} columns={worksheetColumns} rowKey="id" pagination={false} size="small" />
             </Card>
           </Col>

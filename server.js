@@ -623,16 +623,83 @@ app.get('/users/all-for-dashboard', authenticate, requireRoles([UserRole.ADMIN, 
     const db = getDatabase();
     const userRole = req.user.role;
     const userId = req.user._id.toString();
-    const query = { role: { $nin: [UserRole.ADMIN, UserRole.DELIVERY_MANAGER] } };
 
-    if (userRole === UserRole.TEAM_LEAD) {
-      query.team_lead_id = userId;
+    if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
+      // Admin and DM see all non-admin users
+      const users = await db.collection('users').find({
+        role: { $nin: [UserRole.ADMIN, UserRole.DELIVERY_MANAGER] }
+      }).limit(1000).toArray();
+      return res.json(users.map(formatUserResponse));
     } else if (userRole === UserRole.MANAGER) {
-      query.manager_id = userId;
+      // Managers see members from their assigned teams
+      const managedTeams = await db.collection('teams').find({
+        manager_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      const teamLeadIds = new Set();
+      managedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+        if (team.team_lead_id) {
+          teamLeadIds.add(team.team_lead_id);
+        }
+      });
+
+      const allIds = [...memberIds, ...teamLeadIds].filter(id => ObjectId.isValid(id));
+
+      // Also include direct reports
+      const directReports = await db.collection('users').find({
+        manager_id: userId
+      }).toArray();
+      directReports.forEach(u => allIds.push(u._id.toString()));
+
+      // Get unique user IDs
+      const uniqueIds = [...new Set(allIds)].filter(id => ObjectId.isValid(id));
+
+      if (uniqueIds.length === 0) {
+        return res.json([]);
+      }
+
+      const users = await db.collection('users').find({
+        _id: { $in: uniqueIds.map(id => new ObjectId(id)) }
+      }).limit(1000).toArray();
+      return res.json(users.map(formatUserResponse));
+    } else if (userRole === UserRole.TEAM_LEAD) {
+      // Team leads see members from their led teams
+      const ledTeams = await db.collection('teams').find({
+        team_lead_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      ledTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+      });
+
+      // Also include direct reports
+      const directReports = await db.collection('users').find({
+        team_lead_id: userId
+      }).toArray();
+      directReports.forEach(u => memberIds.add(u._id.toString()));
+
+      const uniqueIds = [...memberIds].filter(id => ObjectId.isValid(id));
+
+      if (uniqueIds.length === 0) {
+        return res.json([]);
+      }
+
+      const users = await db.collection('users').find({
+        _id: { $in: uniqueIds.map(id => new ObjectId(id)) }
+      }).limit(1000).toArray();
+      return res.json(users.map(formatUserResponse));
     }
 
-    const users = await db.collection('users').find(query).limit(1000).toArray();
-    res.json(users.map(formatUserResponse));
+    res.json([]);
   } catch (error) {
     console.error('Get dashboard users error:', error);
     res.status(500).json({ detail: error.message });
@@ -2197,11 +2264,44 @@ app.get('/attendance/today-all', authenticate, requireRoles([UserRole.ADMIN, Use
     const query = { date: today };
 
     if (userRole === UserRole.TEAM_LEAD) {
-      const teamMembers = await db.collection('users').find({ team_lead_id: userId }).toArray();
-      query.employee_id = { $in: teamMembers.map(m => m._id.toString()) };
+      // Get members from led teams + direct reports
+      const ledTeams = await db.collection('teams').find({
+        team_lead_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      ledTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+      });
+
+      const directReports = await db.collection('users').find({ team_lead_id: userId }).toArray();
+      directReports.forEach(u => memberIds.add(u._id.toString()));
+
+      query.employee_id = { $in: [...memberIds] };
     } else if (userRole === UserRole.MANAGER) {
-      const employees = await db.collection('users').find({ manager_id: userId }).toArray();
-      query.employee_id = { $in: employees.map(e => e._id.toString()) };
+      // Get members from managed teams + team leads + direct reports
+      const managedTeams = await db.collection('teams').find({
+        manager_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      managedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+        if (team.team_lead_id) {
+          memberIds.add(team.team_lead_id);
+        }
+      });
+
+      const directReports = await db.collection('users').find({ manager_id: userId }).toArray();
+      directReports.forEach(u => memberIds.add(u._id.toString()));
+
+      query.employee_id = { $in: [...memberIds] };
     }
 
     const sessions = await db.collection('time_sessions').find(query).limit(1000).toArray();
@@ -2238,11 +2338,44 @@ app.get('/attendance/today', authenticate, requireRoles([UserRole.ADMIN, UserRol
     const query = { date: today };
 
     if (userRole === UserRole.TEAM_LEAD) {
-      const teamMembers = await db.collection('users').find({ team_lead_id: userId }).toArray();
-      query.employee_id = { $in: teamMembers.map(m => m._id.toString()) };
+      // Get members from led teams + direct reports
+      const ledTeams = await db.collection('teams').find({
+        team_lead_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      ledTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+      });
+
+      const directReports = await db.collection('users').find({ team_lead_id: userId }).toArray();
+      directReports.forEach(u => memberIds.add(u._id.toString()));
+
+      query.employee_id = { $in: [...memberIds] };
     } else if (userRole === UserRole.MANAGER) {
-      const employees = await db.collection('users').find({ manager_id: userId }).toArray();
-      query.employee_id = { $in: employees.map(e => e._id.toString()) };
+      // Get members from managed teams + team leads + direct reports
+      const managedTeams = await db.collection('teams').find({
+        manager_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      managedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+        if (team.team_lead_id) {
+          memberIds.add(team.team_lead_id);
+        }
+      });
+
+      const directReports = await db.collection('users').find({ manager_id: userId }).toArray();
+      directReports.forEach(u => memberIds.add(u._id.toString()));
+
+      query.employee_id = { $in: [...memberIds] };
     }
 
     const sessions = await db.collection('time_sessions').find(query).limit(1000).toArray();
