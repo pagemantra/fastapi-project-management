@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Button, Space, Typography, Tag, Statistic, Row, Col, Select, message, Modal, Input } from 'antd';
 import {
   PlayCircleOutlined,
@@ -6,6 +6,7 @@ import {
   StopOutlined,
   CoffeeOutlined,
   ClockCircleOutlined,
+  DesktopOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../api/services';
@@ -24,10 +25,69 @@ const TimeTracker = () => {
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [breakComment, setBreakComment] = useState('');
   const [currentSystemTime, setCurrentSystemTime] = useState(dayjs());
+  const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
+  const screenActiveRef = useRef(0);
+  const lastUpdateRef = useRef(Date.now());
 
   useEffect(() => {
     fetchCurrentSession();
   }, []);
+
+  // Screen active time tracking - track when page is visible and user is active
+  useEffect(() => {
+    if (!session || session.status !== 'active') {
+      return;
+    }
+
+    // Initialize from session
+    screenActiveRef.current = session.screen_active_seconds || 0;
+    setScreenActiveSeconds(screenActiveRef.current);
+
+    let trackingInterval;
+    let syncInterval;
+
+    const trackActiveTime = () => {
+      if (document.visibilityState === 'visible') {
+        screenActiveRef.current += 1;
+        setScreenActiveSeconds(screenActiveRef.current);
+      }
+    };
+
+    const syncToServer = async () => {
+      if (screenActiveRef.current > 0) {
+        try {
+          await attendanceService.updateScreenActiveTime({
+            screen_active_seconds: screenActiveRef.current
+          });
+        } catch (error) {
+          console.error('Failed to sync screen active time:', error);
+        }
+      }
+    };
+
+    // Track every second when page is visible
+    trackingInterval = setInterval(trackActiveTime, 1000);
+
+    // Sync to server every 30 seconds
+    syncInterval = setInterval(syncToServer, 30000);
+
+    // Sync when page becomes hidden (user switches tabs)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        syncToServer();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Sync on unmount
+    return () => {
+      clearInterval(trackingInterval);
+      clearInterval(syncInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      syncToServer();
+    };
+  }, [session?.status, session?.screen_active_seconds]);
 
   useEffect(() => {
     let interval;
@@ -199,15 +259,15 @@ const TimeTracker = () => {
       loading={loading}
     >
       <Row gutter={[16, 16]} align="middle">
-        <Col xs={24} md={8}>
+        <Col xs={24} md={6}>
           <Statistic
             title="Work Time"
             value={formatTime(Math.max(0, elapsedTime))}
             prefix={<ClockCircleOutlined />}
-            styles={{ value: { fontSize: 32, color: session?.status === 'active' ? '#52c41a' : '#1890ff' } }}
+            styles={{ value: { fontSize: 28, color: session?.status === 'active' ? '#52c41a' : '#1890ff' } }}
           />
         </Col>
-        <Col xs={24} md={8}>
+        <Col xs={24} md={6}>
           <Statistic
             title="Break Time"
             value={(() => {
@@ -227,7 +287,21 @@ const TimeTracker = () => {
             prefix={<CoffeeOutlined />}
           />
         </Col>
-        <Col xs={24} md={8}>
+        <Col xs={24} md={6}>
+          <Statistic
+            title="Screen Active"
+            value={(() => {
+              const secs = screenActiveSeconds || 0;
+              const hrs = Math.floor(secs / 3600);
+              const mins = Math.floor((secs % 3600) / 60);
+              if (hrs > 0) return `${hrs}h ${mins}m`;
+              return `${mins} min`;
+            })()}
+            prefix={<DesktopOutlined />}
+            styles={{ value: { color: '#52c41a' } }}
+          />
+        </Col>
+        <Col xs={24} md={6}>
           <Space orientation="vertical" style={{ width: '100%' }}>
             {!session || session.status === 'completed' ? (
               <Button

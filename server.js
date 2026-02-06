@@ -2030,7 +2030,16 @@ app.post('/attendance/clock-out', authenticate, async (req, res) => {
     }
 
     const now = getNow();
-    const totalBreakMinutes = session.breaks.reduce((sum, b) => sum + (b.duration_minutes || 0), 0);
+    // Calculate total break minutes with fallback to timestamps if duration_minutes not set
+    const totalBreakMinutes = (session.breaks || []).reduce((sum, b) => {
+      if (b.duration_minutes && b.duration_minutes > 0) {
+        return sum + b.duration_minutes;
+      } else if (b.start_time && b.end_time) {
+        const duration = moment(b.end_time).diff(moment(b.start_time), 'minutes');
+        return sum + Math.max(0, duration);
+      }
+      return sum;
+    }, 0);
     const { workHours, overtimeHours } = calculateWorkHours(session.login_time, now, totalBreakMinutes);
 
     await db.collection('time_sessions').updateOne(
