@@ -51,7 +51,7 @@ const Worksheets = () => {
 
   // Clear cache and reset state when user changes (different login)
   useEffect(() => {
-    if (user && worksheetsCache.userId && worksheetsCache.userId !== user._id) {
+    if (user && worksheetsCache.userId && worksheetsCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
       worksheetsCache.worksheets = null;
       worksheetsCache.pendingVerification = null;
@@ -78,7 +78,7 @@ const Worksheets = () => {
     if (!user) return;
 
     // Use cached data if available for same user
-    if (worksheetsCache.userId === user._id && worksheetsCache.worksheets) {
+    if (worksheetsCache.userId === user.id && worksheetsCache.worksheets) {
       setWorksheets(worksheetsCache.worksheets);
       setPendingVerification(worksheetsCache.pendingVerification || []);
       setPendingApproval(worksheetsCache.pendingApproval || []);
@@ -118,7 +118,7 @@ const Worksheets = () => {
         : await worksheetService.getWorksheets({});
       const data = response.data || [];
       worksheetsCache.worksheets = data;
-      worksheetsCache.userId = user?._id;
+      worksheetsCache.userId = user?.id;
       setWorksheets(data);
     } catch (error) {
       console.error('Failed to fetch worksheets:', error);

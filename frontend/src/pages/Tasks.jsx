@@ -31,7 +31,7 @@ const Tasks = () => {
 
   // Clear cache and reset state when user changes (different login)
   useEffect(() => {
-    if (user && tasksCache.userId && tasksCache.userId !== user._id) {
+    if (user && tasksCache.userId && tasksCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
       tasksCache.tasks = null;
       tasksCache.employees = null;
@@ -54,7 +54,7 @@ const Tasks = () => {
         : await taskService.getTasks({});
       const data = response.data || [];
       tasksCache.tasks = data;
-      tasksCache.userId = user?._id;
+      tasksCache.userId = user?.id;
       setTasks(data);
     } catch (error) {
       console.error('Failed to fetch tasks:', error);
@@ -81,7 +81,7 @@ const Tasks = () => {
     if (!user) return;
 
     // Use cached data if available for same user
-    if (tasksCache.userId === user._id && tasksCache.tasks) {
+    if (tasksCache.userId === user.id && tasksCache.tasks) {
       setTasks(tasksCache.tasks);
       setEmployees(tasksCache.employees || []);
     }

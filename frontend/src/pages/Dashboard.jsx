@@ -37,7 +37,7 @@ const Dashboard = () => {
 
   // Clear cache and reset state when user changes (different login)
   useEffect(() => {
-    if (user && dashboardCache.userId && dashboardCache.userId !== user._id) {
+    if (user && dashboardCache.userId && dashboardCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
       dashboardCache.stats = null;
       dashboardCache.recentTasks = null;
@@ -57,7 +57,7 @@ const Dashboard = () => {
     if (!user || fetchingRef.current) return;
 
     // If we have cached data for this user, use it immediately
-    if (dashboardCache.userId === user._id && dashboardCache.stats) {
+    if (dashboardCache.userId === user.id && dashboardCache.stats) {
       setStats(dashboardCache.stats);
       setRecentTasks(dashboardCache.recentTasks || []);
       setPendingWorksheets(dashboardCache.pendingWorksheets || []);
@@ -122,7 +122,7 @@ const Dashboard = () => {
       // Update state and cache
       dashboardCache.stats = newStats;
       dashboardCache.recentTasks = newTasks;
-      dashboardCache.userId = user._id;
+      dashboardCache.userId = user.id;
 
       setStats(newStats);
       setRecentTasks(newTasks);

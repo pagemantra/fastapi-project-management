@@ -35,7 +35,7 @@ const MyTeam = () => {
 
   // Clear cache and reset state when user changes (different login)
   useEffect(() => {
-    if (user && teamCache.userId && teamCache.userId !== user._id) {
+    if (user && teamCache.userId && teamCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
       teamCache.members = null;
       teamCache.tasks = null;
@@ -54,7 +54,7 @@ const MyTeam = () => {
   const fetchTeamData = useCallback(async () => {
     if (!user || fetchingRef.current) return;
 
-    if (teamCache.userId === user._id && teamCache.members) {
+    if (teamCache.userId === user.id && teamCache.members) {
       setTeamMembers(teamCache.members);
       setTeamTasks(teamCache.tasks || []);
       setPendingWorksheets(teamCache.worksheets || []);
@@ -74,7 +74,7 @@ const MyTeam = () => {
 
       teamCache.members = usersRes.data || [];
       teamCache.tasks = tasksRes.data || [];
-      teamCache.userId = user._id;
+      teamCache.userId = user.id;
 
       setTeamMembers(teamCache.members);
       setTeamTasks(teamCache.tasks);

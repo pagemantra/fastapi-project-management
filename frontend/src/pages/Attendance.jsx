@@ -31,7 +31,7 @@ const Attendance = () => {
 
   // Clear cache and reset state when user changes (different login)
   useEffect(() => {
-    if (user && attendanceCache.userId && attendanceCache.userId !== user._id) {
+    if (user && attendanceCache.userId && attendanceCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
       attendanceCache.history = null;
       attendanceCache.teams = null;
@@ -60,7 +60,7 @@ const Attendance = () => {
       const data = response.data || [];
       attendanceCache.history = data;
       attendanceCache.dateKey = dateKey;
-      attendanceCache.userId = user?._id;
+      attendanceCache.userId = user?.id;
       setHistory(data);
     } catch (error) {
       if (!attendanceCache.history) setHistory([]);
@@ -86,7 +86,7 @@ const Attendance = () => {
     if (!user) return;
 
     const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
-    const sameUser = attendanceCache.userId === user._id;
+    const sameUser = attendanceCache.userId === user.id;
     const needsFetch = attendanceCache.dateKey !== dateKey || !sameUser;
 
     // Use cached data if available for same date range and same user
