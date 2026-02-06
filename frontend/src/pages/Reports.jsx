@@ -340,7 +340,7 @@ const Reports = () => {
           label: 'Productivity',
           children: (
             <Card title="Associate Productivity Report" extra={<Button icon={<DownloadOutlined />} onClick={() => handleExport('productivity')}>Export CSV</Button>}>
-              {productivityChartData.length > 0 && (
+              {productivityChartData.length > 0 && productivityChartData.some(d => d.value > 0) && (
                 <div style={{ marginBottom: 24 }}>
                   <Column
                     data={productivityChartData}
@@ -350,13 +350,12 @@ const Reports = () => {
                     color="#1890ff"
                     columnWidthRatio={0.5}
                     label={{
-                      position: 'top',
-                      offset: 10,
-                      formatter: ({ value }) => `${value ?? 0}%`,
+                      position: 'middle',
+                      formatter: ({ value }) => value > 0 ? `${value}%` : '',
                       style: {
-                        fill: '#333',
+                        fill: '#fff',
                         fontSize: 12,
-                        fontWeight: 500,
+                        fontWeight: 600,
                       }
                     }}
                     xAxis={{
