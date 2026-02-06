@@ -526,16 +526,57 @@ app.get('/users', authenticate, async (req, res) => {
   try {
     const { role, is_active, skip = 0, limit = 100 } = req.query;
     const db = getDatabase();
-    const query = {};
+    let query = {};
     const userRole = req.user.role;
     const userId = req.user._id.toString();
 
     if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
       // Admin and Delivery Manager see all
     } else if (userRole === UserRole.MANAGER) {
-      query.manager_id = userId;
+      // Managers see users from their managed teams + direct reports
+      const managedTeams = await db.collection('teams').find({
+        manager_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      const teamLeadIds = new Set();
+      managedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+        if (team.team_lead_id) {
+          teamLeadIds.add(team.team_lead_id);
+        }
+      });
+
+      // Combine all IDs: team members, team leads, and direct reports
+      const allIds = [...memberIds, ...teamLeadIds];
+
+      // Query for users in managed teams OR with direct manager_id
+      query.$or = [
+        { manager_id: userId },
+        { _id: { $in: allIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id)) } }
+      ];
     } else if (userRole === UserRole.TEAM_LEAD) {
-      query.team_lead_id = userId;
+      // Team leads see users from their led teams + direct reports
+      const ledTeams = await db.collection('teams').find({
+        team_lead_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      ledTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+      });
+
+      const allIds = [...memberIds];
+      query.$or = [
+        { team_lead_id: userId },
+        { _id: { $in: allIds.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id)) } }
+      ];
     } else {
       query._id = req.user._id;
     }
@@ -636,23 +677,100 @@ app.get('/users/employees', authenticate, requireRoles([UserRole.ADMIN, UserRole
     const db = getDatabase();
     const userId = req.user._id.toString();
     const userRole = req.user.role;
-    let query = { is_active: true };
 
     if (userRole === UserRole.ADMIN || userRole === UserRole.DELIVERY_MANAGER) {
-      // Admin and Delivery Manager can see all employees and managers
-      query.role = { $in: [UserRole.ASSOCIATE, UserRole.MANAGER, UserRole.TEAM_LEAD] };
+      // Admin and Delivery Manager can see all employees, team leads, and managers
+      const employees = await db.collection('users').find({
+        is_active: true,
+        role: { $in: [UserRole.ASSOCIATE, UserRole.MANAGER, UserRole.TEAM_LEAD] }
+      }).toArray();
+      return res.json(employees.map(formatUserResponse));
     } else if (userRole === UserRole.MANAGER) {
-      // Managers can see their own team members
-      query.manager_id = userId;
-      query.role = UserRole.ASSOCIATE;
+      // Managers can see employees from their managed teams + direct reports
+      const managedTeams = await db.collection('teams').find({
+        manager_id: userId,
+        is_active: true
+      }).toArray();
+
+      // Collect all member IDs and team lead IDs from managed teams
+      const memberIds = new Set();
+      const teamLeadIds = new Set();
+      managedTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+        if (team.team_lead_id) {
+          teamLeadIds.add(team.team_lead_id);
+        }
+      });
+
+      // Also get direct reports (employees with manager_id = this manager)
+      const directReports = await db.collection('users').find({
+        manager_id: userId,
+        is_active: true
+      }).toArray();
+      directReports.forEach(emp => memberIds.add(emp._id.toString()));
+
+      // Fetch all team members
+      const allMemberIds = [...memberIds].filter(id => ObjectId.isValid(id));
+      const allTeamLeadIds = [...teamLeadIds].filter(id => ObjectId.isValid(id));
+
+      const employees = allMemberIds.length > 0 ? await db.collection('users').find({
+        _id: { $in: allMemberIds.map(id => new ObjectId(id)) },
+        is_active: true
+      }).toArray() : [];
+
+      // Fetch team leads separately
+      const teamLeads = allTeamLeadIds.length > 0 ? await db.collection('users').find({
+        _id: { $in: allTeamLeadIds.map(id => new ObjectId(id)) },
+        is_active: true
+      }).toArray() : [];
+
+      // Combine and dedupe
+      const allUsers = [...employees, ...teamLeads];
+      const uniqueUsers = [];
+      const seenIds = new Set();
+      allUsers.forEach(u => {
+        const id = u._id.toString();
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          uniqueUsers.push(u);
+        }
+      });
+
+      return res.json(uniqueUsers.map(formatUserResponse));
     } else if (userRole === UserRole.TEAM_LEAD) {
-      // Team leads can see their own team members
-      query.team_lead_id = userId;
-      query.role = UserRole.ASSOCIATE;
+      // Team leads can see their team members from teams they lead
+      const ledTeams = await db.collection('teams').find({
+        team_lead_id: userId,
+        is_active: true
+      }).toArray();
+
+      const memberIds = new Set();
+      ledTeams.forEach(team => {
+        if (team.members) {
+          team.members.forEach(id => memberIds.add(id));
+        }
+      });
+
+      // Also get direct reports
+      const directReports = await db.collection('users').find({
+        team_lead_id: userId,
+        is_active: true
+      }).toArray();
+      directReports.forEach(emp => memberIds.add(emp._id.toString()));
+
+      const allMemberIds = [...memberIds].filter(id => ObjectId.isValid(id));
+      const employees = allMemberIds.length > 0 ? await db.collection('users').find({
+        _id: { $in: allMemberIds.map(id => new ObjectId(id)) },
+        is_active: true
+      }).toArray() : [];
+
+      return res.json(employees.map(formatUserResponse));
     }
 
-    const employees = await db.collection('users').find(query).toArray();
-    res.json(employees.map(formatUserResponse));
+    // Fallback - return empty
+    res.json([]);
   } catch (error) {
     console.error('Get employees error:', error);
     res.status(500).json({ detail: error.message });
@@ -908,10 +1026,11 @@ app.get('/teams', authenticate, async (req, res) => {
       .limit(parseInt(limit))
       .toArray();
 
-    // Fetch team lead and manager names
+    // Fetch team lead, manager, and member names
     const teamLeadIds = [...new Set(teams.map(t => t.team_lead_id).filter(Boolean))];
     const managerIds = [...new Set(teams.map(t => t.manager_id).filter(Boolean))];
-    const allUserIds = [...new Set([...teamLeadIds, ...managerIds])];
+    const memberIds = [...new Set(teams.flatMap(t => t.members || []).filter(Boolean))];
+    const allUserIds = [...new Set([...teamLeadIds, ...managerIds, ...memberIds])];
 
     const userMap = {};
     if (allUserIds.length > 0) {
@@ -921,24 +1040,35 @@ app.get('/teams', authenticate, async (req, res) => {
           _id: { $in: validUserIds.map(id => new ObjectId(id)) }
         }).toArray();
         users.forEach(u => {
-          userMap[u._id.toString()] = u.full_name;
+          userMap[u._id.toString()] = { full_name: u.full_name, email: u.email, employee_id: u.employee_id };
         });
       }
     }
 
-    res.json(teams.map(team => ({
-      id: team._id.toString(),
-      name: team.name,
-      description: team.description,
-      team_lead_id: team.team_lead_id,
-      team_lead_name: userMap[team.team_lead_id] || null,
-      manager_id: team.manager_id,
-      manager_name: userMap[team.manager_id] || null,
-      members: team.members || [],
-      is_active: team.is_active,
-      created_at: team.created_at,
-      updated_at: team.updated_at
-    })));
+    res.json(teams.map(team => {
+      // Build members with details
+      const membersWithDetails = (team.members || []).map(memberId => ({
+        id: memberId,
+        full_name: userMap[memberId]?.full_name || null,
+        email: userMap[memberId]?.email || null,
+        employee_id: userMap[memberId]?.employee_id || null
+      }));
+
+      return {
+        id: team._id.toString(),
+        name: team.name,
+        description: team.description,
+        team_lead_id: team.team_lead_id,
+        team_lead_name: userMap[team.team_lead_id]?.full_name || null,
+        manager_id: team.manager_id,
+        manager_name: userMap[team.manager_id]?.full_name || null,
+        members: team.members || [],
+        members_details: membersWithDetails,
+        is_active: team.is_active,
+        created_at: team.created_at,
+        updated_at: team.updated_at
+      };
+    }));
   } catch (error) {
     console.error('Get teams error:', error);
     res.status(500).json({ detail: error.message });
@@ -972,13 +1102,44 @@ app.get('/teams/:team_id', authenticate, async (req, res) => {
       return res.status(403).json({ detail: 'Access denied' });
     }
 
+    // Fetch team lead, manager, and member names
+    const allUserIds = [
+      team.team_lead_id,
+      team.manager_id,
+      ...(team.members || [])
+    ].filter(Boolean);
+
+    const userMap = {};
+    if (allUserIds.length > 0) {
+      const validUserIds = allUserIds.filter(id => ObjectId.isValid(id));
+      if (validUserIds.length > 0) {
+        const users = await db.collection('users').find({
+          _id: { $in: validUserIds.map(id => new ObjectId(id)) }
+        }).toArray();
+        users.forEach(u => {
+          userMap[u._id.toString()] = { full_name: u.full_name, email: u.email, employee_id: u.employee_id };
+        });
+      }
+    }
+
+    // Build members with details
+    const membersWithDetails = (team.members || []).map(memberId => ({
+      id: memberId,
+      full_name: userMap[memberId]?.full_name || null,
+      email: userMap[memberId]?.email || null,
+      employee_id: userMap[memberId]?.employee_id || null
+    }));
+
     res.json({
       id: team._id.toString(),
       name: team.name,
       description: team.description,
       team_lead_id: team.team_lead_id,
+      team_lead_name: userMap[team.team_lead_id]?.full_name || null,
       manager_id: team.manager_id,
+      manager_name: userMap[team.manager_id]?.full_name || null,
       members: team.members || [],
+      members_details: membersWithDetails,
       is_active: team.is_active,
       created_at: team.created_at,
       updated_at: team.updated_at

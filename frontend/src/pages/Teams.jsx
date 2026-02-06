@@ -417,9 +417,15 @@ const Teams = () => {
         <List
           header={<Text strong>Current Members ({selectedTeam?.members?.length || 0})</Text>}
           bordered
-          dataSource={selectedTeam?.members || []}
-          renderItem={(memberId) => {
-            const member = employees.find(e => e.id === memberId);
+          dataSource={selectedTeam?.members_details || selectedTeam?.members || []}
+          renderItem={(item) => {
+            // Handle both new format (object with details) and old format (just ID)
+            const isDetailedFormat = typeof item === 'object' && item.id;
+            const memberId = isDetailedFormat ? item.id : item;
+            const member = isDetailedFormat ? item : employees.find(e => e.id === memberId);
+            const memberName = member?.full_name || 'Unknown';
+            const memberEmail = member?.email || '';
+
             return (
               <List.Item
                 actions={[
@@ -434,9 +440,9 @@ const Teams = () => {
                 ]}
               >
                 <List.Item.Meta
-                  avatar={<Avatar>{member?.full_name?.charAt(0)}</Avatar>}
-                  title={member?.full_name || 'Unknown'}
-                  description={member?.email}
+                  avatar={<Avatar>{memberName?.charAt(0) || '?'}</Avatar>}
+                  title={memberName}
+                  description={memberEmail}
                 />
               </List.Item>
             );

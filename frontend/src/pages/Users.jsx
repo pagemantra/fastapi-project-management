@@ -49,7 +49,7 @@ const Users = () => {
 
   const fetchManagers = useCallback(async () => {
     try {
-      if (isAdmin()) {
+      if (isAdmin() || isManager()) {
         const response = await userService.getManagers();
         const data = response.data || [];
         usersCache.managers = data;
@@ -59,7 +59,7 @@ const Users = () => {
       console.error('Failed to fetch managers:', error);
       if (!usersCache.managers) setManagers([]);
     }
-  }, [isAdmin]);
+  }, [isAdmin, isManager]);
 
   const fetchTeamLeads = useCallback(async () => {
     try {
