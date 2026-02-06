@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Table, DatePicker, Space, Typography, Row, Col, Tag, Statistic, Select, Button, Form, InputNumber, Switch, Modal, message } from 'antd';
-import { ClockCircleOutlined, CoffeeOutlined, FieldTimeOutlined, SettingOutlined } from '@ant-design/icons';
+import { ClockCircleOutlined, CoffeeOutlined, FieldTimeOutlined, SettingOutlined, DesktopOutlined } from '@ant-design/icons';
 import { attendanceService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import TimeTracker from '../components/TimeTracker';
@@ -142,6 +142,8 @@ const Attendance = () => {
   const totalHours = history.reduce((sum, h) => sum + (h.total_work_hours || 0), 0);
   const totalOvertime = history.reduce((sum, h) => sum + (h.overtime_hours || 0), 0);
   const totalBreaks = history.reduce((sum, h) => sum + (h.total_break_minutes || 0), 0);
+  const totalScreenActiveSeconds = history.reduce((sum, h) => sum + (h.screen_active_seconds || 0), 0);
+  const totalScreenActiveHours = (totalScreenActiveSeconds / 3600).toFixed(1);
   const avgHoursPerDay = history.length > 0 ? totalHours / history.length : 0;
 
   const columns = [
@@ -203,6 +205,21 @@ const Attendance = () => {
       },
     },
     {
+      title: 'Screen Active Time',
+      dataIndex: 'screen_active_seconds',
+      key: 'screen_active_time',
+      render: (seconds) => {
+        if (!seconds || seconds === 0) return <Text type="secondary">0 min</Text>;
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        if (hours > 0) {
+          return <Text type="success">{hours}h {minutes}m</Text>;
+        }
+        return <Text type="success">{minutes} min</Text>;
+      },
+      sorter: (a, b) => (a.screen_active_seconds || 0) - (b.screen_active_seconds || 0),
+    },
+    {
       title: 'Overtime',
       dataIndex: 'overtime_hours',
       key: 'overtime_hours',
@@ -249,7 +266,7 @@ const Attendance = () => {
 
       {/* Summary Statistics */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={6} lg={4}>
           <Card>
             <Statistic
               title="Total Work Hours"
@@ -259,7 +276,7 @@ const Attendance = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={6} lg={4}>
           <Card>
             <Statistic
               title="Average per Day"
@@ -269,7 +286,7 @@ const Attendance = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={6} lg={4}>
           <Card>
             <Statistic
               title="Total Break Time"
@@ -279,7 +296,17 @@ const Attendance = () => {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} md={6}>
+        <Col xs={24} sm={12} md={6} lg={4}>
+          <Card>
+            <Statistic
+              title="Screen Active Time"
+              value={totalScreenActiveHours}
+              suffix="hrs"
+              prefix={<DesktopOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} md={6} lg={4}>
           <Card>
             <Statistic
               title="Total Overtime"

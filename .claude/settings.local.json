@@ -26,7 +26,8 @@
       "Bash(curl:*)",
       "Bash(npx kill-port:*)",
       "Bash(timeout /t 5 /nobreak)",
-      "Bash(node fix-worksheet-forms.js:*)"
+      "Bash(node fix-worksheet-forms.js:*)",
+      "Bash(node reset-password.js:*)"
     ],
     "deny": [],
     "ask": []

@@ -47,7 +47,7 @@ const Worksheets = () => {
   const [form] = Form.useForm();
   const [rejectForm] = Form.useForm();
   const [editForm] = Form.useForm();
-  const { user, isAdmin, isManager, isTeamLead, isEmployee, isDeliveryManager } = useAuth();
+  const { user, isAdmin, isOnlyAdmin, isManager, isTeamLead, isEmployee, isDeliveryManager } = useAuth();
 
   useEffect(() => {
     // Only fetch data when user is available
@@ -68,7 +68,7 @@ const Worksheets = () => {
     if (isTeamLead()) {
       fetchPendingVerification();
     }
-    if (isManager() || isAdmin()) {
+    if (isManager() || isOnlyAdmin()) {
       fetchPendingApproval();
     }
     // Delivery Manager and Admin can see pending DM approval
@@ -1062,7 +1062,7 @@ const Worksheets = () => {
               </Card>
             ),
           }] : []),
-          ...((isManager() || isAdmin()) ? [{
+          ...((isManager() || isOnlyAdmin()) ? [{
             key: 'approval',
             label: `Pending Approval (${pendingApproval.length})`,
             children: (

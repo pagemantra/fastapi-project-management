@@ -206,10 +206,19 @@ function formatSessionWithCalculatedHours(session) {
   let workHours = session.total_work_hours || 0;
   let overtimeHours = session.overtime_hours || 0;
 
+  // Calculate total break minutes from breaks array (more accurate than stored value)
+  const breaks = session.breaks || [];
+  let totalBreakMinutes = breaks.reduce((sum, b) => sum + (b.duration_minutes || 0), 0);
+
+  // If stored value is higher (e.g. from clock-out), use that
+  if ((session.total_break_minutes || 0) > totalBreakMinutes) {
+    totalBreakMinutes = session.total_break_minutes;
+  }
+
   // For active or on_break sessions, calculate work hours in real-time
   if (session.status === SessionStatus.ACTIVE || session.status === SessionStatus.ON_BREAK) {
     const now = getNow();
-    const calculated = calculateWorkHours(session.login_time, now, session.total_break_minutes || 0);
+    const calculated = calculateWorkHours(session.login_time, now, totalBreakMinutes);
     workHours = calculated.workHours;
     overtimeHours = calculated.overtimeHours;
   }
@@ -223,7 +232,7 @@ function formatSessionWithCalculatedHours(session) {
     logout_time: session.logout_time,
     breaks: session.breaks || [],
     total_work_hours: workHours,
-    total_break_minutes: session.total_break_minutes || 0,
+    total_break_minutes: totalBreakMinutes,
     overtime_hours: overtimeHours,
     status: session.status,
     worksheet_submitted: session.worksheet_submitted || false,
@@ -1839,11 +1848,15 @@ async function endCurrentBreak(db, session) {
     }
   }
 
+  // Calculate total break minutes from all breaks
+  const totalBreakMinutes = breaks.reduce((sum, b) => sum + (b.duration_minutes || 0), 0);
+
   await db.collection('time_sessions').updateOne(
     { _id: session._id },
     {
       $set: {
         breaks,
+        total_break_minutes: totalBreakMinutes,
         status: SessionStatus.ACTIVE,
         current_break_id: null,
         updated_at: now
