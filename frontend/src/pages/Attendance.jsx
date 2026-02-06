@@ -179,9 +179,24 @@ const Attendance = () => {
     },
     {
       title: 'Break (min)',
-      dataIndex: 'total_break_minutes',
       key: 'total_break_minutes',
-      render: (minutes) => <Text type={minutes > 0 ? 'success' : 'secondary'}>{minutes || 0} min</Text>,
+      render: (_, record) => {
+        // Use total_break_minutes if available, otherwise calculate from breaks array
+        let minutes = record.total_break_minutes || 0;
+        if (minutes === 0 && record.breaks && record.breaks.length > 0) {
+          // Calculate from breaks if total_break_minutes is not set
+          minutes = record.breaks.reduce((sum, b) => {
+            if (b.duration_minutes && b.duration_minutes > 0) {
+              return sum + b.duration_minutes;
+            } else if (b.start_time && b.end_time) {
+              const duration = Math.round((new Date(b.end_time) - new Date(b.start_time)) / 60000);
+              return sum + Math.max(0, duration);
+            }
+            return sum;
+          }, 0);
+        }
+        return <Text type={minutes > 0 ? 'success' : 'secondary'}>{minutes} min</Text>;
+      },
     },
     {
       title: 'Break Details',
@@ -191,15 +206,23 @@ const Attendance = () => {
         if (!breaks || breaks.length === 0) return '-';
         return (
           <div>
-            {breaks.map((breakItem, idx) => (
-              <div key={idx} style={{ fontSize: '11px', marginBottom: '2px' }}>
-                <Tag color="cyan" style={{ fontSize: '10px' }}>
-                  {breakItem.break_type?.replace('_', ' ').toUpperCase()}
-                </Tag>
-                {dayjs.utc(breakItem.start_time).tz('Asia/Kolkata').format('hh:mm A')} - {breakItem.end_time ? dayjs.utc(breakItem.end_time).tz('Asia/Kolkata').format('hh:mm A') : 'ongoing'}
-                {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> ({breakItem.comment})</Text>}
-              </div>
-            ))}
+            {breaks.map((breakItem, idx) => {
+              // Calculate duration from timestamps if duration_minutes not set
+              let duration = breakItem.duration_minutes || 0;
+              if (!duration && breakItem.start_time && breakItem.end_time) {
+                duration = Math.round((new Date(breakItem.end_time) - new Date(breakItem.start_time)) / 60000);
+              }
+              return (
+                <div key={idx} style={{ fontSize: '11px', marginBottom: '2px' }}>
+                  <Tag color="cyan" style={{ fontSize: '10px' }}>
+                    {breakItem.break_type?.replace('_', ' ').toUpperCase()}
+                  </Tag>
+                  {dayjs.utc(breakItem.start_time).tz('Asia/Kolkata').format('hh:mm A')} - {breakItem.end_time ? dayjs.utc(breakItem.end_time).tz('Asia/Kolkata').format('hh:mm A') : 'ongoing'}
+                  {duration > 0 && <Text type="success" style={{ fontSize: '10px', marginLeft: 4 }}>({duration} min)</Text>}
+                  {breakItem.comment && <Text type="secondary" style={{ fontSize: '10px' }}> - {breakItem.comment}</Text>}
+                </div>
+              );
+            })}
           </div>
         );
       },

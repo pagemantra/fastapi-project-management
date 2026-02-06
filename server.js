@@ -208,7 +208,17 @@ function formatSessionWithCalculatedHours(session) {
 
   // Calculate total break minutes from breaks array (more accurate than stored value)
   const breaks = session.breaks || [];
-  let totalBreakMinutes = breaks.reduce((sum, b) => sum + (b.duration_minutes || 0), 0);
+  let totalBreakMinutes = breaks.reduce((sum, b) => {
+    // Use duration_minutes if set, otherwise calculate from timestamps
+    if (b.duration_minutes && b.duration_minutes > 0) {
+      return sum + b.duration_minutes;
+    } else if (b.start_time && b.end_time) {
+      // Calculate duration from timestamps for older breaks without duration_minutes
+      const duration = moment(b.end_time).diff(moment(b.start_time), 'minutes');
+      return sum + Math.max(0, duration);
+    }
+    return sum;
+  }, 0);
 
   // If stored value is higher (e.g. from clock-out), use that
   if ((session.total_break_minutes || 0) > totalBreakMinutes) {
