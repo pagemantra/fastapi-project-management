@@ -49,6 +49,30 @@ const Worksheets = () => {
   const [editForm] = Form.useForm();
   const { user, isAdmin, isOnlyAdmin, isManager, isTeamLead, isEmployee, isDeliveryManager } = useAuth();
 
+  // Clear cache and reset state when user changes (different login)
+  useEffect(() => {
+    if (user && worksheetsCache.userId && worksheetsCache.userId !== user._id) {
+      // Different user logged in - clear cache and reset state
+      worksheetsCache.worksheets = null;
+      worksheetsCache.pendingVerification = null;
+      worksheetsCache.pendingApproval = null;
+      worksheetsCache.pendingDmApproval = null;
+      worksheetsCache.forms = null;
+      worksheetsCache.teamForm = null;
+      worksheetsCache.myTeam = null;
+      worksheetsCache.userId = null;
+      setWorksheets([]);
+      setPendingVerification([]);
+      setPendingApproval([]);
+      setPendingDmApproval([]);
+      setForms([]);
+      setTeamForm(null);
+      setMyTeam(null);
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [user]);
+
   useEffect(() => {
     // Only fetch data when user is available
     if (!user) return;

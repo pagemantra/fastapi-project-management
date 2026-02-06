@@ -13,7 +13,8 @@ const { RangePicker } = DatePicker;
 const attendanceCache = {
   history: null,
   teams: null,
-  dateKey: null
+  dateKey: null,
+  userId: null
 };
 
 const Attendance = () => {
@@ -27,6 +28,21 @@ const Attendance = () => {
   const [form] = Form.useForm();
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
   const fetchingRef = useRef(false);
+
+  // Clear cache and reset state when user changes (different login)
+  useEffect(() => {
+    if (user && attendanceCache.userId && attendanceCache.userId !== user._id) {
+      // Different user logged in - clear cache and reset state
+      attendanceCache.history = null;
+      attendanceCache.teams = null;
+      attendanceCache.dateKey = null;
+      attendanceCache.userId = null;
+      setHistory([]);
+      setTeams([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [user]);
 
   const fetchHistory = useCallback(async (showLoading = false) => {
     if (fetchingRef.current) return;
@@ -44,6 +60,7 @@ const Attendance = () => {
       const data = response.data || [];
       attendanceCache.history = data;
       attendanceCache.dateKey = dateKey;
+      attendanceCache.userId = user?._id;
       setHistory(data);
     } catch (error) {
       if (!attendanceCache.history) setHistory([]);
@@ -51,7 +68,7 @@ const Attendance = () => {
       setLoading(false);
       fetchingRef.current = false;
     }
-  }, [dateRange]);
+  }, [dateRange, user]);
 
   const fetchTeams = useCallback(async () => {
     try {
@@ -66,10 +83,13 @@ const Attendance = () => {
   }, []);
 
   useEffect(() => {
-    const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
-    const needsFetch = attendanceCache.dateKey !== dateKey;
+    if (!user) return;
 
-    // Use cached data if available for same date range
+    const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
+    const sameUser = attendanceCache.userId === user._id;
+    const needsFetch = attendanceCache.dateKey !== dateKey || !sameUser;
+
+    // Use cached data if available for same date range and same user
     if (!needsFetch && attendanceCache.history) {
       setHistory(attendanceCache.history);
       setTeams(attendanceCache.teams || []);
@@ -79,7 +99,7 @@ const Attendance = () => {
     if (isAdmin() || isManager()) {
       fetchTeams();
     }
-  }, [dateRange, fetchHistory, fetchTeams, isAdmin, isManager]);
+  }, [user, dateRange, fetchHistory, fetchTeams, isAdmin, isManager]);
 
   const fetchBreakSettings = async (teamId) => {
     try {

@@ -29,6 +29,20 @@ const Tasks = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
   const fetchingRef = useRef(false);
 
+  // Clear cache and reset state when user changes (different login)
+  useEffect(() => {
+    if (user && tasksCache.userId && tasksCache.userId !== user._id) {
+      // Different user logged in - clear cache and reset state
+      tasksCache.tasks = null;
+      tasksCache.employees = null;
+      tasksCache.userId = null;
+      setTasks([]);
+      setEmployees([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [user]);
+
   const fetchTasks = useCallback(async (showLoading = false) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;

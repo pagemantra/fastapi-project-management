@@ -33,6 +33,24 @@ const MyTeam = () => {
   const navigate = useNavigate();
   const fetchingRef = useRef(false);
 
+  // Clear cache and reset state when user changes (different login)
+  useEffect(() => {
+    if (user && teamCache.userId && teamCache.userId !== user._id) {
+      // Different user logged in - clear cache and reset state
+      teamCache.members = null;
+      teamCache.tasks = null;
+      teamCache.worksheets = null;
+      teamCache.attendance = null;
+      teamCache.userId = null;
+      setTeamMembers([]);
+      setTeamTasks([]);
+      setPendingWorksheets([]);
+      setTeamAttendance([]);
+      setInitialLoad(true);
+      fetchingRef.current = false;
+    }
+  }, [user]);
+
   const fetchTeamData = useCallback(async () => {
     if (!user || fetchingRef.current) return;
 

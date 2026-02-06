@@ -35,6 +35,24 @@ const Dashboard = () => {
   const fetchingRef = useRef(false);
   const navigate = useNavigate();
 
+  // Clear cache and reset state when user changes (different login)
+  useEffect(() => {
+    if (user && dashboardCache.userId && dashboardCache.userId !== user._id) {
+      // Different user logged in - clear cache and reset state
+      dashboardCache.stats = null;
+      dashboardCache.recentTasks = null;
+      dashboardCache.pendingWorksheets = null;
+      dashboardCache.teamStats = null;
+      dashboardCache.userId = null;
+      setStats({});
+      setRecentTasks([]);
+      setPendingWorksheets([]);
+      setTeamStats({ teamMembers: 0, loggedInToday: 0 });
+      setInitialLoad(true);
+      fetchingRef.current = false;
+    }
+  }, [user]);
+
   const fetchDashboardData = useCallback(async () => {
     if (!user || fetchingRef.current) return;
 
