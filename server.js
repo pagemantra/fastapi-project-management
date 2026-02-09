@@ -339,6 +339,7 @@ function formatSessionWithCalculatedHours(session) {
     worksheet_submitted: session.worksheet_submitted || false,
     current_break_id: session.current_break_id,
     screen_active_seconds: session.screen_active_seconds || 0,
+    inactive_seconds: session.inactive_seconds || 0,
     last_screen_active_update: session.last_screen_active_update,
     created_at: session.created_at,
     updated_at: session.updated_at
@@ -2091,6 +2092,7 @@ app.post('/attendance/clock-in', authenticate, async (req, res) => {
       worksheet_submitted: false,
       current_break_id: null,
       screen_active_seconds: 0,
+      inactive_seconds: 0, // Time lost to lock/sleep (detected by client)
       last_screen_active_update: now,
       created_at: now,
       updated_at: now
@@ -2114,6 +2116,7 @@ app.post('/attendance/clock-in', authenticate, async (req, res) => {
       worksheet_submitted: sessionDoc.worksheet_submitted,
       current_break_id: sessionDoc.current_break_id,
       screen_active_seconds: sessionDoc.screen_active_seconds,
+      inactive_seconds: sessionDoc.inactive_seconds,
       last_screen_active_update: sessionDoc.last_screen_active_update,
       created_at: sessionDoc.created_at,
       updated_at: sessionDoc.updated_at
@@ -2362,6 +2365,51 @@ app.post('/attendance/screen-active-time', authenticate, async (req, res) => {
     res.json({ success: true, screen_active_seconds });
   } catch (error) {
     console.error('Update screen active time error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /attendance/inactive-time - Add inactive seconds (lock/sleep time detected by client)
+app.post('/attendance/inactive-time', authenticate, async (req, res) => {
+  try {
+    const { inactive_seconds_to_add } = req.body;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+    const today = moment.tz(IST).format('YYYY-MM-DD');
+
+    // Validate input
+    if (typeof inactive_seconds_to_add !== 'number' || inactive_seconds_to_add < 0) {
+      return res.status(400).json({ detail: 'Invalid inactive_seconds_to_add value' });
+    }
+
+    const session = await db.collection('time_sessions').findOne({
+      employee_id: userId,
+      date: today,
+      status: { $in: [SessionStatus.ACTIVE, SessionStatus.ON_BREAK] }
+    });
+
+    if (!session) {
+      return res.status(400).json({ detail: 'No active session found' });
+    }
+
+    const now = getNow();
+    const currentInactive = session.inactive_seconds || 0;
+    const newInactiveSeconds = currentInactive + inactive_seconds_to_add;
+
+    await db.collection('time_sessions').updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          inactive_seconds: newInactiveSeconds,
+          updated_at: now
+        }
+      }
+    );
+
+    console.log(`Inactive time updated for ${userId}: +${inactive_seconds_to_add}s, total: ${newInactiveSeconds}s`);
+    res.json({ success: true, inactive_seconds: newInactiveSeconds });
+  } catch (error) {
+    console.error('Update inactive time error:', error);
     res.status(500).json({ detail: error.message });
   }
 });
