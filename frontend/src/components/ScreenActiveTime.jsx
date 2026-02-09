@@ -33,11 +33,12 @@ const ScreenActiveTime = () => {
       return 0;
     }
 
-    const now = dayjs();
-    const loginTime = dayjs(sessionData.login_time);
+    // Use timestamps for accurate calculation (avoids timezone issues)
+    const nowMs = Date.now();
+    const loginTimeMs = new Date(sessionData.login_time).getTime();
 
     // Total elapsed seconds since login
-    const totalElapsedSeconds = now.diff(loginTime, 'second');
+    const totalElapsedSeconds = Math.floor((nowMs - loginTimeMs) / 1000);
 
     // Break time in seconds
     const breakSeconds = (sessionData.total_break_minutes || 0) * 60;
@@ -123,6 +124,12 @@ const ScreenActiveTime = () => {
           // Tab switch - time continues normally (already counted in elapsed)
           console.log(`Screen Active Time: Tab switch (${hiddenSeconds}s) - time continues`);
           setLastLockSleepSkipped(0);
+
+          // Immediately update the displayed time (don't wait for interval)
+          if (sessionRef.current && sessionRef.current.status === 'active') {
+            const activeSeconds = calculateScreenActiveTime(sessionRef.current);
+            setScreenActiveSeconds(activeSeconds);
+          }
         }
       }
 
@@ -131,7 +138,7 @@ const ScreenActiveTime = () => {
       // Refresh session to get latest data
       fetchCurrentSession(true);
     }
-  }, [addInactiveTime, fetchCurrentSession]);
+  }, [addInactiveTime, fetchCurrentSession, calculateScreenActiveTime]);
 
   // Setup visibility listener and session polling
   useEffect(() => {
