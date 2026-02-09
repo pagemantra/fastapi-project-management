@@ -750,16 +750,39 @@ const Worksheets = () => {
       key: 'total_hours',
       render: (hours) => `${hours || 0} hrs`,
     },
-    {
-      title: 'Image Count',
-      key: 'image_count',
-      render: (_, record) => {
-        const imageCountField = record.form_responses?.find(
-          r => r.field_id === 'image_count' || r.field_label?.toLowerCase().includes('image')
-        );
-        return imageCountField?.value || record.image_count || 0;
-      },
-    },
+    // Image Count column - only show for assigned team members if form has image_count field
+    ...((() => {
+      // Check if user's assigned form has an image_count field
+      const userFormHasImageCount = teamForm?.fields?.some(
+        field => field.field_id === 'image_count' ||
+                 field.label?.toLowerCase().includes('image') ||
+                 field.field_type === 'number' && field.label?.toLowerCase().includes('image')
+      );
+
+      // For associates (employees), only show if their assigned form has image count
+      // For other roles (TL, Manager, Admin), they see all worksheets so check if any worksheet has image data
+      const shouldShowImageCount = isEmployee()
+        ? userFormHasImageCount
+        : worksheets.some(ws => {
+            const imageField = ws.form_responses?.find(
+              r => r.field_id === 'image_count' || r.field_label?.toLowerCase().includes('image')
+            );
+            return imageField?.value || ws.image_count;
+          });
+
+      if (!shouldShowImageCount) return [];
+
+      return [{
+        title: 'Image Count',
+        key: 'image_count',
+        render: (_, record) => {
+          const imageCountField = record.form_responses?.find(
+            r => r.field_id === 'image_count' || r.field_label?.toLowerCase().includes('image')
+          );
+          return imageCountField?.value || record.image_count || 0;
+        },
+      }];
+    })()),
     {
       title: 'Status',
       dataIndex: 'status',
