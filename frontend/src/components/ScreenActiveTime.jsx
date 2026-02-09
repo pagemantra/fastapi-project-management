@@ -108,16 +108,16 @@ const ScreenActiveTime = () => {
 
   // Handle visibility change - detect lock/sleep vs tab switch
   // Key behavior:
-  // - Tab switch/close: Timer KEEPS RUNNING (counts time while away)
-  // - Lock/sleep/break: Timer PAUSES (doesn't count time)
+  // - Tab switch/close: Timer KEEPS RUNNING continuously
+  // - Lock/sleep (>30s hidden): Timer PAUSES and resets to frozen value
+  // - Break: Timer PAUSES
   const handleVisibilityChange = useCallback(() => {
     const isVisible = !document.hidden;
     const now = Date.now();
 
     if (!isVisible) {
       // Page became hidden (could be tab switch, minimize, or lock/sleep)
-      // DON'T show "Paused" yet - we don't know if it's lock/sleep
-      // Timer conceptually keeps running for tab switches
+      // Record the time and current value - timer continues running via interval
       isPageHiddenRef.current = true;
       pageHiddenTimeRef.current = now;
       frozenSecondsRef.current = screenActiveSecondsRef.current;
@@ -128,9 +128,7 @@ const ScreenActiveTime = () => {
         saveScreenActiveTime(screenActiveSecondsRef.current);
       }
 
-      // Keep showing "Running" status - don't switch to "Paused" for tab switch
-      // We'll determine if it was lock/sleep when page becomes visible again
-      console.log(`Screen Active Time: Page hidden at ${frozenSecondsRef.current}s - timer continues (will pause if lock/sleep detected)`);
+      console.log(`Screen Active Time: Page hidden at ${frozenSecondsRef.current}s - timer keeps running`);
 
     } else {
       // Page became visible again
@@ -140,24 +138,19 @@ const ScreenActiveTime = () => {
 
       if (wasLockOrSleep) {
         // LOCK/SLEEP detected (hidden for >30 seconds) - DON'T count the hidden time
-        // Restore the frozen value (timer was paused)
+        // Reset to the frozen value (undo any time that may have been counted)
         screenActiveSecondsRef.current = frozenSecondsRef.current || screenActiveSecondsRef.current;
         setScreenActiveSeconds(screenActiveSecondsRef.current);
         setSkippedTime(Math.round(hiddenDuration / 1000));
-        console.log(`Screen Active Time: LOCK/SLEEP detected (${Math.round(hiddenDuration / 1000)}s) - timer paused, stayed at ${screenActiveSecondsRef.current}s`);
+        console.log(`Screen Active Time: LOCK/SLEEP detected (${Math.round(hiddenDuration / 1000)}s) - timer reset to ${screenActiveSecondsRef.current}s`);
       } else {
-        // TAB SWITCH or quick minimize (hidden for <30 seconds) - ADD the hidden time
-        // Timer was conceptually running during this time
-        const secondsToAdd = Math.round(hiddenDuration / 1000);
-        if (secondsToAdd > 0 && sessionRef.current?.status === 'active') {
-          screenActiveSecondsRef.current += secondsToAdd;
-          setScreenActiveSeconds(screenActiveSecondsRef.current);
-        }
+        // TAB SWITCH or quick minimize (hidden for <30 seconds)
+        // Timer was already running via interval, no need to add more time
         setSkippedTime(0);
-        console.log(`Screen Active Time: Tab switch/minimize (${secondsToAdd}s) - added to timer, now at ${screenActiveSecondsRef.current}s`);
+        console.log(`Screen Active Time: Tab switch (${Math.round(hiddenDuration / 1000)}s) - timer continued running, now at ${screenActiveSecondsRef.current}s`);
       }
 
-      // Reset last tick time
+      // Reset last tick time to now
       lastTickTimeRef.current = now;
 
       // Clear frozen refs
@@ -232,7 +225,6 @@ const ScreenActiveTime = () => {
       // Get current states
       const currentSessionStatus = sessionRef.current?.status;
       const isOnBreak = currentSessionStatus === 'on_break';
-      const isPageHidden = isPageHiddenRef.current;
 
       // Determine if we should count
       let secondsToAdd = 0;
@@ -246,13 +238,6 @@ const ScreenActiveTime = () => {
         // User is on break - DON'T count
         newStatus = 'on_break';
         secondsToAdd = 0;
-      } else if (isPageHidden) {
-        // Page is hidden (could be tab switch or lock/sleep)
-        // Keep showing "running" status - timer conceptually continues during tab switch
-        // We don't increment here because we'll add the time on visibility return
-        // This prevents double-counting
-        newStatus = 'running'; // Changed from 'screen_locked' - don't show Paused for tab switch
-        secondsToAdd = 0; // Will be added when page becomes visible again
       } else if (elapsedMs > LOCK_SLEEP_THRESHOLD_MS) {
         // Large gap detected (recovered from lock/sleep)
         // DON'T count the gap, just resume
@@ -260,7 +245,8 @@ const ScreenActiveTime = () => {
         secondsToAdd = 1;
         console.log(`Screen Active Time: Large gap (${elapsedSeconds}s) - resuming with 1s`);
       } else {
-        // Normal operation - screen is active, count time
+        // Normal operation - timer keeps running
+        // This includes when tab is switched - timer continues running
         newStatus = 'running';
         secondsToAdd = elapsedSeconds > 0 ? elapsedSeconds : 1;
       }
