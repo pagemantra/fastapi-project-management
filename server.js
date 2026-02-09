@@ -324,6 +324,23 @@ function formatSessionWithCalculatedHours(session) {
     overtimeHours = calculated.overtimeHours;
   }
 
+  // Calculate screen active time using the hybrid approach:
+  // screen_active = (end_time - login_time) - break_time - inactive_time
+  let screenActiveSeconds = session.screen_active_seconds || 0;
+  const inactiveSeconds = session.inactive_seconds || 0;
+
+  if (session.login_time) {
+    const endTime = session.logout_time || getNow();
+    const totalElapsedSeconds = Math.round((new Date(endTime) - new Date(session.login_time)) / 1000);
+    const breakSeconds = totalBreakMinutes * 60;
+
+    // Calculate based on elapsed time minus breaks and inactive time
+    const calculatedActive = Math.max(0, totalElapsedSeconds - breakSeconds - inactiveSeconds);
+
+    // Use the calculated value (more accurate than client-tracked)
+    screenActiveSeconds = calculatedActive;
+  }
+
   return {
     id: session._id.toString(),
     employee_id: session.employee_id,
@@ -338,8 +355,8 @@ function formatSessionWithCalculatedHours(session) {
     status: session.status,
     worksheet_submitted: session.worksheet_submitted || false,
     current_break_id: session.current_break_id,
-    screen_active_seconds: session.screen_active_seconds || 0,
-    inactive_seconds: session.inactive_seconds || 0,
+    screen_active_seconds: screenActiveSeconds,
+    inactive_seconds: inactiveSeconds,
     last_screen_active_update: session.last_screen_active_update,
     created_at: session.created_at,
     updated_at: session.updated_at
