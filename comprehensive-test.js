@@ -5,7 +5,7 @@ const BASE_URL = 'http://localhost:8000';
 // Test users
 const users = [
   { role: 'User/Associate', employee_id: 'JSAN313', password: 'JSAN313@456' },
-  { role: 'Admin', employee_id: 'JSAN252', password: 'JSAN252@456' },
+  { role: 'Admin', employee_id: 'JSAN202', password: 'JSAN202@456' },
   { role: 'Manager', employee_id: 'JSAN261', password: 'JSAN261@456' },
   { role: 'Team Lead', employee_id: 'JSAN267', password: 'JSAN267@456' }
 ];

@@ -252,21 +252,6 @@ const Attendance = () => {
       },
     },
     {
-      title: 'Screen Active Time',
-      key: 'screen_active_time',
-      render: (_, record) => {
-        const seconds = record.screen_active_seconds || 0;
-        if (!seconds || seconds === 0) return <Text type="secondary">-</Text>;
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        if (hours > 0) {
-          return <Text type="success">{hours}h {minutes}m</Text>;
-        }
-        return <Text type="success">{minutes} min</Text>;
-      },
-      sorter: (a, b) => (a.screen_active_seconds || 0) - (b.screen_active_seconds || 0),
-    },
-    {
       title: 'Overtime',
       dataIndex: 'overtime_hours',
       key: 'overtime_hours',

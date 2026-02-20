@@ -50,7 +50,7 @@ async function runEndToEndTests() {
   console.log('─'.repeat(60));
 
   await test('Admin: Login → Get Profile → Verify Data', async () => {
-    adminToken = await loginUser('JSAN252', 'JSAN252@456');
+    adminToken = await loginUser('JSAN202', 'JSAN202@456');
     adminHeaders = { Authorization: `Bearer ${adminToken}` };
     const profile = await axios.get(`${BASE_URL}/auth/me`, { headers: adminHeaders });
     if (!profile.data.employee_id || profile.data.role !== 'admin') {

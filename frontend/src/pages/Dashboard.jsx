@@ -12,7 +12,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { taskService, worksheetService, attendanceService, userService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
 import TimeTracker from '../components/TimeTracker';
-import ScreenActiveTime from '../components/ScreenActiveTime';
 
 const { Title } = Typography;
 
@@ -268,11 +267,6 @@ const Dashboard = () => {
               <Card><Statistic title="Logged In Today" value={teamStats.loggedInToday} suffix={`/ ${teamStats.teamMembers}`} prefix={<UserOutlined />} valueStyle={{ color: '#1890ff' }} /></Card>
             </Col>
           </>
-        )}
-        {(isEmployee() || isTeamLead() || isManager()) && (
-          <Col xs={24} sm={12} lg={6}>
-            <ScreenActiveTime />
-          </Col>
         )}
         <Col xs={24} sm={12} lg={6}>
           <Card><Statistic title="Total Tasks" value={stats.tasks?.total_tasks || 0} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#3f8600' }} /></Card>

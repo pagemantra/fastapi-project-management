@@ -1,19 +1,29 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Card, Button, Space, Typography, Tag, Statistic, Row, Col, Select, message, Modal, Input } from 'antd';
+import { Card, Button, Space, Typography, Tag, Statistic, Row, Col, Select, message, Modal, Input, Tooltip } from 'antd';
 import {
   PlayCircleOutlined,
-  PauseCircleOutlined,
   StopOutlined,
   CoffeeOutlined,
   ClockCircleOutlined,
+  HeartOutlined,
+  LockOutlined,
   DesktopOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../api/services';
 import dayjs from '../utils/dayjs';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
+
+// Heartbeat interval - 10 seconds
+const HEARTBEAT_INTERVAL = 10000;
+
+// Inactivity threshold - 40 seconds without mouse/keyboard activity
+const INACTIVITY_THRESHOLD = 40000;
+
+// Screen lock detection threshold - 30 seconds gap means locked/sleeping
+const SCREEN_LOCK_THRESHOLD = 30000;
 
 const TimeTracker = () => {
   const navigate = useNavigate();
@@ -25,69 +35,309 @@ const TimeTracker = () => {
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [breakComment, setBreakComment] = useState('');
   const [currentSystemTime, setCurrentSystemTime] = useState(dayjs());
-  const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
-  const screenActiveRef = useRef(0);
-  const lastUpdateRef = useRef(Date.now());
+  const [heartbeatActive, setHeartbeatActive] = useState(false);
+  const [isUserActive, setIsUserActive] = useState(true);
+  const [isScreenLocked, setIsScreenLocked] = useState(false);
+  const [idleState, setIdleState] = useState('active'); // 'active', 'idle', 'locked'
+
+  // Refs
+  const heartbeatIntervalRef = useRef(null);
+  const sessionRef = useRef(null);
+  const lastActivityRef = useRef(Date.now());
+  const lastHeartbeatTimeRef = useRef(Date.now());
+  const activityCheckIntervalRef = useRef(null);
+  const isUserActiveRef = useRef(true);
+  const wakeLockRef = useRef(null);
+  const idleDetectorRef = useRef(null);
+
+  // Keep refs in sync
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   useEffect(() => {
-    fetchCurrentSession();
+    isUserActiveRef.current = isUserActive;
+  }, [isUserActive]);
+
+  // Notify service worker about session state
+  const notifyServiceWorker = useCallback((type, data) => {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type, data });
+    }
   }, []);
 
-  // Screen active time tracking - track when page is visible and user is active
-  useEffect(() => {
-    if (!session || session.status !== 'active') {
+  // Request Wake Lock to prevent sleep during active work
+  const requestWakeLock = useCallback(async () => {
+    if (!('wakeLock' in navigator)) {
+      console.log('[WakeLock] Not supported');
       return;
     }
 
-    // Initialize from session
-    screenActiveRef.current = session.screen_active_seconds || 0;
-    setScreenActiveSeconds(screenActiveRef.current);
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen');
+      console.log('[WakeLock] Acquired - screen will stay awake');
 
-    let trackingInterval;
-    let syncInterval;
+      wakeLockRef.current.addEventListener('release', () => {
+        console.log('[WakeLock] Released');
+      });
+    } catch (error) {
+      console.error('[WakeLock] Failed to acquire:', error);
+    }
+  }, []);
 
-    const trackActiveTime = () => {
-      if (document.visibilityState === 'visible') {
-        screenActiveRef.current += 1;
-        setScreenActiveSeconds(screenActiveRef.current);
+  const releaseWakeLock = useCallback(() => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release();
+      wakeLockRef.current = null;
+    }
+  }, []);
+
+  // Initialize Idle Detection API (Chrome 94+)
+  useEffect(() => {
+    const initIdleDetector = async () => {
+      if (!('IdleDetector' in window)) {
+        console.log('[IdleDetector] Not supported, using fallback');
+        return;
       }
-    };
 
-    const syncToServer = async () => {
-      if (screenActiveRef.current > 0) {
-        try {
-          await attendanceService.updateScreenActiveTime({
-            screen_active_seconds: screenActiveRef.current
-          });
-        } catch (error) {
-          console.error('Failed to sync screen active time:', error);
+      try {
+        const permission = await IdleDetector.requestPermission();
+        if (permission !== 'granted') {
+          console.log('[IdleDetector] Permission denied');
+          return;
         }
+
+        idleDetectorRef.current = new IdleDetector();
+
+        idleDetectorRef.current.addEventListener('change', () => {
+          const { userState, screenState } = idleDetectorRef.current;
+          console.log('[IdleDetector] State changed:', { userState, screenState });
+
+          // screenState: 'locked' or 'unlocked'
+          // userState: 'active' or 'idle'
+          setIsScreenLocked(screenState === 'locked');
+          setIdleState(screenState === 'locked' ? 'locked' : userState);
+
+          if (screenState === 'locked') {
+            setIsUserActive(false);
+            console.log('[IdleDetector] Screen LOCKED - marking inactive');
+          } else if (userState === 'idle') {
+            setIsUserActive(false);
+            console.log('[IdleDetector] User IDLE');
+          } else {
+            lastActivityRef.current = Date.now();
+            setIsUserActive(true);
+          }
+        });
+
+        await idleDetectorRef.current.start({
+          threshold: 30000, // 30 seconds idle threshold
+        });
+        console.log('[IdleDetector] Started successfully');
+      } catch (error) {
+        console.error('[IdleDetector] Error:', error);
       }
     };
 
-    // Track every second when page is visible
-    trackingInterval = setInterval(trackActiveTime, 1000);
+    initIdleDetector();
 
-    // Sync to server every 30 seconds
-    syncInterval = setInterval(syncToServer, 30000);
+    return () => {
+      if (idleDetectorRef.current) {
+        idleDetectorRef.current.stop();
+        idleDetectorRef.current = null;
+      }
+    };
+  }, []);
 
-    // Sync when page becomes hidden (user switches tabs)
+  // Track user activity (mouse movement, keyboard, clicks, touch) - fallback when IdleDetector not available
+  useEffect(() => {
+    const updateActivity = () => {
+      lastActivityRef.current = Date.now();
+      if (!isUserActiveRef.current) {
+        setIsUserActive(true);
+        setIdleState('active');
+        console.log('[Activity] User became active');
+      }
+    };
+
+    // Track all user interactions
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel', 'click'];
+    events.forEach(event => {
+      document.addEventListener(event, updateActivity, { passive: true });
+    });
+
+    // Check for inactivity every 5 seconds (fallback when IdleDetector not available)
+    activityCheckIntervalRef.current = setInterval(() => {
+      const now = Date.now();
+      const timeSinceActivity = now - lastActivityRef.current;
+      const timeSinceHeartbeat = now - lastHeartbeatTimeRef.current;
+
+      // Detect potential screen lock (large gap since last heartbeat check)
+      if (timeSinceHeartbeat > SCREEN_LOCK_THRESHOLD && isUserActiveRef.current) {
+        setIsScreenLocked(true);
+        setIsUserActive(false);
+        setIdleState('locked');
+        console.log('[Activity] Possible screen lock detected (gap:', timeSinceHeartbeat, 'ms)');
+      } else if (timeSinceActivity > INACTIVITY_THRESHOLD && isUserActiveRef.current) {
+        setIsUserActive(false);
+        setIdleState('idle');
+        console.log('[Activity] User became INACTIVE (no activity for 40s)');
+      }
+
+      lastHeartbeatTimeRef.current = now;
+    }, 5000);
+
+    return () => {
+      events.forEach(event => {
+        document.removeEventListener(event, updateActivity);
+      });
+      if (activityCheckIntervalRef.current) {
+        clearInterval(activityCheckIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Send heartbeat to server
+  const sendHeartbeat = useCallback(async (forceActive = false) => {
+    const currentSession = sessionRef.current;
+    if (!currentSession || currentSession.status !== 'active') {
+      return;
+    }
+
+    // Determine if user is truly active
+    const userActive = forceActive || (isUserActiveRef.current && !isScreenLocked);
+
+    try {
+      await attendanceService.sendHeartbeat({
+        timestamp: new Date().toISOString(),
+        is_active: userActive,
+        idle_state: idleState,
+        screen_locked: isScreenLocked
+      });
+      setHeartbeatActive(userActive);
+      console.log('[Heartbeat] Sent at', new Date().toLocaleTimeString(), '- Active:', userActive, '- State:', idleState);
+    } catch (error) {
+      console.error('[Heartbeat] Failed:', error);
+      setHeartbeatActive(false);
+    }
+  }, [idleState, isScreenLocked]);
+
+  // Heartbeat management
+  useEffect(() => {
+    if (session && session.status === 'active') {
+      // Start heartbeat
+      console.log('[Heartbeat] Starting with activity tracking...');
+      sendHeartbeat(true); // Initial heartbeat (force active)
+
+      // Notify service worker
+      const token = localStorage.getItem('token');
+      if (token) {
+        notifyServiceWorker('SET_AUTH_TOKEN', { token });
+        notifyServiceWorker('SET_SESSION_ACTIVE', { active: true });
+      }
+
+      // Request wake lock
+      requestWakeLock();
+
+      heartbeatIntervalRef.current = setInterval(() => {
+        sendHeartbeat();
+      }, HEARTBEAT_INTERVAL);
+
+      return () => {
+        if (heartbeatIntervalRef.current) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+        releaseWakeLock();
+      };
+    } else {
+      // Stop heartbeat
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      setHeartbeatActive(false);
+      notifyServiceWorker('SET_SESSION_ACTIVE', { active: false });
+      releaseWakeLock();
+    }
+  }, [session?.status, sendHeartbeat, notifyServiceWorker, requestWakeLock, releaseWakeLock]);
+
+  // Send heartbeat on visibility change (when app comes back to focus)
+  useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        syncToServer();
+      if (!document.hidden && sessionRef.current?.status === 'active') {
+        // Reset activity when app becomes visible
+        lastActivityRef.current = Date.now();
+        setIsUserActive(true);
+        setIsScreenLocked(false);
+        setIdleState('active');
+        sendHeartbeat(true);
+
+        // Re-acquire wake lock (may have been released)
+        requestWakeLock();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Sync on unmount
     return () => {
-      clearInterval(trackingInterval);
-      clearInterval(syncInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      syncToServer();
     };
-  }, [session?.status, session?.screen_active_seconds]);
+  }, [sendHeartbeat, requestWakeLock]);
+
+  // Handle app focus/blur
+  useEffect(() => {
+    const handleFocus = () => {
+      if (sessionRef.current?.status === 'active') {
+        lastActivityRef.current = Date.now();
+        setIsUserActive(true);
+        setIsScreenLocked(false);
+        console.log('[Focus] App regained focus');
+      }
+    };
+
+    const handleBlur = () => {
+      // App lost focus - but this is NOT the same as screen lock
+      // User might be using another app
+      console.log('[Focus] App lost focus (minimized or switched)');
+    };
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
+  // Send final heartbeat on page unload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (sessionRef.current?.status === 'active') {
+        const token = localStorage.getItem('token');
+        if (token) {
+          const data = JSON.stringify({
+            timestamp: new Date().toISOString(),
+            is_active: false,
+            is_closing: true
+          });
+          navigator.sendBeacon(
+            '/api/attendance/heartbeat',
+            new Blob([data], { type: 'application/json' })
+          );
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
+  useEffect(() => {
+    fetchCurrentSession();
+  }, []);
 
   useEffect(() => {
     let interval;
@@ -166,6 +416,8 @@ const TimeTracker = () => {
     try {
       const response = await attendanceService.clockOut({});
       setSession(response.data);
+      // Clear service worker session
+      notifyServiceWorker('CLEAR_SESSION', {});
       message.success('Clocked out successfully!');
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to clock out');
@@ -239,6 +491,34 @@ const TimeTracker = () => {
     return <Tag color={colors[session.status]}>{(session.status || '').replace('_', ' ').toUpperCase()}</Tag>;
   };
 
+  const getActivityTag = () => {
+    if (isScreenLocked) {
+      return (
+        <Tooltip title="Screen is locked - session paused">
+          <Tag color="red" icon={<LockOutlined />}>
+            Screen Locked
+          </Tag>
+        </Tooltip>
+      );
+    }
+    if (!isUserActive) {
+      return (
+        <Tooltip title="No mouse/keyboard activity for 40+ seconds">
+          <Tag color="orange" icon={<HeartOutlined />}>
+            Idle
+          </Tag>
+        </Tooltip>
+      );
+    }
+    return (
+      <Tooltip title="Activity detected - heartbeat active">
+        <Tag color="green" icon={<HeartOutlined />}>
+          Active
+        </Tag>
+      </Tooltip>
+    );
+  };
+
   const breakOptions = [
     { value: 'short_break', label: 'Short Break' },
     { value: 'lunch_break', label: 'Lunch Break' },
@@ -285,20 +565,6 @@ const TimeTracker = () => {
               return `${totalMins} min`;
             })()}
             prefix={<CoffeeOutlined />}
-          />
-        </Col>
-        <Col xs={24} md={6}>
-          <Statistic
-            title="Screen Active"
-            value={(() => {
-              const secs = screenActiveSeconds || 0;
-              const hrs = Math.floor(secs / 3600);
-              const mins = Math.floor((secs % 3600) / 60);
-              if (hrs > 0) return `${hrs}h ${mins}m`;
-              return `${mins} min`;
-            })()}
-            prefix={<DesktopOutlined />}
-            styles={{ value: { color: '#52c41a' } }}
           />
         </Col>
         <Col xs={24} md={6}>
@@ -370,6 +636,11 @@ const TimeTracker = () => {
             </Text>
             {session.worksheet_submitted && (
               <Tag color="green" style={{ marginLeft: 8 }}>Worksheet Submitted</Tag>
+            )}
+            {session.status === 'active' && (
+              <span style={{ marginLeft: 8 }}>
+                {getActivityTag()}
+              </span>
             )}
           </>
         )}

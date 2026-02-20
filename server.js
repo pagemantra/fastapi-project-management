@@ -2109,8 +2109,11 @@ app.post('/attendance/clock-in', authenticate, async (req, res) => {
       worksheet_submitted: false,
       current_break_id: null,
       screen_active_seconds: 0,
-      inactive_seconds: 0, // Time lost to lock/sleep (detected by client)
+      inactive_seconds: 0, // Time lost to lock/sleep (detected via heartbeat gaps)
       last_screen_active_update: now,
+      // Heartbeat tracking for PWA
+      last_heartbeat: now,
+      total_heartbeats: 0,
       created_at: now,
       updated_at: now
     };
@@ -2427,6 +2430,92 @@ app.post('/attendance/inactive-time', authenticate, async (req, res) => {
     res.json({ success: true, inactive_seconds: newInactiveSeconds });
   } catch (error) {
     console.error('Update inactive time error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// POST /attendance/heartbeat - Receive heartbeat from PWA for screen time tracking
+// Heartbeats are expected every 10 seconds
+// is_active: true = user has mouse/keyboard activity, false = idle (no activity for 40s+)
+// Gap detection: If no heartbeat for > 30 seconds, that time is considered inactive (lock/sleep)
+const HEARTBEAT_GAP_THRESHOLD_SECONDS = 30;
+
+app.post('/attendance/heartbeat', authenticate, async (req, res) => {
+  try {
+    const { timestamp, is_active, is_closing } = req.body;
+    const db = getDatabase();
+    const userId = req.user._id.toString();
+    const today = moment.tz(IST).format('YYYY-MM-DD');
+    const now = getNow();
+
+    const session = await db.collection('time_sessions').findOne({
+      employee_id: userId,
+      date: today,
+      status: { $in: [SessionStatus.ACTIVE, SessionStatus.ON_BREAK] }
+    });
+
+    if (!session) {
+      return res.status(400).json({ detail: 'No active session found' });
+    }
+
+    // Get the last heartbeat time
+    const lastHeartbeat = session.last_heartbeat || session.login_time;
+    const lastHeartbeatTime = new Date(lastHeartbeat).getTime();
+    const currentTime = now.getTime();
+    const gapSeconds = Math.floor((currentTime - lastHeartbeatTime) / 1000);
+
+    // Initialize heartbeat tracking fields if not present
+    let totalHeartbeats = session.total_heartbeats || 0;
+    let screenActiveSeconds = session.screen_active_seconds || 0;
+    let inactiveSeconds = session.inactive_seconds || 0;
+
+    // Determine if time should be counted as active or inactive
+    const userIsActive = is_active !== false; // Default to true if not specified
+
+    // Check for large gap (lock/sleep/app was closed)
+    if (gapSeconds > HEARTBEAT_GAP_THRESHOLD_SECONDS) {
+      // Large gap = device was locked/sleeping/app closed - add ALL gap time as inactive
+      inactiveSeconds += gapSeconds;
+      console.log(`[Heartbeat] LOCK/SLEEP gap for ${userId}: ${gapSeconds}s added to inactive`);
+    } else if (gapSeconds > 0 && session.status === 'active') {
+      // Normal heartbeat interval
+      if (userIsActive) {
+        // User has mouse/keyboard activity - count as screen active time
+        screenActiveSeconds += gapSeconds;
+      } else {
+        // User is idle (no mouse movement for 40s+) - count as inactive
+        inactiveSeconds += gapSeconds;
+        console.log(`[Heartbeat] IDLE (no cursor) for ${userId}: ${gapSeconds}s added to inactive`);
+      }
+    }
+
+    totalHeartbeats += 1;
+
+    // Update session with heartbeat data
+    await db.collection('time_sessions').updateOne(
+      { _id: session._id },
+      {
+        $set: {
+          last_heartbeat: now,
+          total_heartbeats: totalHeartbeats,
+          screen_active_seconds: screenActiveSeconds,
+          inactive_seconds: inactiveSeconds,
+          last_user_active: userIsActive,
+          updated_at: now
+        }
+      }
+    );
+
+    res.json({
+      success: true,
+      heartbeat_count: totalHeartbeats,
+      screen_active_seconds: screenActiveSeconds,
+      inactive_seconds: inactiveSeconds,
+      is_user_active: userIsActive,
+      gap_detected: gapSeconds > HEARTBEAT_GAP_THRESHOLD_SECONDS
+    });
+  } catch (error) {
+    console.error('Heartbeat error:', error);
     res.status(500).json({ detail: error.message });
   }
 });

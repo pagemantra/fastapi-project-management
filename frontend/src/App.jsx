@@ -3,6 +3,7 @@ import { ConfigProvider } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import MainLayout from './layouts/MainLayout';
+import PWAEnforcement from './components/PWAEnforcement';
 
 // Auth pages
 import Login from './pages/auth/Login';
@@ -30,40 +31,42 @@ function App() {
         },
       }}
     >
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/login" element={<Login />} />
+      <PWAEnforcement>
+        <AuthProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<Login />} />
 
-            {/* Protected routes with layout */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <MainLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="attendance" element={<Attendance />} />
-              <Route path="tasks" element={<Tasks />} />
-              <Route path="worksheets" element={<Worksheets />} />
-              <Route path="forms" element={<Forms />} />
-              <Route path="teams" element={<Teams />} />
-              <Route path="users" element={<Users />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="notifications" element={<Notifications />} />
-              <Route path="profile" element={<Profile />} />
-              <Route path="my-team" element={<MyTeam />} />
-            </Route>
+              {/* Protected routes with layout */}
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <MainLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="attendance" element={<Attendance />} />
+                <Route path="tasks" element={<Tasks />} />
+                <Route path="worksheets" element={<Worksheets />} />
+                <Route path="forms" element={<Forms />} />
+                <Route path="teams" element={<Teams />} />
+                <Route path="users" element={<Users />} />
+                <Route path="reports" element={<Reports />} />
+                <Route path="notifications" element={<Notifications />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="my-team" element={<MyTeam />} />
+              </Route>
 
-            {/* Fallback route */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
+              {/* Fallback route */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
+      </PWAEnforcement>
     </ConfigProvider>
   );
 }

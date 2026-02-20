@@ -27,7 +27,13 @@
       "Bash(npx kill-port:*)",
       "Bash(timeout /t 5 /nobreak)",
       "Bash(node fix-worksheet-forms.js:*)",
-      "Bash(node reset-password.js:*)"
+      "Bash(node reset-password.js:*)",
+      "Bash(npx vite build)",
+      "Bash(npm install:*)",
+      "Bash(node run-all-tests.js:*)",
+      "Bash(node server.js:*)",
+      "Bash(timeout /t 3 /nobreak)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []
