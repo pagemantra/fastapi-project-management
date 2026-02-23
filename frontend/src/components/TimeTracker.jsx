@@ -92,24 +92,33 @@ const TimeTracker = () => {
     }
   }, []);
 
-  // Initialize Idle Detection API (Chrome 94+)
+  // Initialize Idle Detection API (Chrome 94+) - only when session is active
   useEffect(() => {
+    // Only initialize when we have an active session
+    if (!session || session.status !== 'active') {
+      return;
+    }
+
     const initIdleDetector = async () => {
-      if (!('IdleDetector' in window)) {
+      // Check if IdleDetector is available
+      if (typeof window === 'undefined' || !('IdleDetector' in window)) {
         console.log('[IdleDetector] Not supported, using fallback');
         return;
       }
 
       try {
+        // Request permission - this may throw or return 'denied'
         const permission = await IdleDetector.requestPermission();
         if (permission !== 'granted') {
-          console.log('[IdleDetector] Permission denied');
+          console.log('[IdleDetector] Permission denied, using fallback');
           return;
         }
 
         idleDetectorRef.current = new IdleDetector();
 
         idleDetectorRef.current.addEventListener('change', () => {
+          if (!idleDetectorRef.current) return;
+
           const { userState, screenState } = idleDetectorRef.current;
           console.log('[IdleDetector] State changed:', { userState, screenState });
 
@@ -135,7 +144,8 @@ const TimeTracker = () => {
         });
         console.log('[IdleDetector] Started successfully');
       } catch (error) {
-        console.error('[IdleDetector] Error:', error);
+        // Don't crash on IdleDetector errors - fallback is fine
+        console.log('[IdleDetector] Not available, using fallback:', error.message);
       }
     };
 
@@ -143,11 +153,15 @@ const TimeTracker = () => {
 
     return () => {
       if (idleDetectorRef.current) {
-        idleDetectorRef.current.stop();
+        try {
+          idleDetectorRef.current.stop();
+        } catch (e) {
+          // Ignore errors when stopping
+        }
         idleDetectorRef.current = null;
       }
     };
-  }, []);
+  }, [session?.status]);
 
   // Track user activity (mouse movement, keyboard, clicks, touch) - fallback when IdleDetector not available
   useEffect(() => {
@@ -217,8 +231,11 @@ const TimeTracker = () => {
       setHeartbeatActive(userActive);
       console.log('[Heartbeat] Sent at', new Date().toLocaleTimeString(), '- Active:', userActive, '- State:', idleState);
     } catch (error) {
-      console.error('[Heartbeat] Failed:', error);
+      // Silently handle heartbeat failures - don't crash the app
+      // This could happen if session expired or network issues
+      console.log('[Heartbeat] Failed (will retry):', error.message || 'Network error');
       setHeartbeatActive(false);
+      // Don't throw - just continue, next heartbeat will try again
     }
   }, [idleState, isScreenLocked]);
 
@@ -342,35 +359,64 @@ const TimeTracker = () => {
   useEffect(() => {
     let interval;
     if (session && (session.status === 'active' || session.status === 'on_break')) {
-      interval = setInterval(() => {
-        const loginTime = dayjs.utc(session.login_time).tz('Asia/Kolkata');
-        const now = dayjs.tz(new Date(), 'Asia/Kolkata');
-        const totalSeconds = now.diff(loginTime, 'second');
+      // Calculate elapsed time immediately, then update every second
+      const calculateElapsedTime = () => {
+        try {
+          // Parse login time - handle both UTC and local formats
+          let loginTime;
+          if (session.login_time) {
+            // Try parsing as UTC first, then as local
+            loginTime = dayjs.utc(session.login_time).isValid()
+              ? dayjs.utc(session.login_time).tz('Asia/Kolkata')
+              : dayjs(session.login_time).tz('Asia/Kolkata');
+          } else {
+            setElapsedTime(0);
+            return;
+          }
 
-        // Calculate break seconds including any ongoing break
-        let breakSeconds = 0;
-        if (session.breaks && session.breaks.length > 0) {
-          session.breaks.forEach(b => {
-            if (b.duration_minutes) {
-              breakSeconds += b.duration_minutes * 60;
-            } else if (b.start_time && !b.end_time) {
-              // Ongoing break - calculate duration in seconds
-              const breakStart = dayjs.tz(b.start_time, 'Asia/Kolkata');
-              breakSeconds += Math.max(0, now.diff(breakStart, 'second'));
-            }
-          });
+          const now = dayjs().tz('Asia/Kolkata');
+          const totalSeconds = now.diff(loginTime, 'second');
+
+          // Calculate break seconds including any ongoing break
+          let breakSeconds = 0;
+          if (session.breaks && Array.isArray(session.breaks) && session.breaks.length > 0) {
+            session.breaks.forEach(b => {
+              if (b.duration_minutes && typeof b.duration_minutes === 'number') {
+                breakSeconds += Math.round(b.duration_minutes * 60);
+              } else if (b.start_time && !b.end_time) {
+                // Ongoing break - calculate duration in seconds
+                const breakStart = dayjs.utc(b.start_time).isValid()
+                  ? dayjs.utc(b.start_time).tz('Asia/Kolkata')
+                  : dayjs(b.start_time).tz('Asia/Kolkata');
+                breakSeconds += Math.max(0, now.diff(breakStart, 'second'));
+              }
+            });
+          }
+
+          const elapsed = Math.max(0, totalSeconds - breakSeconds);
+          setElapsedTime(elapsed);
+          setCurrentSystemTime(now);
+        } catch (error) {
+          console.error('[TimeTracker] Error calculating elapsed time:', error);
+          setElapsedTime(0);
         }
+      };
 
-        setElapsedTime(Math.max(0, totalSeconds - breakSeconds));
-        setCurrentSystemTime(now);
-      }, 1000);
+      // Calculate immediately
+      calculateElapsedTime();
+
+      // Then update every second
+      interval = setInterval(calculateElapsedTime, 1000);
     } else {
       // Update system time every second even when not clocked in
+      setElapsedTime(0);
       interval = setInterval(() => {
-        setCurrentSystemTime(dayjs.tz(new Date(), 'Asia/Kolkata'));
+        setCurrentSystemTime(dayjs().tz('Asia/Kolkata'));
       }, 1000);
     }
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [session]);
 
   const fetchCurrentSession = async () => {
@@ -554,15 +600,21 @@ const TimeTracker = () => {
               if (!session) return '0 min';
               let totalMins = session.total_break_minutes || 0;
               // Add ongoing break time if on break
-              if (session.status === 'on_break' && session.breaks) {
+              if (session.status === 'on_break' && session.breaks && Array.isArray(session.breaks)) {
                 const ongoingBreak = session.breaks.find(b => b.start_time && !b.end_time);
                 if (ongoingBreak) {
-                  const breakStart = dayjs.tz(ongoingBreak.start_time, 'Asia/Kolkata');
-                  const now = dayjs.tz(new Date(), 'Asia/Kolkata');
-                  totalMins += Math.max(0, now.diff(breakStart, 'minute'));
+                  try {
+                    const breakStart = dayjs.utc(ongoingBreak.start_time).isValid()
+                      ? dayjs.utc(ongoingBreak.start_time).tz('Asia/Kolkata')
+                      : dayjs(ongoingBreak.start_time).tz('Asia/Kolkata');
+                    const now = dayjs().tz('Asia/Kolkata');
+                    totalMins += Math.max(0, now.diff(breakStart, 'minute'));
+                  } catch (e) {
+                    console.error('[TimeTracker] Error calculating break time:', e);
+                  }
                 }
               }
-              return `${totalMins} min`;
+              return `${Math.round(totalMins)} min`;
             })()}
             prefix={<CoffeeOutlined />}
           />

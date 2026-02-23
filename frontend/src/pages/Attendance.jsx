@@ -252,6 +252,36 @@ const Attendance = () => {
       },
     },
     {
+      title: 'Screen Active',
+      dataIndex: 'screen_active_seconds',
+      key: 'screen_active_seconds',
+      render: (seconds) => {
+        if (!seconds && seconds !== 0) return '-';
+        const hours = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        return (
+          <Text type="success">
+            {hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}
+          </Text>
+        );
+      },
+    },
+    {
+      title: 'Inactive Time',
+      dataIndex: 'inactive_seconds',
+      key: 'inactive_seconds',
+      render: (seconds) => {
+        if (!seconds && seconds !== 0) return '-';
+        const hours = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        return (
+          <Text type={seconds > 0 ? 'warning' : 'secondary'}>
+            {hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}
+          </Text>
+        );
+      },
+    },
+    {
       title: 'Overtime',
       dataIndex: 'overtime_hours',
       key: 'overtime_hours',

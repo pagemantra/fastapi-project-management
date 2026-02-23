@@ -358,6 +358,9 @@ function formatSessionWithCalculatedHours(session) {
     screen_active_seconds: screenActiveSeconds,
     inactive_seconds: inactiveSeconds,
     last_screen_active_update: session.last_screen_active_update,
+    // Heartbeat tracking
+    last_heartbeat: session.last_heartbeat || null,
+    total_heartbeats: session.total_heartbeats || 0,
     created_at: session.created_at,
     updated_at: session.updated_at
   };

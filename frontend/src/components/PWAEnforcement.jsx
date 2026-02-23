@@ -23,6 +23,20 @@ const PWAEnforcement = ({ children }) => {
   useEffect(() => {
     // Check if running as PWA (standalone mode)
     const checkPWAMode = () => {
+      // Check if we've already verified PWA mode in this session
+      const cachedPWAMode = sessionStorage.getItem('isPWA');
+      if (cachedPWAMode === 'true') {
+        console.log('[PWA] Using cached PWA mode: true');
+        setIsPWA(true);
+
+        // Check if user just installed (show auto-start guide)
+        if (localStorage.getItem('pwa_just_installed')) {
+          setShowAutoStartGuide(true);
+          localStorage.removeItem('pwa_just_installed');
+        }
+        return;
+      }
+
       const isStandalone =
         window.matchMedia('(display-mode: standalone)').matches ||
         window.navigator.standalone === true ||
@@ -30,6 +44,12 @@ const PWAEnforcement = ({ children }) => {
         window.location.search.includes('source=pwa');
 
       console.log('[PWA] Standalone mode:', isStandalone);
+
+      // Cache the result in sessionStorage so navigation doesn't break it
+      if (isStandalone) {
+        sessionStorage.setItem('isPWA', 'true');
+      }
+
       setIsPWA(isStandalone);
 
       // Check if user just installed (show auto-start guide)

@@ -53,15 +53,19 @@ api.interceptors.response.use(
         break;
       case 401:
         // Unauthorized - clear tokens and let ProtectedRoute handle redirect
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        // Only show message and redirect if not already on login page
-        if (!window.location.pathname.includes('/login')) {
-          message.error('Session expired - please login again');
-          // Use a small delay to ensure message is shown before redirect
-          setTimeout(() => {
-            window.location.href = '/login';
-          }, 100);
+        // BUT: Don't redirect for heartbeat requests - just silently fail
+        const isHeartbeat = error.config?.url?.includes('/heartbeat');
+        if (!isHeartbeat) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          // Only show message and redirect if not already on login page
+          if (!window.location.pathname.includes('/login')) {
+            message.error('Session expired - please login again');
+            // Use a small delay to ensure message is shown before redirect
+            setTimeout(() => {
+              window.location.href = '/login';
+            }, 100);
+          }
         }
         break;
       case 403:
