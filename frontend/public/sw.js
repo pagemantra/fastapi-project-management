@@ -213,10 +213,17 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
-          });
+          // Only cache successful responses
+          if (response && response.ok && response.status === 200) {
+            try {
+              const responseClone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(request, responseClone);
+              }).catch(() => {});
+            } catch (e) {
+              // Response can't be cloned, skip caching
+            }
+          }
           return response;
         })
         .catch(() => {
@@ -234,9 +241,18 @@ self.addEventListener('fetch', (event) => {
     caches.match(request)
       .then((cachedResponse) => {
         const fetchPromise = fetch(request).then((response) => {
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, response.clone());
-          });
+          // Only cache successful responses that can be cloned
+          if (response && response.ok && response.status === 200) {
+            try {
+              const responseClone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(request, responseClone);
+              }).catch(() => {});
+            } catch (e) {
+              // Response can't be cloned, skip caching
+              console.log('[SW] Could not clone response for caching');
+            }
+          }
           return response;
         }).catch(() => cachedResponse);
 

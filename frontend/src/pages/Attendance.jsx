@@ -45,6 +45,8 @@ const Attendance = () => {
   }, [user]);
 
   const fetchHistory = useCallback(async (showLoading = false) => {
+    // Guard against null dateRange
+    if (!dateRange || !dateRange[0] || !dateRange[1]) return;
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
@@ -84,6 +86,8 @@ const Attendance = () => {
 
   useEffect(() => {
     if (!user) return;
+    // Guard against null dateRange
+    if (!dateRange || !dateRange[0] || !dateRange[1]) return;
 
     const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
     const sameUser = attendanceCache.userId === user.id;
@@ -332,7 +336,14 @@ const Attendance = () => {
               <Text>Date Range:</Text>
               <RangePicker
                 value={dateRange}
-                onChange={setDateRange}
+                onChange={(dates) => {
+                  // Reset to default if cleared, otherwise use selected dates
+                  if (!dates || !dates[0] || !dates[1]) {
+                    setDateRange([dayjs().subtract(7, 'day'), dayjs()]);
+                  } else {
+                    setDateRange(dates);
+                  }
+                }}
               />
             </Space>
           </Col>
