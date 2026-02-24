@@ -36,7 +36,7 @@ const Reports = () => {
   const [selectedProjectMember, setSelectedProjectMember] = useState({});
   const [initialLoading, setInitialLoading] = useState(true);
   const fetchingRef = useRef({});
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
 
   const getParams = useCallback(() => ({
     start_date: dateRange[0].format('YYYY-MM-DD'),
@@ -138,22 +138,24 @@ const Reports = () => {
 
   // Reset state when user changes
   useEffect(() => {
+    // Clear all state when user/dataVersion changes
+    setProductivityData([]);
+    setAttendanceData([]);
+    setOvertimeData([]);
+    setWorksheetAnalytics(null);
+    setTeamPerformance([]);
+    setProjectsData([]);
+    setManagerMembers({ managers: [], data: [] });
+    setInitialLoading(true);
+    fetchingRef.current = {};
+
     if (!user) {
-      setProductivityData([]);
-      setAttendanceData([]);
-      setOvertimeData([]);
-      setWorksheetAnalytics(null);
-      setTeamPerformance([]);
-      setProjectsData([]);
-      setManagerMembers({ managers: [], data: [] });
-      setInitialLoading(true);
-      fetchingRef.current = {};
       return;
     }
 
     // Fetch data when user is available
     fetchAllDataBackground();
-  }, [user, fetchAllDataBackground]);
+  }, [user?.id, dataVersion, fetchAllDataBackground]);
 
   // Fetch projects data when projectsDateRange changes (defaults to today)
   useEffect(() => {

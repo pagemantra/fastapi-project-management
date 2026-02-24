@@ -36,7 +36,7 @@ const Forms = () => {
   const [editingForm, setEditingForm] = useState(null);
   const [fields, setFields] = useState([]);
   const [form] = Form.useForm();
-  const { user, isAdmin, isManager } = useAuth();
+  const { user, isAdmin, isManager, dataVersion } = useAuth();
 
   const fetchForms = useCallback(async () => {
     try {
@@ -62,16 +62,18 @@ const Forms = () => {
   }, []);
 
   useEffect(() => {
+    // Clear state when user changes
+    setForms([]);
+    setTeams([]);
+
     if (!user) {
-      setForms([]);
-      setTeams([]);
       setLoading(false);
       return;
     }
 
     fetchForms();
     fetchTeams();
-  }, [user, fetchForms, fetchTeams]);
+  }, [user?.id, dataVersion, fetchForms, fetchTeams]);
 
   const handleCreate = () => {
     setEditingForm(null);

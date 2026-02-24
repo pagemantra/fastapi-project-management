@@ -18,7 +18,7 @@ const Users = () => {
   const [managers, setManagers] = useState([]);
   const [teamLeads, setTeamLeads] = useState([]);
   const [form] = Form.useForm();
-  const { user: currentUser, isAdmin, isManager } = useAuth();
+  const { user: currentUser, isAdmin, isManager, dataVersion } = useAuth();
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -56,10 +56,12 @@ const Users = () => {
   }, []);
 
   useEffect(() => {
+    // Clear state when user changes
+    setUsers([]);
+    setManagers([]);
+    setTeamLeads([]);
+
     if (!currentUser) {
-      setUsers([]);
-      setManagers([]);
-      setTeamLeads([]);
       setLoading(false);
       return;
     }
@@ -67,7 +69,7 @@ const Users = () => {
     fetchUsers();
     fetchManagers();
     fetchTeamLeads();
-  }, [currentUser, fetchUsers, fetchManagers, fetchTeamLeads]);
+  }, [currentUser?.id, dataVersion, fetchUsers, fetchManagers, fetchTeamLeads]);
 
   const handleCreate = () => {
     setEditingUser(null);

@@ -22,7 +22,7 @@ const Teams = () => {
   const [employees, setEmployees] = useState([]);
   const [form] = Form.useForm();
   const [memberForm] = Form.useForm();
-  const { user, isAdmin, isManager } = useAuth();
+  const { user, isAdmin, isManager, dataVersion } = useAuth();
 
   const fetchTeams = useCallback(async () => {
     if (!user) return;
@@ -71,12 +71,18 @@ const Teams = () => {
   }, []);
 
   useEffect(() => {
+    // Clear state when user changes
+    setTeams([]);
+    setManagers([]);
+    setTeamLeads([]);
+    setEmployees([]);
+
     if (!user) return;
     fetchTeams();
     fetchManagers();
     fetchTeamLeads();
     fetchEmployees();
-  }, [user, fetchTeams, fetchManagers, fetchTeamLeads, fetchEmployees]);
+  }, [user?.id, dataVersion, fetchTeams, fetchManagers, fetchTeamLeads, fetchEmployees]);
 
   const handleCreate = () => {
     setEditingTeam(null);

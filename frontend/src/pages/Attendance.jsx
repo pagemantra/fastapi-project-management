@@ -18,7 +18,7 @@ const Attendance = () => {
   const [breakSettings, setBreakSettings] = useState(null);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [form] = Form.useForm();
-  const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
+  const { user, isAdmin, isManager, isTeamLead, isEmployee, dataVersion } = useAuth();
 
   const fetchHistory = useCallback(async () => {
     if (!dateRange || !dateRange[0] || !dateRange[1]) return;
@@ -50,6 +50,10 @@ const Attendance = () => {
   }, []);
 
   useEffect(() => {
+    // Clear state when user changes
+    setHistory([]);
+    setTeams([]);
+
     if (!user) return;
     if (!dateRange || !dateRange[0] || !dateRange[1]) return;
 
@@ -57,7 +61,7 @@ const Attendance = () => {
     if (isAdmin() || isManager()) {
       fetchTeams();
     }
-  }, [user, dateRange, fetchHistory, fetchTeams, isAdmin, isManager]);
+  }, [user?.id, dataVersion, dateRange, fetchHistory, fetchTeams, isAdmin, isManager]);
 
   const fetchBreakSettings = async (teamId) => {
     try {

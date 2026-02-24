@@ -15,6 +15,8 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Data version increments on login/logout to force components to refetch
+  const [dataVersion, setDataVersion] = useState(0);
 
   const checkAuth = async () => {
     const token = localStorage.getItem('token');
@@ -47,6 +49,8 @@ export const AuthProvider = ({ children }) => {
       const userResponse = await authService.getMe();
       setUser(userResponse.data);
       localStorage.setItem('user', JSON.stringify(userResponse.data));
+      // Increment data version to force all components to refetch
+      setDataVersion(v => v + 1);
 
       message.success('Login successful!');
       return userResponse.data;
@@ -60,6 +64,8 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    // Increment data version to invalidate all cached component data
+    setDataVersion(v => v + 1);
     message.success('Logged out successfully');
   };
 
@@ -88,6 +94,7 @@ export const AuthProvider = ({ children }) => {
     isEmployee,
     hasRole,
     checkAuth,
+    dataVersion, // Used by components to know when to refetch data
   };
 
   if (loading) {

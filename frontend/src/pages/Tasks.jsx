@@ -19,7 +19,7 @@ const Tasks = () => {
   const [editingTask, setEditingTask] = useState(null);
   const [employees, setEmployees] = useState([]);
   const [form] = Form.useForm();
-  const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
+  const { user, isAdmin, isManager, isTeamLead, isEmployee, dataVersion } = useAuth();
 
   const fetchTasks = useCallback(async () => {
     if (!user) return;
@@ -48,13 +48,17 @@ const Tasks = () => {
   }, []);
 
   useEffect(() => {
+    // Clear state when user changes
+    setTasks([]);
+    setEmployees([]);
+
     if (!user) return;
 
     fetchTasks();
     if (!isEmployee()) {
       fetchEmployees();
     }
-  }, [user, fetchTasks, fetchEmployees, isEmployee]);
+  }, [user?.id, dataVersion, fetchTasks, fetchEmployees, isEmployee]);
 
   const handleCreate = () => {
     setEditingTask(null);

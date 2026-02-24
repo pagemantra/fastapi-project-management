@@ -20,7 +20,7 @@ const MyTeam = () => {
   const [pendingWorksheets, setPendingWorksheets] = useState([]);
   const [teamAttendance, setTeamAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const navigate = useNavigate();
 
   const fetchTeamData = useCallback(async () => {
@@ -55,8 +55,14 @@ const MyTeam = () => {
   }, [user]);
 
   useEffect(() => {
+    // Clear state when user changes
+    setTeamMembers([]);
+    setTeamTasks([]);
+    setPendingWorksheets([]);
+    setTeamAttendance([]);
+
     if (user) fetchTeamData();
-  }, [user, fetchTeamData]);
+  }, [user?.id, dataVersion, fetchTeamData]);
 
   const memberColumns = [
     {

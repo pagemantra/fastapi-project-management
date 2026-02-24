@@ -16,7 +16,7 @@ import TimeTracker from '../components/TimeTracker';
 const { Title } = Typography;
 
 const Dashboard = () => {
-  const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
+  const { user, isAdmin, isManager, isTeamLead, isEmployee, dataVersion } = useAuth();
   const [stats, setStats] = useState({});
   const [recentTasks, setRecentTasks] = useState([]);
   const [pendingWorksheets, setPendingWorksheets] = useState([]);
@@ -127,12 +127,18 @@ const Dashboard = () => {
     }
   }, [user, isAdmin, isManager, isTeamLead, isEmployee]);
 
-  // Fetch fresh data when user changes or component mounts
+  // Reset state and fetch fresh data when user changes
   useEffect(() => {
+    // Clear old data immediately when user/dataVersion changes
+    setStats({});
+    setRecentTasks([]);
+    setPendingWorksheets([]);
+    setTeamStats({ teamMembers: 0, loggedInToday: 0 });
+
     if (user) {
       fetchDashboardData();
     }
-  }, [user, fetchDashboardData]);
+  }, [user?.id, dataVersion, fetchDashboardData]);
 
   const taskColumns = [
     { title: 'Title', dataIndex: 'title', key: 'title' },

@@ -28,7 +28,7 @@ const SCREEN_LOCK_THRESHOLD = 30000;
 
 const TimeTracker = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, dataVersion } = useAuth();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -356,26 +356,25 @@ const TimeTracker = () => {
 
   // Reset and refetch session when user changes
   useEffect(() => {
+    // Always reset state when user/dataVersion changes
+    setSession(null);
+    setElapsedTime(0);
+    setHeartbeatActive(false);
+    setIsUserActive(true);
+    setIsScreenLocked(false);
+    setIdleState('active');
+    sessionRef.current = null;
+
     if (!user) {
-      // User logged out - reset all state
-      setSession(null);
+      // User logged out
       setLoading(false);
-      setElapsedTime(0);
-      setHeartbeatActive(false);
-      setIsUserActive(true);
-      setIsScreenLocked(false);
-      setIdleState('active');
-      sessionRef.current = null;
       return;
     }
 
-    // User changed or logged in - reset and fetch fresh session
+    // User changed or logged in - fetch fresh session
     setLoading(true);
-    setSession(null);
-    setElapsedTime(0);
-    sessionRef.current = null;
     fetchCurrentSession();
-  }, [user]);
+  }, [user?.id, dataVersion]);
 
   useEffect(() => {
     let interval;

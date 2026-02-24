@@ -34,9 +34,18 @@ const Worksheets = () => {
   const [form] = Form.useForm();
   const [rejectForm] = Form.useForm();
   const [editForm] = Form.useForm();
-  const { user, isAdmin, isOnlyAdmin, isManager, isTeamLead, isEmployee, isDeliveryManager } = useAuth();
+  const { user, isAdmin, isOnlyAdmin, isManager, isTeamLead, isEmployee, isDeliveryManager, dataVersion } = useAuth();
 
   useEffect(() => {
+    // Clear state when user changes
+    setWorksheets([]);
+    setPendingVerification([]);
+    setPendingApproval([]);
+    setPendingDmApproval([]);
+    setForms([]);
+    setTeamForm(null);
+    setMyTeam(null);
+
     if (!user) return;
 
     fetchWorksheets();
@@ -52,7 +61,7 @@ const Worksheets = () => {
     if (isEmployee() || isTeamLead() || isManager()) {
       fetchTeamAndForm();
     }
-  }, [user]);
+  }, [user?.id, dataVersion]);
 
   const fetchWorksheets = async () => {
     if (!user) return;
