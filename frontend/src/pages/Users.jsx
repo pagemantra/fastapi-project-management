@@ -1,81 +1,35 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { userService, teamService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const { Title } = Typography;
 const { Option } = Select;
 
-// Module-level cache for instant loading
-const usersCache = {
-  users: null,
-  managers: null,
-  teamLeads: null
-};
-
-// Clear users cache function
-const clearUsersCache = () => {
-  usersCache.users = null;
-  usersCache.managers = null;
-  usersCache.teamLeads = null;
-};
-
 const Users = () => {
-  const [users, setUsers] = useState(usersCache.users || []);
-  const [loading, setLoading] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [managers, setManagers] = useState(usersCache.managers || []);
-  const [teamLeads, setTeamLeads] = useState(usersCache.teamLeads || []);
+  const [managers, setManagers] = useState([]);
+  const [teamLeads, setTeamLeads] = useState([]);
   const [form] = Form.useForm();
   const { user: currentUser, isAdmin, isManager } = useAuth();
-  const fetchingRef = useRef(false);
 
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearUsersCache();
-      setUsers([]);
-      setManagers([]);
-      setTeamLeads([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache when user logs out
-  useEffect(() => {
-    if (!currentUser) {
-      clearUsersCache();
-      setUsers([]);
-      setManagers([]);
-      setTeamLeads([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, [currentUser]);
-
-  const fetchUsers = useCallback(async (showLoading = false) => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-
+  const fetchUsers = useCallback(async () => {
     try {
-      if (showLoading && !usersCache.users) setLoading(true);
+      setLoading(true);
       const response = await userService.getUsers({});
-      const data = response.data || [];
-      usersCache.users = data;
-      setUsers(data);
+      setUsers(response.data || []);
     } catch (error) {
       console.error('Failed to fetch users:', error);
-      if (!usersCache.users) setUsers([]);
+      setUsers([]);
     } finally {
       setLoading(false);
-      fetchingRef.current = false;
     }
   }, []);
 
@@ -83,40 +37,37 @@ const Users = () => {
     try {
       if (isAdmin() || isManager()) {
         const response = await userService.getManagers();
-        const data = response.data || [];
-        usersCache.managers = data;
-        setManagers(data);
+        setManagers(response.data || []);
       }
     } catch (error) {
       console.error('Failed to fetch managers:', error);
-      if (!usersCache.managers) setManagers([]);
+      setManagers([]);
     }
   }, [isAdmin, isManager]);
 
   const fetchTeamLeads = useCallback(async () => {
     try {
       const response = await userService.getTeamLeads();
-      const data = response.data || [];
-      usersCache.teamLeads = data;
-      setTeamLeads(data);
+      setTeamLeads(response.data || []);
     } catch (error) {
       console.error('Failed to fetch team leads:', error);
-      if (!usersCache.teamLeads) setTeamLeads([]);
+      setTeamLeads([]);
     }
   }, []);
 
   useEffect(() => {
-    // Use cached data if available
-    if (usersCache.users) {
-      setUsers(usersCache.users);
-      setManagers(usersCache.managers || []);
-      setTeamLeads(usersCache.teamLeads || []);
+    if (!currentUser) {
+      setUsers([]);
+      setManagers([]);
+      setTeamLeads([]);
+      setLoading(false);
+      return;
     }
 
-    fetchUsers(!usersCache.users);
+    fetchUsers();
     fetchManagers();
     fetchTeamLeads();
-  }, [fetchUsers, fetchManagers, fetchTeamLeads]);
+  }, [currentUser, fetchUsers, fetchManagers, fetchTeamLeads]);
 
   const handleCreate = () => {
     setEditingUser(null);
@@ -137,7 +88,7 @@ const Users = () => {
     try {
       await userService.deleteUser(id);
       message.success('User deactivated successfully');
-      fetchUsers(false);
+      fetchUsers();
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to deactivate user');
     }
@@ -153,7 +104,7 @@ const Users = () => {
         message.success('User created successfully');
       }
       setModalVisible(false);
-      fetchUsers(false);
+      fetchUsers();
     } catch (error) {
       const detail = error.response?.data?.detail;
       if (Array.isArray(detail)) {

@@ -1,145 +1,82 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col, List, Avatar
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, TeamOutlined, UserAddOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { teamService, userService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 
-// Module-level cache for instant loading
-const teamsCache = {
-  teams: null,
-  managers: null,
-  teamLeads: null,
-  employees: null
-};
-
-// Clear teams cache function
-const clearTeamsCache = () => {
-  teamsCache.teams = null;
-  teamsCache.managers = null;
-  teamsCache.teamLeads = null;
-  teamsCache.employees = null;
-};
-
 const Teams = () => {
-  const [teams, setTeams] = useState(teamsCache.teams || []);
-  const [loading, setLoading] = useState(false);
+  const [teams, setTeams] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [memberModalVisible, setMemberModalVisible] = useState(false);
   const [editingTeam, setEditingTeam] = useState(null);
   const [selectedTeam, setSelectedTeam] = useState(null);
-  const [managers, setManagers] = useState(teamsCache.managers || []);
-  const [teamLeads, setTeamLeads] = useState(teamsCache.teamLeads || []);
-  const [employees, setEmployees] = useState(teamsCache.employees || []);
+  const [managers, setManagers] = useState([]);
+  const [teamLeads, setTeamLeads] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [form] = Form.useForm();
   const [memberForm] = Form.useForm();
   const { user, isAdmin, isManager } = useAuth();
-  const fetchingRef = useRef(false);
 
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearTeamsCache();
+  const fetchTeams = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const response = await teamService.getTeams({});
+      setTeams(response.data || []);
+    } catch (error) {
+      console.error('Failed to fetch teams:', error);
       setTeams([]);
-      setManagers([]);
-      setTeamLeads([]);
-      setEmployees([]);
+    } finally {
       setLoading(false);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache when user logs out
-  useEffect(() => {
-    if (!user) {
-      clearTeamsCache();
-      setTeams([]);
-      setManagers([]);
-      setTeamLeads([]);
-      setEmployees([]);
-      setLoading(false);
-      fetchingRef.current = false;
     }
   }, [user]);
 
-  const fetchTeams = useCallback(async (showLoading = false) => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-
-    try {
-      if (showLoading && !teamsCache.teams) setLoading(true);
-      const response = await teamService.getTeams({});
-      const data = response.data || [];
-      teamsCache.teams = data;
-      setTeams(data);
-    } catch (error) {
-      console.error('Failed to fetch teams:', error);
-      if (!teamsCache.teams) setTeams([]);
-    } finally {
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, []);
-
   const fetchManagers = useCallback(async () => {
     try {
-      // Managers and Admins need to fetch managers list
       if (isAdmin() || isManager()) {
         const response = await userService.getManagers();
-        const data = response.data || [];
-        teamsCache.managers = data;
-        setManagers(data);
+        setManagers(response.data || []);
       }
     } catch (error) {
       console.error('Failed to fetch managers:', error);
-      if (!teamsCache.managers) setManagers([]);
+      setManagers([]);
     }
   }, [isAdmin, isManager]);
 
   const fetchTeamLeads = useCallback(async () => {
     try {
       const response = await userService.getTeamLeads();
-      const data = response.data || [];
-      teamsCache.teamLeads = data;
-      setTeamLeads(data);
+      setTeamLeads(response.data || []);
     } catch (error) {
       console.error('Failed to fetch team leads:', error);
-      if (!teamsCache.teamLeads) setTeamLeads([]);
+      setTeamLeads([]);
     }
   }, []);
 
   const fetchEmployees = useCallback(async () => {
     try {
       const response = await userService.getEmployees();
-      const data = response.data || [];
-      teamsCache.employees = data;
-      setEmployees(data);
+      setEmployees(response.data || []);
     } catch (error) {
       console.error('Failed to fetch employees:', error);
-      if (!teamsCache.employees) setEmployees([]);
+      setEmployees([]);
     }
   }, []);
 
   useEffect(() => {
-    // Use cached data if available
-    if (teamsCache.teams) {
-      setTeams(teamsCache.teams);
-      setManagers(teamsCache.managers || []);
-      setTeamLeads(teamsCache.teamLeads || []);
-      setEmployees(teamsCache.employees || []);
-    }
-
-    fetchTeams(!teamsCache.teams);
+    if (!user) return;
+    fetchTeams();
     fetchManagers();
     fetchTeamLeads();
     fetchEmployees();
-  }, [fetchTeams, fetchManagers, fetchTeamLeads, fetchEmployees]);
+  }, [user, fetchTeams, fetchManagers, fetchTeamLeads, fetchEmployees]);
 
   const handleCreate = () => {
     setEditingTeam(null);
@@ -157,7 +94,7 @@ const Teams = () => {
     try {
       await teamService.deleteTeam(id);
       message.success('Team deactivated successfully');
-      fetchTeams(false);
+      fetchTeams();
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to deactivate team');
     }
@@ -173,13 +110,12 @@ const Teams = () => {
         message.success('Team created successfully');
       }
       setModalVisible(false);
-      fetchTeams(false);
+      fetchTeams();
     } catch (error) {
       message.error(error.response?.data?.detail || 'Operation failed');
     }
   };
 
-  // Handle modal close with confirmation
   const handleModalClose = () => {
     const formValues = form.getFieldsValue();
     const hasData = formValues.name || formValues.description;
@@ -211,8 +147,7 @@ const Teams = () => {
     try {
       await teamService.addMember(selectedTeam.id, { employee_id: values.employee_id });
       message.success('Member added successfully');
-      fetchTeams(false);
-      // Refresh selected team
+      fetchTeams();
       const updatedTeam = await teamService.getTeam(selectedTeam.id);
       setSelectedTeam(updatedTeam.data);
       memberForm.resetFields();
@@ -225,8 +160,7 @@ const Teams = () => {
     try {
       await teamService.removeMember(selectedTeam.id, employeeId);
       message.success('Member removed successfully');
-      fetchTeams(false);
-      // Refresh selected team
+      fetchTeams();
       const updatedTeam = await teamService.getTeam(selectedTeam.id);
       setSelectedTeam(updatedTeam.data);
     } catch (error) {
@@ -235,14 +169,12 @@ const Teams = () => {
   };
 
   const getTeamLeadName = (record) => {
-    // Use team_lead_name from API if available, otherwise fall back to lookup
     if (record.team_lead_name) return record.team_lead_name;
     const tl = teamLeads.find(t => t.id === record.team_lead_id);
     return tl?.full_name || 'Unknown';
   };
 
   const getManagerName = (record) => {
-    // Use manager_name from API if available, otherwise fall back to lookup
     if (record.manager_name) return record.manager_name;
     const m = managers.find(m => m.id === record.manager_id);
     return m?.full_name || 'Unknown';
@@ -253,68 +185,26 @@ const Teams = () => {
       title: 'Project Name',
       dataIndex: 'name',
       key: 'name',
-      render: (text, record) => (
+      render: (text) => (
         <Space>
           <TeamOutlined />
           <span>{text}</span>
         </Space>
       ),
     },
-    {
-      title: 'Description',
-      dataIndex: 'description',
-      key: 'description',
-    },
-    {
-      title: 'Team Lead',
-      dataIndex: 'team_lead_id',
-      key: 'team_lead_id',
-      render: (_, record) => getTeamLeadName(record),
-    },
-    {
-      title: 'Members',
-      dataIndex: 'members',
-      key: 'members',
-      render: (members) => (
-        <Tag color="blue">{members?.length || 0} members</Tag>
-      ),
-    },
-    {
-      title: 'Status',
-      dataIndex: 'is_active',
-      key: 'is_active',
-      render: (active) => (
-        <Tag color={active ? 'green' : 'red'}>{active ? 'Active' : 'Inactive'}</Tag>
-      ),
-    },
+    { title: 'Description', dataIndex: 'description', key: 'description' },
+    { title: 'Team Lead', dataIndex: 'team_lead_id', key: 'team_lead_id', render: (_, record) => getTeamLeadName(record) },
+    { title: 'Members', dataIndex: 'members', key: 'members', render: (members) => <Tag color="blue">{members?.length || 0} members</Tag> },
+    { title: 'Status', dataIndex: 'is_active', key: 'is_active', render: (active) => <Tag color={active ? 'green' : 'red'}>{active ? 'Active' : 'Inactive'}</Tag> },
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space>
-          <Button
-            type="link"
-            icon={<UserAddOutlined />}
-            onClick={() => handleManageMembers(record)}
-          >
-            Members
-          </Button>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            Edit
-          </Button>
-          <Popconfirm
-            title="Are you sure you want to deactivate this team?"
-            onConfirm={() => handleDelete(record.id)}
-            okText="Yes"
-            cancelText="No"
-          >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              Deactivate
-            </Button>
+          <Button type="link" icon={<UserAddOutlined />} onClick={() => handleManageMembers(record)}>Members</Button>
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>Edit</Button>
+          <Popconfirm title="Are you sure you want to deactivate this team?" onConfirm={() => handleDelete(record.id)} okText="Yes" cancelText="No">
+            <Button type="link" danger icon={<DeleteOutlined />}>Deactivate</Button>
           </Popconfirm>
         </Space>
       ),
@@ -324,74 +214,34 @@ const Teams = () => {
   return (
     <div>
       <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Col>
-          <Title level={3}>Team Management</Title>
-        </Col>
-        <Col>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            Create Team
-          </Button>
-        </Col>
+        <Col><Title level={3}>Team Management</Title></Col>
+        <Col><Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>Create Team</Button></Col>
       </Row>
 
       <Card>
-        <Table
-          dataSource={teams}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-        />
+        <Table dataSource={teams} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 10 }} />
       </Card>
 
-      {/* Create/Edit Team Modal */}
-      <Modal
-        title={editingTeam ? 'Edit Team' : 'Create Team'}
-        open={modalVisible}
-        onCancel={handleModalClose}
-        maskClosable={false}
-        footer={null}
-        width={500}
-      >
+      <Modal title={editingTeam ? 'Edit Team' : 'Create Team'} open={modalVisible} onCancel={handleModalClose} maskClosable={false} footer={null} width={500}>
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
-          <Form.Item
-            name="name"
-            label="Project Name"
-            rules={[{ required: true, message: 'Please enter project name' }]}
-          >
+          <Form.Item name="name" label="Project Name" rules={[{ required: true, message: 'Please enter project name' }]}>
             <Input />
           </Form.Item>
-
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={3} />
           </Form.Item>
-
           {isAdmin() && (
-            <Form.Item
-              name="manager_id"
-              label="Manager"
-              rules={[{ required: !editingTeam, message: 'Please select manager' }]}
-            >
+            <Form.Item name="manager_id" label="Manager" rules={[{ required: !editingTeam, message: 'Please select manager' }]}>
               <Select placeholder="Select manager">
-                {managers.map((m) => (
-                  <Option key={m.id} value={m.id}>{m.full_name}</Option>
-                ))}
+                {managers.map((m) => <Option key={m.id} value={m.id}>{m.full_name}</Option>)}
               </Select>
             </Form.Item>
           )}
-
-          <Form.Item
-            name="team_lead_id"
-            label="Team Lead"
-            rules={[{ required: !editingTeam, message: 'Please select team lead' }]}
-          >
+          <Form.Item name="team_lead_id" label="Team Lead" rules={[{ required: !editingTeam, message: 'Please select team lead' }]}>
             <Select placeholder="Select team lead">
-              {teamLeads.map((tl) => (
-                <Option key={tl.id} value={tl.id}>{tl.full_name}</Option>
-              ))}
+              {teamLeads.map((tl) => <Option key={tl.id} value={tl.id}>{tl.full_name}</Option>)}
             </Select>
           </Form.Item>
-
           {editingTeam && (
             <Form.Item name="is_active" label="Status">
               <Select>
@@ -400,52 +250,24 @@ const Teams = () => {
               </Select>
             </Form.Item>
           )}
-
           <Form.Item>
             <Space>
-              <Button type="primary" htmlType="submit">
-                {editingTeam ? 'Update' : 'Create'}
-              </Button>
+              <Button type="primary" htmlType="submit">{editingTeam ? 'Update' : 'Create'}</Button>
               <Button onClick={handleModalClose}>Cancel</Button>
             </Space>
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* Manage Members Modal */}
-      <Modal
-        title={`Manage Members - ${selectedTeam?.name}`}
-        open={memberModalVisible}
-        maskClosable={false}
-        onCancel={() => setMemberModalVisible(false)}
-        footer={null}
-        width={500}
-      >
+      <Modal title={`Manage Members - ${selectedTeam?.name}`} open={memberModalVisible} maskClosable={false} onCancel={() => setMemberModalVisible(false)} footer={null} width={500}>
         <Form form={memberForm} layout="inline" onFinish={handleAddMember} style={{ marginBottom: 16 }}>
-          <Form.Item
-            name="employee_id"
-            rules={[{ required: true, message: 'Select member' }]}
-            style={{ flex: 1 }}
-          >
-            <Select
-              showSearch
-              placeholder="Search and select member to add"
-              optionFilterProp="children"
-              filterOption={(input, option) =>
-                (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-            >
-              {employees
-                .filter(e => !selectedTeam?.members?.includes(e.id))
-                .map((emp) => (
-                  <Option key={emp.id} value={emp.id}>{emp.full_name}</Option>
-                ))}
+          <Form.Item name="employee_id" rules={[{ required: true, message: 'Select member' }]} style={{ flex: 1 }}>
+            <Select showSearch placeholder="Search and select member to add" optionFilterProp="children" filterOption={(input, option) => (option?.children ?? '').toLowerCase().includes(input.toLowerCase())}>
+              {employees.filter(e => !selectedTeam?.members?.includes(e.id)).map((emp) => <Option key={emp.id} value={emp.id}>{emp.full_name}</Option>)}
             </Select>
           </Form.Item>
           <Form.Item>
-            <Button type="primary" htmlType="submit" icon={<PlusOutlined />}>
-              Add
-            </Button>
+            <Button type="primary" htmlType="submit" icon={<PlusOutlined />}>Add</Button>
           </Form.Item>
         </Form>
 
@@ -454,7 +276,6 @@ const Teams = () => {
           bordered
           dataSource={selectedTeam?.members_details || selectedTeam?.members || []}
           renderItem={(item) => {
-            // Handle both new format (object with details) and old format (just ID)
             const isDetailedFormat = typeof item === 'object' && item.id;
             const memberId = isDetailedFormat ? item.id : item;
             const member = isDetailedFormat ? item : employees.find(e => e.id === memberId);
@@ -462,23 +283,8 @@ const Teams = () => {
             const memberEmail = member?.email || '';
 
             return (
-              <List.Item
-                actions={[
-                  <Popconfirm
-                    title="Remove this member?"
-                    onConfirm={() => handleRemoveMember(memberId)}
-                    okText="Yes"
-                    cancelText="No"
-                  >
-                    <Button type="link" danger size="small">Remove</Button>
-                  </Popconfirm>
-                ]}
-              >
-                <List.Item.Meta
-                  avatar={<Avatar>{memberName?.charAt(0) || '?'}</Avatar>}
-                  title={memberName}
-                  description={memberEmail}
-                />
+              <List.Item actions={[<Popconfirm title="Remove this member?" onConfirm={() => handleRemoveMember(memberId)} okText="Yes" cancelText="No"><Button type="link" danger size="small">Remove</Button></Popconfirm>]}>
+                <List.Item.Meta avatar={<Avatar>{memberName?.charAt(0) || '?'}</Avatar>} title={memberName} description={memberEmail} />
               </List.Item>
             );
           }}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card, Tabs, Button, Table, Space, Typography, Row, Col,
   Statistic, message, Select, Tag, Collapse, Badge, Skeleton, DatePicker
@@ -8,36 +8,12 @@ import { DownloadOutlined, TeamOutlined, UserOutlined, CheckCircleOutlined, Pict
 const { RangePicker } = DatePicker;
 import { Column, Pie } from '@ant-design/charts';
 import { reportService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
 const { Option } = Select;
-
-// Cache for report data
-const dataCache = {
-  productivity: null,
-  projects: null,
-  managerMembers: null,
-  attendance: null,
-  overtime: null,
-  worksheets: null,
-  team: null,
-  lastParams: null
-};
-
-// Clear data cache function
-const clearDataCache = () => {
-  dataCache.productivity = null;
-  dataCache.projects = null;
-  dataCache.managerMembers = null;
-  dataCache.attendance = null;
-  dataCache.overtime = null;
-  dataCache.worksheets = null;
-  dataCache.team = null;
-  dataCache.lastParams = null;
-};
 
 const Reports = () => {
   const [activeTab, setActiveTab] = useState('productivity');
@@ -48,52 +24,19 @@ const Reports = () => {
   // Separate date range for Projects tab - defaults to today
   const [projectsDateRange, setProjectsDateRange] = useState([dayjs(), dayjs()]);
   const [projectsLoading, setProjectsLoading] = useState(false);
-  const [productivityData, setProductivityData] = useState(dataCache.productivity || []);
-  const [attendanceData, setAttendanceData] = useState(dataCache.attendance || []);
-  const [overtimeData, setOvertimeData] = useState(dataCache.overtime || []);
-  const [worksheetAnalytics, setWorksheetAnalytics] = useState(dataCache.worksheets);
-  const [teamPerformance, setTeamPerformance] = useState(dataCache.team || []);
-  const [projectsData, setProjectsData] = useState(dataCache.projects || []);
-  const [managerMembers, setManagerMembers] = useState(dataCache.managerMembers || { managers: [], data: [] });
+  const [productivityData, setProductivityData] = useState([]);
+  const [attendanceData, setAttendanceData] = useState([]);
+  const [overtimeData, setOvertimeData] = useState([]);
+  const [worksheetAnalytics, setWorksheetAnalytics] = useState(null);
+  const [teamPerformance, setTeamPerformance] = useState([]);
+  const [projectsData, setProjectsData] = useState([]);
+  const [managerMembers, setManagerMembers] = useState({ managers: [], data: [] });
   const [selectedManager, setSelectedManager] = useState(null);
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedProjectMember, setSelectedProjectMember] = useState({});
-  const [initialLoading, setInitialLoading] = useState(!dataCache.productivity);
+  const [initialLoading, setInitialLoading] = useState(true);
   const fetchingRef = useRef({});
   const { user } = useAuth();
-
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearDataCache();
-      setProductivityData([]);
-      setAttendanceData([]);
-      setOvertimeData([]);
-      setWorksheetAnalytics(null);
-      setTeamPerformance([]);
-      setProjectsData([]);
-      setManagerMembers({ managers: [], data: [] });
-      setInitialLoading(true);
-      fetchingRef.current = {};
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache when user logs out
-  useEffect(() => {
-    if (!user) {
-      clearDataCache();
-      setProductivityData([]);
-      setAttendanceData([]);
-      setOvertimeData([]);
-      setWorksheetAnalytics(null);
-      setTeamPerformance([]);
-      setProjectsData([]);
-      setManagerMembers({ managers: [], data: [] });
-      setInitialLoading(true);
-      fetchingRef.current = {};
-    }
-  }, [user]);
 
   const getParams = useCallback(() => ({
     start_date: dateRange[0].format('YYYY-MM-DD'),
@@ -105,12 +48,6 @@ const Reports = () => {
     start_date: projectsDateRange[0].format('YYYY-MM-DD'),
     end_date: projectsDateRange[1].format('YYYY-MM-DD'),
   }), [projectsDateRange]);
-
-  // Check if params changed
-  const paramsChanged = useCallback(() => {
-    const currentParams = JSON.stringify(getParams());
-    return dataCache.lastParams !== currentParams;
-  }, [getParams]);
 
   // Fetch projects data with specific date range
   const fetchProjectsData = useCallback(async (params) => {
@@ -137,12 +74,9 @@ const Reports = () => {
 
   // Fetch all data in background without blocking UI
   const fetchAllDataBackground = useCallback(async () => {
-    const params = getParams();
-    const paramsKey = JSON.stringify(params);
+    if (!user) return;
 
-    if (dataCache.lastParams === paramsKey && dataCache.productivity) {
-      return; // Already have fresh data
-    }
+    const params = getParams();
 
     try {
       // Fetch productivity first (current tab) - fastest response
@@ -150,7 +84,6 @@ const Reports = () => {
         fetchingRef.current.productivity = true;
         reportService.getProductivityReport(params).then(res => {
           const data = res.data.data || [];
-          dataCache.productivity = data;
           setProductivityData(data);
           setInitialLoading(false);
           fetchingRef.current.productivity = false;
@@ -166,7 +99,6 @@ const Reports = () => {
           fetchingRef.current.attendance = true;
           reportService.getAttendanceReport(params).then(res => {
             const data = res.data.data || [];
-            dataCache.attendance = data;
             setAttendanceData(data);
             fetchingRef.current.attendance = false;
           }).catch(() => { fetchingRef.current.attendance = false; });
@@ -176,7 +108,6 @@ const Reports = () => {
           fetchingRef.current.overtime = true;
           reportService.getOvertimeReport(params).then(res => {
             const data = res.data.data || [];
-            dataCache.overtime = data;
             setOvertimeData(data);
             fetchingRef.current.overtime = false;
           }).catch(() => { fetchingRef.current.overtime = false; });
@@ -185,7 +116,6 @@ const Reports = () => {
         if (!fetchingRef.current.worksheets) {
           fetchingRef.current.worksheets = true;
           reportService.getWorksheetAnalytics(params).then(res => {
-            dataCache.worksheets = res.data;
             setWorksheetAnalytics(res.data);
             fetchingRef.current.worksheets = false;
           }).catch(() => { fetchingRef.current.worksheets = false; });
@@ -195,37 +125,42 @@ const Reports = () => {
           fetchingRef.current.team = true;
           reportService.getTeamPerformance(params).then(res => {
             const data = res.data.data || [];
-            dataCache.team = data;
             setTeamPerformance(data);
             fetchingRef.current.team = false;
           }).catch(() => { fetchingRef.current.team = false; });
         }
       }, 50);
-
-      dataCache.lastParams = paramsKey;
     } catch {
       message.error('Failed to fetch reports');
       setInitialLoading(false);
     }
-  }, [getParams]);
+  }, [getParams, user]);
 
-  // Load data on mount
+  // Reset state when user changes
   useEffect(() => {
-    fetchAllDataBackground();
-  }, []);
-
-  // Reload when date range changes
-  useEffect(() => {
-    if (paramsChanged()) {
-      dataCache.lastParams = null;
-      fetchAllDataBackground();
+    if (!user) {
+      setProductivityData([]);
+      setAttendanceData([]);
+      setOvertimeData([]);
+      setWorksheetAnalytics(null);
+      setTeamPerformance([]);
+      setProjectsData([]);
+      setManagerMembers({ managers: [], data: [] });
+      setInitialLoading(true);
+      fetchingRef.current = {};
+      return;
     }
-  }, [dateRange, paramsChanged, fetchAllDataBackground]);
+
+    // Fetch data when user is available
+    fetchAllDataBackground();
+  }, [user, fetchAllDataBackground]);
 
   // Fetch projects data when projectsDateRange changes (defaults to today)
   useEffect(() => {
-    fetchProjectsData(getProjectsParams());
-  }, [projectsDateRange, fetchProjectsData, getProjectsParams]);
+    if (user) {
+      fetchProjectsData(getProjectsParams());
+    }
+  }, [user, projectsDateRange, fetchProjectsData, getProjectsParams]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);

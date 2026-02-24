@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Row, Col, Card, Statistic, Table, Tag, Typography, Skeleton } from 'antd';
 import {
   ClockCircleOutlined,
@@ -8,92 +8,26 @@ import {
   UserOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import { taskService, worksheetService, attendanceService, userService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
 import TimeTracker from '../components/TimeTracker';
 
 const { Title } = Typography;
 
-// Module-level cache for instant loading
-const dashboardCache = {
-  stats: null,
-  recentTasks: null,
-  pendingWorksheets: null,
-  teamStats: null,
-  userId: null
-};
-
-// Clear dashboard cache function
-const clearDashboardCache = () => {
-  dashboardCache.stats = null;
-  dashboardCache.recentTasks = null;
-  dashboardCache.pendingWorksheets = null;
-  dashboardCache.teamStats = null;
-  dashboardCache.userId = null;
-};
-
 const Dashboard = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
-  const [stats, setStats] = useState(dashboardCache.stats || {});
-  const [recentTasks, setRecentTasks] = useState(dashboardCache.recentTasks || []);
-  const [pendingWorksheets, setPendingWorksheets] = useState(dashboardCache.pendingWorksheets || []);
-  const [teamStats, setTeamStats] = useState(dashboardCache.teamStats || { teamMembers: 0, loggedInToday: 0 });
-  const [initialLoad, setInitialLoad] = useState(!dashboardCache.stats);
-  const fetchingRef = useRef(false);
+  const [stats, setStats] = useState({});
+  const [recentTasks, setRecentTasks] = useState([]);
+  const [pendingWorksheets, setPendingWorksheets] = useState([]);
+  const [teamStats, setTeamStats] = useState({ teamMembers: 0, loggedInToday: 0 });
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearDashboardCache();
-      setStats({});
-      setRecentTasks([]);
-      setPendingWorksheets([]);
-      setTeamStats({ teamMembers: 0, loggedInToday: 0 });
-      setInitialLoad(true);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache and reset state when user changes (different login) or logs out
-  useEffect(() => {
-    if (!user) {
-      // User logged out - clear cache
-      clearDashboardCache();
-      setStats({});
-      setRecentTasks([]);
-      setPendingWorksheets([]);
-      setTeamStats({ teamMembers: 0, loggedInToday: 0 });
-      setInitialLoad(true);
-      fetchingRef.current = false;
-    } else if (dashboardCache.userId && dashboardCache.userId !== user.id) {
-      // Different user logged in - clear cache and reset state
-      clearDashboardCache();
-      setStats({});
-      setRecentTasks([]);
-      setPendingWorksheets([]);
-      setTeamStats({ teamMembers: 0, loggedInToday: 0 });
-      setInitialLoad(true);
-      fetchingRef.current = false;
-    }
-  }, [user]);
-
   const fetchDashboardData = useCallback(async () => {
-    if (!user || fetchingRef.current) return;
+    if (!user) return;
 
-    // If we have cached data for this user, use it immediately
-    if (dashboardCache.userId === user.id && dashboardCache.stats) {
-      setStats(dashboardCache.stats);
-      setRecentTasks(dashboardCache.recentTasks || []);
-      setPendingWorksheets(dashboardCache.pendingWorksheets || []);
-      setTeamStats(dashboardCache.teamStats || { teamMembers: 0, loggedInToday: 0 });
-      setInitialLoad(false);
-      return;
-    }
-
-    fetchingRef.current = true;
+    setLoading(true);
 
     try {
       const promises = [];
@@ -143,34 +77,22 @@ const Dashboard = () => {
 
       const [taskSummary, worksheetSummary, tasks] = await Promise.all(promises);
 
-      const newStats = { tasks: taskSummary.data, worksheets: worksheetSummary.data };
-      const newTasks = tasks.data || [];
-
-      // Update state and cache
-      dashboardCache.stats = newStats;
-      dashboardCache.recentTasks = newTasks;
-      dashboardCache.userId = user.id;
-
-      setStats(newStats);
-      setRecentTasks(newTasks);
-      setInitialLoad(false);
+      setStats({ tasks: taskSummary.data, worksheets: worksheetSummary.data });
+      setRecentTasks(tasks.data || []);
+      setLoading(false);
 
       // Fetch pending worksheets in background (non-blocking)
       if (isTeamLead()) {
         worksheetService.getPendingVerification().then(res => {
-          const data = res.data || [];
-          dashboardCache.pendingWorksheets = data;
-          setPendingWorksheets(data);
+          setPendingWorksheets(res.data || []);
         }).catch(() => {});
       } else if (isManager()) {
-        // Managers need to see both: worksheets to verify (from TLs) and worksheets to approve (TL_VERIFIED)
         Promise.all([
           worksheetService.getPendingVerification().catch(() => ({ data: [] })),
           worksheetService.getPendingApproval().catch(() => ({ data: [] }))
         ]).then(([verificationRes, approvalRes]) => {
           const verificationData = verificationRes.data || [];
           const approvalData = approvalRes.data || [];
-          // Combine both lists, avoiding duplicates by ID
           const seenIds = new Set();
           const combined = [];
           [...verificationData, ...approvalData].forEach(w => {
@@ -179,14 +101,11 @@ const Dashboard = () => {
               combined.push(w);
             }
           });
-          dashboardCache.pendingWorksheets = combined;
           setPendingWorksheets(combined);
         });
       } else if (isAdmin()) {
         worksheetService.getPendingApproval().then(res => {
-          const data = res.data || [];
-          dashboardCache.pendingWorksheets = data;
-          setPendingWorksheets(data);
+          setPendingWorksheets(res.data || []);
         }).catch(() => {});
       }
 
@@ -199,19 +118,16 @@ const Dashboard = () => {
           const todayAttendance = attendanceRes.data || [];
           const members = usersRes.data || [];
           const loggedIn = todayAttendance.filter(a => a.status === 'active' || a.status === 'completed').length;
-          const newTeamStats = { teamMembers: members.length, loggedInToday: loggedIn };
-          dashboardCache.teamStats = newTeamStats;
-          setTeamStats(newTeamStats);
+          setTeamStats({ teamMembers: members.length, loggedInToday: loggedIn });
         });
       }
     } catch (error) {
       console.error('Dashboard error:', error);
-      setInitialLoad(false);
-    } finally {
-      fetchingRef.current = false;
+      setLoading(false);
     }
   }, [user, isAdmin, isManager, isTeamLead, isEmployee]);
 
+  // Fetch fresh data when user changes or component mounts
   useEffect(() => {
     if (user) {
       fetchDashboardData();
@@ -255,8 +171,7 @@ const Dashboard = () => {
     { title: 'Action', key: 'action', render: () => <a onClick={() => navigate('/worksheets')}>Review</a> },
   ];
 
-  // Show minimal skeleton only on very first load (no cached data)
-  if (initialLoad && !dashboardCache.stats) {
+  if (loading) {
     return (
       <div>
         <Title level={3}>Welcome!</Title>

@@ -1,116 +1,56 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   Popconfirm, message, Typography, Row, Col, DatePicker, InputNumber
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { taskService, userService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
-// Module-level cache for instant loading
-const tasksCache = {
-  tasks: null,
-  employees: null,
-  userId: null
-};
-
-// Clear tasks cache function
-const clearTasksCache = () => {
-  tasksCache.tasks = null;
-  tasksCache.employees = null;
-  tasksCache.userId = null;
-};
-
 const Tasks = () => {
-  const [tasks, setTasks] = useState(tasksCache.tasks || []);
-  const [loading, setLoading] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
-  const [employees, setEmployees] = useState(tasksCache.employees || []);
+  const [employees, setEmployees] = useState([]);
   const [form] = Form.useForm();
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
-  const fetchingRef = useRef(false);
 
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearTasksCache();
-      setTasks([]);
-      setEmployees([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache and reset state when user changes (different login) or logs out
-  useEffect(() => {
-    if (!user) {
-      // User logged out - clear cache
-      clearTasksCache();
-      setTasks([]);
-      setEmployees([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    } else if (tasksCache.userId && tasksCache.userId !== user.id) {
-      // Different user logged in - clear cache and reset state
-      clearTasksCache();
-      setTasks([]);
-      setEmployees([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, [user]);
-
-  const fetchTasks = useCallback(async (showLoading = false) => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-
+  const fetchTasks = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
     try {
-      if (showLoading && !tasksCache.tasks) setLoading(true);
       const response = isEmployee()
         ? await taskService.getMyTasks({})
         : await taskService.getTasks({});
-      const data = response.data || [];
-      tasksCache.tasks = data;
-      tasksCache.userId = user?.id;
-      setTasks(data);
+      setTasks(response.data || []);
     } catch (error) {
       console.error('Failed to fetch tasks:', error);
-      if (!tasksCache.tasks) setTasks([]);
+      setTasks([]);
     } finally {
       setLoading(false);
-      fetchingRef.current = false;
     }
   }, [isEmployee, user]);
 
   const fetchEmployees = useCallback(async () => {
     try {
       const response = await userService.getEmployees();
-      const data = response.data || [];
-      tasksCache.employees = data;
-      setEmployees(data);
+      setEmployees(response.data || []);
     } catch (error) {
       console.error('Failed to fetch employees');
-      if (!tasksCache.employees) setEmployees([]);
+      setEmployees([]);
     }
   }, []);
 
   useEffect(() => {
     if (!user) return;
 
-    // Use cached data if available for same user
-    if (tasksCache.userId === user.id && tasksCache.tasks) {
-      setTasks(tasksCache.tasks);
-      setEmployees(tasksCache.employees || []);
-    }
-
-    fetchTasks(!tasksCache.tasks);
+    fetchTasks();
     if (!isEmployee()) {
       fetchEmployees();
     }
@@ -135,7 +75,7 @@ const Tasks = () => {
     try {
       await taskService.deleteTask(id);
       message.success('Task deleted successfully');
-      fetchTasks(false);
+      fetchTasks();
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to delete task');
     }
@@ -156,7 +96,7 @@ const Tasks = () => {
         message.success('Task created successfully');
       }
       setModalVisible(false);
-      fetchTasks(false);
+      fetchTasks();
     } catch (error) {
       const detail = error.response?.data?.detail;
       if (Array.isArray(detail)) {
@@ -173,7 +113,7 @@ const Tasks = () => {
     try {
       await taskService.updateTask(taskId, { status: newStatus });
       message.success('Status updated');
-      fetchTasks(false);
+      fetchTasks();
     } catch (error) {
       message.error('Failed to update status');
     }

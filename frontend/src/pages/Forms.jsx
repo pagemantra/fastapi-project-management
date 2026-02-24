@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Table, Button, Modal, Form, Input, Select, Space, Tag, Card,
   message, Typography, Row, Col, Collapse, Checkbox, InputNumber, Popconfirm
@@ -8,7 +8,7 @@ import {
   ArrowUpOutlined, ArrowDownOutlined, ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { formService, teamService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -28,92 +28,50 @@ const fieldTypes = [
   { value: 'rating', label: 'Rating' },
 ];
 
-// Module-level cache for instant loading
-const formsCache = {
-  forms: null,
-  teams: null
-};
-
-// Clear forms cache function
-const clearFormsCache = () => {
-  formsCache.forms = null;
-  formsCache.teams = null;
-};
-
 const Forms = () => {
-  const [forms, setForms] = useState(formsCache.forms || []);
-  const [teams, setTeams] = useState(formsCache.teams || []);
-  const [loading, setLoading] = useState(false);
+  const [forms, setForms] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingForm, setEditingForm] = useState(null);
   const [fields, setFields] = useState([]);
   const [form] = Form.useForm();
   const { user, isAdmin, isManager } = useAuth();
-  const fetchingRef = useRef(false);
 
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearFormsCache();
-      setForms([]);
-      setTeams([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache when user logs out
-  useEffect(() => {
-    if (!user) {
-      clearFormsCache();
-      setForms([]);
-      setTeams([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, [user]);
-
-  const fetchForms = useCallback(async (showLoading = false) => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-
+  const fetchForms = useCallback(async () => {
     try {
-      if (showLoading && !formsCache.forms) setLoading(true);
+      setLoading(true);
       const response = await formService.getForms({});
-      const data = response.data || [];
-      formsCache.forms = data;
-      setForms(data);
+      setForms(response.data || []);
     } catch (error) {
-      if (!formsCache.forms) setForms([]);
+      console.error('Failed to fetch forms:', error);
+      setForms([]);
     } finally {
       setLoading(false);
-      fetchingRef.current = false;
     }
   }, []);
 
   const fetchTeams = useCallback(async () => {
     try {
       const response = await teamService.getTeams({});
-      const data = response.data || [];
-      formsCache.teams = data;
-      setTeams(data);
+      setTeams(response.data || []);
     } catch (error) {
       console.error('Failed to fetch teams:', error);
-      if (!formsCache.teams) setTeams([]);
+      setTeams([]);
     }
   }, []);
 
   useEffect(() => {
-    // Use cached data if available
-    if (formsCache.forms) {
-      setForms(formsCache.forms);
-      setTeams(formsCache.teams || []);
+    if (!user) {
+      setForms([]);
+      setTeams([]);
+      setLoading(false);
+      return;
     }
 
-    fetchForms(!formsCache.forms);
+    fetchForms();
     fetchTeams();
-  }, [fetchForms, fetchTeams]);
+  }, [user, fetchForms, fetchTeams]);
 
   const handleCreate = () => {
     setEditingForm(null);
@@ -137,7 +95,7 @@ const Forms = () => {
     try {
       await formService.deleteForm(id);
       message.success('Form deactivated');
-      fetchForms(false);
+      fetchForms();
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to delete form');
     }
@@ -160,7 +118,7 @@ const Forms = () => {
         message.success('Form created');
       }
       setModalVisible(false);
-      fetchForms(false);
+      fetchForms();
     } catch (error) {
       message.error(error.response?.data?.detail || 'Operation failed');
     }

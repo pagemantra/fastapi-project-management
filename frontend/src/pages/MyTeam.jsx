@@ -1,130 +1,56 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Card, Table, Typography, Row, Col, Statistic, Tag, Avatar, Space,
-  message, Tabs, Button, Skeleton
+  Tabs, Button, Skeleton
 } from 'antd';
 import {
   TeamOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined,
   FileTextOutlined
 } from '@ant-design/icons';
 import { userService, taskService, worksheetService, attendanceService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 
-// Module-level cache
-const teamCache = {
-  members: null,
-  tasks: null,
-  worksheets: null,
-  attendance: null,
-  userId: null
-};
-
-// Clear team cache function
-const clearTeamCache = () => {
-  teamCache.members = null;
-  teamCache.tasks = null;
-  teamCache.worksheets = null;
-  teamCache.attendance = null;
-  teamCache.userId = null;
-};
-
 const MyTeam = () => {
-  const [teamMembers, setTeamMembers] = useState(teamCache.members || []);
-  const [teamTasks, setTeamTasks] = useState(teamCache.tasks || []);
-  const [pendingWorksheets, setPendingWorksheets] = useState(teamCache.worksheets || []);
-  const [teamAttendance, setTeamAttendance] = useState(teamCache.attendance || []);
-  const [initialLoad, setInitialLoad] = useState(!teamCache.members);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [teamTasks, setTeamTasks] = useState([]);
+  const [pendingWorksheets, setPendingWorksheets] = useState([]);
+  const [teamAttendance, setTeamAttendance] = useState([]);
+  const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const navigate = useNavigate();
-  const fetchingRef = useRef(false);
-
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearTeamCache();
-      setTeamMembers([]);
-      setTeamTasks([]);
-      setPendingWorksheets([]);
-      setTeamAttendance([]);
-      setInitialLoad(true);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache and reset state when user changes (different login) or logs out
-  useEffect(() => {
-    if (!user) {
-      // User logged out - clear cache
-      clearTeamCache();
-      setTeamMembers([]);
-      setTeamTasks([]);
-      setPendingWorksheets([]);
-      setTeamAttendance([]);
-      setInitialLoad(true);
-      fetchingRef.current = false;
-    } else if (teamCache.userId && teamCache.userId !== user.id) {
-      // Different user logged in - clear cache and reset state
-      clearTeamCache();
-      setTeamMembers([]);
-      setTeamTasks([]);
-      setPendingWorksheets([]);
-      setTeamAttendance([]);
-      setInitialLoad(true);
-      fetchingRef.current = false;
-    }
-  }, [user]);
 
   const fetchTeamData = useCallback(async () => {
-    if (!user || fetchingRef.current) return;
+    if (!user) return;
 
-    if (teamCache.userId === user.id && teamCache.members) {
-      setTeamMembers(teamCache.members);
-      setTeamTasks(teamCache.tasks || []);
-      setPendingWorksheets(teamCache.worksheets || []);
-      setTeamAttendance(teamCache.attendance || []);
-      setInitialLoad(false);
-      return;
-    }
-
-    fetchingRef.current = true;
+    setLoading(true);
 
     try {
-      // Fetch critical data first
       const [usersRes, tasksRes] = await Promise.all([
         userService.getUsers({ team_lead_id: user.id }).catch(() => ({ data: [] })),
         taskService.getTasks({}).catch(() => ({ data: [] }))
       ]);
 
-      teamCache.members = usersRes.data || [];
-      teamCache.tasks = tasksRes.data || [];
-      teamCache.userId = user.id;
-
-      setTeamMembers(teamCache.members);
-      setTeamTasks(teamCache.tasks);
-      setInitialLoad(false);
+      setTeamMembers(usersRes.data || []);
+      setTeamTasks(tasksRes.data || []);
+      setLoading(false);
 
       // Fetch secondary data in background
       worksheetService.getPendingVerification().then(res => {
-        teamCache.worksheets = res.data || [];
-        setPendingWorksheets(teamCache.worksheets);
+        setPendingWorksheets(res.data || []);
       }).catch(() => {});
 
       const today = dayjs().format('YYYY-MM-DD');
       attendanceService.getHistory({ start_date: today, end_date: today }).then(res => {
-        teamCache.attendance = res.data || [];
-        setTeamAttendance(teamCache.attendance);
+        setTeamAttendance(res.data || []);
       }).catch(() => {});
 
     } catch (error) {
       console.error('MyTeam error:', error);
-      setInitialLoad(false);
-    } finally {
-      fetchingRef.current = false;
+      setLoading(false);
     }
   }, [user]);
 
@@ -209,7 +135,7 @@ const MyTeam = () => {
   const loggedInToday = teamAttendance.filter(a => a.status === 'active' || a.status === 'completed').length;
   const pendingTasks = teamTasks.filter(t => t.status === 'pending' || t.status === 'in_progress').length;
 
-  if (initialLoad && !teamCache.members) {
+  if (loading) {
     return (
       <div>
         <Title level={3}><TeamOutlined /> My Team</Title>

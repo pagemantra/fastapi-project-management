@@ -1,129 +1,59 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, Table, DatePicker, Space, Typography, Row, Col, Tag, Select, Button, Form, InputNumber, Switch, Modal, message } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import { attendanceService, teamService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import TimeTracker from '../components/TimeTracker';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-// Module-level cache for instant loading
-const attendanceCache = {
-  history: null,
-  teams: null,
-  dateKey: null,
-  userId: null
-};
-
-// Clear attendance cache function
-const clearAttendanceCache = () => {
-  attendanceCache.history = null;
-  attendanceCache.teams = null;
-  attendanceCache.dateKey = null;
-  attendanceCache.userId = null;
-};
-
 const Attendance = () => {
-  const [history, setHistory] = useState(attendanceCache.history || []);
-  const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState([dayjs().subtract(7, 'day'), dayjs()]);
-  const [teams, setTeams] = useState(attendanceCache.teams || []);
+  const [teams, setTeams] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [breakSettings, setBreakSettings] = useState(null);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [form] = Form.useForm();
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
-  const fetchingRef = useRef(false);
 
-  // Register cache clearing callback on mount
-  useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearAttendanceCache();
-      setHistory([]);
-      setTeams([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache and reset state when user changes (different login) or logs out
-  useEffect(() => {
-    if (!user) {
-      // User logged out - clear cache
-      clearAttendanceCache();
-      setHistory([]);
-      setTeams([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    } else if (attendanceCache.userId && attendanceCache.userId !== user.id) {
-      // Different user logged in - clear cache and reset state
-      clearAttendanceCache();
-      setHistory([]);
-      setTeams([]);
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, [user]);
-
-  const fetchHistory = useCallback(async (showLoading = false) => {
-    // Guard against null dateRange
+  const fetchHistory = useCallback(async () => {
     if (!dateRange || !dateRange[0] || !dateRange[1]) return;
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
+    if (!user) return;
 
-    const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
-
+    setLoading(true);
     try {
-      if (showLoading && !attendanceCache.history) setLoading(true);
       const params = {
         start_date: dateRange[0].format('YYYY-MM-DD'),
         end_date: dateRange[1].format('YYYY-MM-DD'),
       };
       const response = await attendanceService.getHistory(params);
-      const data = response.data || [];
-      attendanceCache.history = data;
-      attendanceCache.dateKey = dateKey;
-      attendanceCache.userId = user?.id;
-      setHistory(data);
+      setHistory(response.data || []);
     } catch (error) {
-      if (!attendanceCache.history) setHistory([]);
+      setHistory([]);
     } finally {
       setLoading(false);
-      fetchingRef.current = false;
     }
   }, [dateRange, user]);
 
   const fetchTeams = useCallback(async () => {
     try {
       const response = await teamService.getTeams({});
-      const data = response.data || [];
-      attendanceCache.teams = data;
-      setTeams(data);
+      setTeams(response.data || []);
     } catch (error) {
       console.error('Failed to fetch teams:', error);
-      if (!attendanceCache.teams) setTeams([]);
+      setTeams([]);
     }
   }, []);
 
   useEffect(() => {
     if (!user) return;
-    // Guard against null dateRange
     if (!dateRange || !dateRange[0] || !dateRange[1]) return;
 
-    const dateKey = `${dateRange[0].format('YYYY-MM-DD')}_${dateRange[1].format('YYYY-MM-DD')}`;
-    const sameUser = attendanceCache.userId === user.id;
-    const needsFetch = attendanceCache.dateKey !== dateKey || !sameUser;
-
-    // Use cached data if available for same date range and same user
-    if (!needsFetch && attendanceCache.history) {
-      setHistory(attendanceCache.history);
-      setTeams(attendanceCache.teams || []);
-    }
-
-    fetchHistory(needsFetch && !attendanceCache.history);
+    fetchHistory();
     if (isAdmin() || isManager()) {
       fetchTeams();
     }
@@ -221,7 +151,6 @@ const Attendance = () => {
       title: 'Break (min)',
       key: 'total_break_minutes',
       render: (_, record) => {
-        // Always calculate from breaks array to ensure accuracy
         let minutes = 0;
         if (record.breaks && record.breaks.length > 0) {
           const now = new Date();
@@ -232,14 +161,12 @@ const Attendance = () => {
               const duration = Math.round((new Date(b.end_time) - new Date(b.start_time)) / 60000);
               return sum + Math.max(0, duration);
             } else if (b.start_time && !b.end_time) {
-              // Ongoing break - calculate duration from start to now
               const duration = Math.round((now - new Date(b.start_time)) / 60000);
               return sum + Math.max(0, duration);
             }
             return sum;
           }, 0);
         }
-        // Fall back to stored total_break_minutes if calculation is 0
         if (minutes === 0 && record.total_break_minutes) {
           minutes = record.total_break_minutes;
         }
@@ -255,13 +182,11 @@ const Attendance = () => {
         return (
           <div>
             {breaks.map((breakItem, idx) => {
-              // Calculate duration from timestamps if duration_minutes not set
               let duration = breakItem.duration_minutes || 0;
               const isOngoing = breakItem.start_time && !breakItem.end_time;
               if (!duration && breakItem.start_time && breakItem.end_time) {
                 duration = Math.round((new Date(breakItem.end_time) - new Date(breakItem.start_time)) / 60000);
               } else if (isOngoing) {
-                // Ongoing break - calculate from start to now
                 duration = Math.round((new Date() - new Date(breakItem.start_time)) / 60000);
               }
               return (
@@ -345,14 +270,12 @@ const Attendance = () => {
     <div>
       <Title level={3}>Attendance</Title>
 
-      {/* Time Tracker for all users */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <TimeTracker />
         </Col>
       </Row>
 
-      {/* Filters and Break Settings */}
       <Card style={{ marginBottom: 16 }}>
         <Row gutter={[16, 16]} align="middle">
           <Col xs={24} md={8}>
@@ -361,7 +284,6 @@ const Attendance = () => {
               <RangePicker
                 value={dateRange}
                 onChange={(dates) => {
-                  // Reset to default if cleared, otherwise use selected dates
                   if (!dates || !dates[0] || !dates[1]) {
                     setDateRange([dayjs().subtract(7, 'day'), dayjs()]);
                   } else {
@@ -402,7 +324,6 @@ const Attendance = () => {
         </Row>
       </Card>
 
-      {/* Attendance History Table */}
       <Card title="Attendance History">
         <Table
           dataSource={history}
@@ -414,7 +335,6 @@ const Attendance = () => {
         />
       </Card>
 
-      {/* Break Settings Modal */}
       <Modal
         title={`Break Settings - ${teams.find(t => t.id === selectedTeam)?.name || ''}`}
         open={settingsModalVisible}
@@ -494,4 +414,3 @@ const Attendance = () => {
 };
 
 export default Attendance;
-

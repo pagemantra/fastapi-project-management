@@ -5,243 +5,133 @@ import {
 } from 'antd';
 import { CheckOutlined, CloseOutlined, FileTextOutlined, EyeOutlined, DownloadOutlined, FilterOutlined, ExclamationCircleOutlined, EditOutlined, RedoOutlined } from '@ant-design/icons';
 import { worksheetService, formService, teamService } from '../api/services';
-import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 const { RangePicker } = DatePicker;
 
-// Module-level cache for instant loading
-const worksheetsCache = {
-  worksheets: null,
-  pendingVerification: null,
-  pendingApproval: null,
-  pendingDmApproval: null,
-  forms: null,
-  teamForm: null,
-  myTeam: null,
-  userId: null
-};
-
-// Clear worksheets cache function
-const clearWorksheetsCache = () => {
-  worksheetsCache.worksheets = null;
-  worksheetsCache.pendingVerification = null;
-  worksheetsCache.pendingApproval = null;
-  worksheetsCache.pendingDmApproval = null;
-  worksheetsCache.forms = null;
-  worksheetsCache.teamForm = null;
-  worksheetsCache.myTeam = null;
-  worksheetsCache.userId = null;
-};
-
 const Worksheets = () => {
-  const [worksheets, setWorksheets] = useState(worksheetsCache.worksheets || []);
-  const [pendingVerification, setPendingVerification] = useState(worksheetsCache.pendingVerification || []);
-  const [pendingApproval, setPendingApproval] = useState(worksheetsCache.pendingApproval || []);
-  const [pendingDmApproval, setPendingDmApproval] = useState(worksheetsCache.pendingDmApproval || []);
-  const [loading, setLoading] = useState(false);
+  const [worksheets, setWorksheets] = useState([]);
+  const [pendingVerification, setPendingVerification] = useState([]);
+  const [pendingApproval, setPendingApproval] = useState([]);
+  const [pendingDmApproval, setPendingDmApproval] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedWorksheet, setSelectedWorksheet] = useState(null);
   const [selectedRows, setSelectedRows] = useState([]);
-  const [forms, setForms] = useState(worksheetsCache.forms || []);
-  const [teamForm, setTeamForm] = useState(worksheetsCache.teamForm);
-  const [myTeam, setMyTeam] = useState(worksheetsCache.myTeam);
+  const [forms, setForms] = useState([]);
+  const [teamForm, setTeamForm] = useState(null);
+  const [myTeam, setMyTeam] = useState(null);
   const [dateRange, setDateRange] = useState(null);
-  const fetchingRef = useRef(false);
   const [filteredWorksheets, setFilteredWorksheets] = useState([]);
-  const [totalHours, setTotalHours] = useState(0);  // Calculated total hours
-  const [editTotalHours, setEditTotalHours] = useState(0);  // For edit modal
+  const [totalHours, setTotalHours] = useState(0);
+  const [editTotalHours, setEditTotalHours] = useState(0);
   const [form] = Form.useForm();
   const [rejectForm] = Form.useForm();
   const [editForm] = Form.useForm();
   const { user, isAdmin, isOnlyAdmin, isManager, isTeamLead, isEmployee, isDeliveryManager } = useAuth();
 
-  // Register cache clearing callback on mount
   useEffect(() => {
-    const unregister = registerCacheCallback(() => {
-      clearWorksheetsCache();
-      setWorksheets([]);
-      setPendingVerification([]);
-      setPendingApproval([]);
-      setPendingDmApproval([]);
-      setForms([]);
-      setTeamForm(null);
-      setMyTeam(null);
-      setLoading(false);
-      fetchingRef.current = false;
-    });
-    return () => unregister();
-  }, []);
-
-  // Clear cache and reset state when user changes (different login) or logs out
-  useEffect(() => {
-    if (!user) {
-      // User logged out - clear cache
-      clearWorksheetsCache();
-      setWorksheets([]);
-      setPendingVerification([]);
-      setPendingApproval([]);
-      setPendingDmApproval([]);
-      setForms([]);
-      setTeamForm(null);
-      setMyTeam(null);
-      setLoading(false);
-      fetchingRef.current = false;
-    } else if (worksheetsCache.userId && worksheetsCache.userId !== user.id) {
-      // Different user logged in - clear cache and reset state
-      clearWorksheetsCache();
-      setWorksheets([]);
-      setPendingVerification([]);
-      setPendingApproval([]);
-      setPendingDmApproval([]);
-      setForms([]);
-      setTeamForm(null);
-      setMyTeam(null);
-      setLoading(false);
-      fetchingRef.current = false;
-    }
-  }, [user]);
-
-  useEffect(() => {
-    // Only fetch data when user is available
     if (!user) return;
 
-    // Use cached data if available for same user
-    if (worksheetsCache.userId === user.id && worksheetsCache.worksheets) {
-      setWorksheets(worksheetsCache.worksheets);
-      setPendingVerification(worksheetsCache.pendingVerification || []);
-      setPendingApproval(worksheetsCache.pendingApproval || []);
-      setPendingDmApproval(worksheetsCache.pendingDmApproval || []);
-      setForms(worksheetsCache.forms || []);
-      setTeamForm(worksheetsCache.teamForm);
-      setMyTeam(worksheetsCache.myTeam);
-    }
-
-    fetchWorksheets(!worksheetsCache.worksheets);
+    fetchWorksheets();
     if (isTeamLead()) {
       fetchPendingVerification();
     }
     if (isManager() || isOnlyAdmin()) {
       fetchPendingApproval();
     }
-    // Delivery Manager and Admin can see pending DM approval
     if (isDeliveryManager() || isAdmin()) {
       fetchPendingDmApproval();
     }
-    // Managers, Team Leads, and Employees can submit worksheets
     if (isEmployee() || isTeamLead() || isManager()) {
       fetchTeamAndForm();
     }
   }, [user]);
 
-  const fetchWorksheets = async (showLoading = false) => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-
+  const fetchWorksheets = async () => {
+    if (!user) return;
+    setLoading(true);
     try {
-      if (showLoading && !worksheetsCache.worksheets) setLoading(true);
-      // Only employees (Associates) get their own worksheets via getMyWorksheets
-      // Team Leads, Managers, and Admins use getWorksheets to see team/all worksheets
       const response = isEmployee()
         ? await worksheetService.getMyWorksheets({})
         : await worksheetService.getWorksheets({});
-      const data = response.data || [];
-      worksheetsCache.worksheets = data;
-      worksheetsCache.userId = user?.id;
-      setWorksheets(data);
+      setWorksheets(response.data || []);
     } catch (error) {
       console.error('Failed to fetch worksheets:', error);
       message.error('Failed to load worksheets');
-      if (!worksheetsCache.worksheets) setWorksheets([]);
+      setWorksheets([]);
     } finally {
       setLoading(false);
-      fetchingRef.current = false;
     }
   };
 
   const fetchPendingVerification = async () => {
     try {
       const response = await worksheetService.getPendingVerification();
-      const data = response.data || [];
-      worksheetsCache.pendingVerification = data;
-      setPendingVerification(data);
+      setPendingVerification(response.data || []);
     } catch (error) {
       console.error('Failed to fetch pending verification:', error);
-      if (!worksheetsCache.pendingVerification) setPendingVerification([]);
+      setPendingVerification([]);
     }
   };
 
   const fetchPendingApproval = async () => {
     try {
       const response = await worksheetService.getPendingApproval();
-      const data = response.data || [];
-      worksheetsCache.pendingApproval = data;
-      setPendingApproval(data);
+      setPendingApproval(response.data || []);
     } catch (error) {
       console.error('Failed to fetch pending approval:', error);
-      if (!worksheetsCache.pendingApproval) setPendingApproval([]);
+      setPendingApproval([]);
     }
   };
 
   const fetchPendingDmApproval = async () => {
     try {
       const response = await worksheetService.getPendingDmApproval();
-      const data = response.data || [];
-      worksheetsCache.pendingDmApproval = data;
-      setPendingDmApproval(data);
+      setPendingDmApproval(response.data || []);
     } catch (error) {
       console.error('Failed to fetch pending DM approval:', error);
-      if (!worksheetsCache.pendingDmApproval) setPendingDmApproval([]);
+      setPendingDmApproval([]);
     }
   };
 
   const fetchTeamAndForm = async () => {
     try {
-      // Get user's teams
       const teamsResponse = await teamService.getTeams({});
       const teams = teamsResponse.data || [];
 
       if (teams.length > 0) {
-        // For managers and team leads, prioritize teams where they are members
-        // (not teams they manage/lead) for worksheet submission
         let selectedTeam = teams[0];
 
         if ((isManager() || isTeamLead()) && user?.id) {
-          // Find team where user is in members array (not managing/leading)
           const memberTeam = teams.find(t => t.members && t.members.includes(user.id));
           if (memberTeam) {
             selectedTeam = memberTeam;
           }
         }
 
-        worksheetsCache.myTeam = selectedTeam;
         setMyTeam(selectedTeam);
 
-        // Get forms assigned to this team
         const formsResponse = await formService.getTeamForms(selectedTeam.id);
         const teamForms = formsResponse.data || [];
-        worksheetsCache.forms = teamForms;
         setForms(teamForms);
 
         if (teamForms.length > 0) {
-          worksheetsCache.teamForm = teamForms[0];
-          setTeamForm(teamForms[0]);  // Default form for the team
+          setTeamForm(teamForms[0]);
         }
       } else {
-        // Fallback: get all active forms if no team found
         const response = await formService.getForms({ is_active: true });
-        const data = response.data || [];
-        worksheetsCache.forms = data;
-        setForms(data);
+        setForms(response.data || []);
       }
     } catch (error) {
       console.error('Failed to fetch team/forms:', error);
-      if (!worksheetsCache.forms) setForms([]);
+      setForms([]);
     }
   };
 
