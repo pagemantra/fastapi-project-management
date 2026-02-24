@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Table, DatePicker, Space, Typography, Row, Col, Tag, Select, Button, Form, InputNumber, Switch, Modal, message } from 'antd';
 import { SettingOutlined } from '@ant-design/icons';
 import { attendanceService, teamService } from '../api/services';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 import TimeTracker from '../components/TimeTracker';
 import dayjs from '../utils/dayjs';
 
@@ -17,6 +17,14 @@ const attendanceCache = {
   userId: null
 };
 
+// Clear attendance cache function
+const clearAttendanceCache = () => {
+  attendanceCache.history = null;
+  attendanceCache.teams = null;
+  attendanceCache.dateKey = null;
+  attendanceCache.userId = null;
+};
+
 const Attendance = () => {
   const [history, setHistory] = useState(attendanceCache.history || []);
   const [loading, setLoading] = useState(false);
@@ -29,14 +37,30 @@ const Attendance = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
   const fetchingRef = useRef(false);
 
-  // Clear cache and reset state when user changes (different login)
+  // Register cache clearing callback on mount
   useEffect(() => {
-    if (user && attendanceCache.userId && attendanceCache.userId !== user.id) {
+    const unregister = registerCacheCallback(() => {
+      clearAttendanceCache();
+      setHistory([]);
+      setTeams([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache and reset state when user changes (different login) or logs out
+  useEffect(() => {
+    if (!user) {
+      // User logged out - clear cache
+      clearAttendanceCache();
+      setHistory([]);
+      setTeams([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    } else if (attendanceCache.userId && attendanceCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
-      attendanceCache.history = null;
-      attendanceCache.teams = null;
-      attendanceCache.dateKey = null;
-      attendanceCache.userId = null;
+      clearAttendanceCache();
       setHistory([]);
       setTeams([]);
       setLoading(false);

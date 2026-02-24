@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Statistic, Typography, Tag, Space } from 'antd';
 import { DesktopOutlined, PauseCircleOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { attendanceService } from '../api/services';
+import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Text } = Typography;
@@ -14,6 +15,7 @@ const LOCK_SLEEP_THRESHOLD_MS = 30000;
 const SESSION_POLL_INTERVAL_MS = 5000;
 
 const ScreenActiveTime = () => {
+  const { user } = useAuth();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
@@ -140,8 +142,25 @@ const ScreenActiveTime = () => {
     }
   }, [addInactiveTime, fetchCurrentSession, calculateScreenActiveTime]);
 
-  // Setup visibility listener and session polling
+  // Setup visibility listener and session polling - reset when user changes
   useEffect(() => {
+    if (!user) {
+      // User logged out - reset all state
+      setSession(null);
+      setLoading(false);
+      setScreenActiveSeconds(0);
+      setTimerStatus('not_clocked_in');
+      setLastLockSleepSkipped(0);
+      sessionRef.current = null;
+      return;
+    }
+
+    // User changed or logged in - reset and fetch fresh session
+    setLoading(true);
+    setSession(null);
+    setScreenActiveSeconds(0);
+    setTimerStatus('not_clocked_in');
+    sessionRef.current = null;
     fetchCurrentSession();
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -157,7 +176,7 @@ const ScreenActiveTime = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(sessionPollInterval);
     };
-  }, [fetchCurrentSession, handleVisibilityChange]);
+  }, [user, fetchCurrentSession, handleVisibilityChange]);
 
   // Timer that updates display every second
   useEffect(() => {

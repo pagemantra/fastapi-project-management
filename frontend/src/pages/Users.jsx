@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { userService, teamService } from '../api/services';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -15,6 +15,13 @@ const usersCache = {
   users: null,
   managers: null,
   teamLeads: null
+};
+
+// Clear users cache function
+const clearUsersCache = () => {
+  usersCache.users = null;
+  usersCache.managers = null;
+  usersCache.teamLeads = null;
 };
 
 const Users = () => {
@@ -27,6 +34,31 @@ const Users = () => {
   const [form] = Form.useForm();
   const { user: currentUser, isAdmin, isManager } = useAuth();
   const fetchingRef = useRef(false);
+
+  // Register cache clearing callback on mount
+  useEffect(() => {
+    const unregister = registerCacheCallback(() => {
+      clearUsersCache();
+      setUsers([]);
+      setManagers([]);
+      setTeamLeads([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache when user logs out
+  useEffect(() => {
+    if (!currentUser) {
+      clearUsersCache();
+      setUsers([]);
+      setManagers([]);
+      setTeamLeads([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [currentUser]);
 
   const fetchUsers = useCallback(async (showLoading = false) => {
     if (fetchingRef.current) return;

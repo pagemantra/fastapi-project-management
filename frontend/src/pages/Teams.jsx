@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, TeamOutlined, UserAddOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { teamService, userService } from '../api/services';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -16,6 +16,14 @@ const teamsCache = {
   managers: null,
   teamLeads: null,
   employees: null
+};
+
+// Clear teams cache function
+const clearTeamsCache = () => {
+  teamsCache.teams = null;
+  teamsCache.managers = null;
+  teamsCache.teamLeads = null;
+  teamsCache.employees = null;
 };
 
 const Teams = () => {
@@ -30,8 +38,35 @@ const Teams = () => {
   const [employees, setEmployees] = useState(teamsCache.employees || []);
   const [form] = Form.useForm();
   const [memberForm] = Form.useForm();
-  const { isAdmin, isManager } = useAuth();
+  const { user, isAdmin, isManager } = useAuth();
   const fetchingRef = useRef(false);
+
+  // Register cache clearing callback on mount
+  useEffect(() => {
+    const unregister = registerCacheCallback(() => {
+      clearTeamsCache();
+      setTeams([]);
+      setManagers([]);
+      setTeamLeads([]);
+      setEmployees([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache when user logs out
+  useEffect(() => {
+    if (!user) {
+      clearTeamsCache();
+      setTeams([]);
+      setManagers([]);
+      setTeamLeads([]);
+      setEmployees([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [user]);
 
   const fetchTeams = useCallback(async (showLoading = false) => {
     if (fetchingRef.current) return;

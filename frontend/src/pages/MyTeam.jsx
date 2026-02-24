@@ -8,7 +8,7 @@ import {
   FileTextOutlined
 } from '@ant-design/icons';
 import { userService, taskService, worksheetService, attendanceService } from '../api/services';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import dayjs from '../utils/dayjs';
 
@@ -23,6 +23,15 @@ const teamCache = {
   userId: null
 };
 
+// Clear team cache function
+const clearTeamCache = () => {
+  teamCache.members = null;
+  teamCache.tasks = null;
+  teamCache.worksheets = null;
+  teamCache.attendance = null;
+  teamCache.userId = null;
+};
+
 const MyTeam = () => {
   const [teamMembers, setTeamMembers] = useState(teamCache.members || []);
   const [teamTasks, setTeamTasks] = useState(teamCache.tasks || []);
@@ -33,15 +42,34 @@ const MyTeam = () => {
   const navigate = useNavigate();
   const fetchingRef = useRef(false);
 
-  // Clear cache and reset state when user changes (different login)
+  // Register cache clearing callback on mount
   useEffect(() => {
-    if (user && teamCache.userId && teamCache.userId !== user.id) {
+    const unregister = registerCacheCallback(() => {
+      clearTeamCache();
+      setTeamMembers([]);
+      setTeamTasks([]);
+      setPendingWorksheets([]);
+      setTeamAttendance([]);
+      setInitialLoad(true);
+      fetchingRef.current = false;
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache and reset state when user changes (different login) or logs out
+  useEffect(() => {
+    if (!user) {
+      // User logged out - clear cache
+      clearTeamCache();
+      setTeamMembers([]);
+      setTeamTasks([]);
+      setPendingWorksheets([]);
+      setTeamAttendance([]);
+      setInitialLoad(true);
+      fetchingRef.current = false;
+    } else if (teamCache.userId && teamCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
-      teamCache.members = null;
-      teamCache.tasks = null;
-      teamCache.worksheets = null;
-      teamCache.attendance = null;
-      teamCache.userId = null;
+      clearTeamCache();
       setTeamMembers([]);
       setTeamTasks([]);
       setPendingWorksheets([]);

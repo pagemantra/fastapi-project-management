@@ -29,11 +29,18 @@ const MainLayout = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
 
+  // Reset and refetch notifications when user changes
   useEffect(() => {
+    if (!user) {
+      setUnreadCount(0);
+      return;
+    }
+
+    // Fetch immediately when user changes
     fetchNotificationCount();
     const interval = setInterval(fetchNotificationCount, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   const fetchNotificationCount = async () => {
     try {

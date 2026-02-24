@@ -8,7 +8,7 @@ import {
   ArrowUpOutlined, ArrowDownOutlined, ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { formService, teamService } from '../api/services';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
@@ -34,6 +34,12 @@ const formsCache = {
   teams: null
 };
 
+// Clear forms cache function
+const clearFormsCache = () => {
+  formsCache.forms = null;
+  formsCache.teams = null;
+};
+
 const Forms = () => {
   const [forms, setForms] = useState(formsCache.forms || []);
   const [teams, setTeams] = useState(formsCache.teams || []);
@@ -42,8 +48,31 @@ const Forms = () => {
   const [editingForm, setEditingForm] = useState(null);
   const [fields, setFields] = useState([]);
   const [form] = Form.useForm();
-  const { isAdmin, isManager } = useAuth();
+  const { user, isAdmin, isManager } = useAuth();
   const fetchingRef = useRef(false);
+
+  // Register cache clearing callback on mount
+  useEffect(() => {
+    const unregister = registerCacheCallback(() => {
+      clearFormsCache();
+      setForms([]);
+      setTeams([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache when user logs out
+  useEffect(() => {
+    if (!user) {
+      clearFormsCache();
+      setForms([]);
+      setTeams([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [user]);
 
   const fetchForms = useCallback(async (showLoading = false) => {
     if (fetchingRef.current) return;

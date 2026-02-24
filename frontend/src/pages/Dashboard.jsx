@@ -8,7 +8,7 @@ import {
   UserOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 import { taskService, worksheetService, attendanceService, userService } from '../api/services';
 import { useNavigate } from 'react-router-dom';
 import TimeTracker from '../components/TimeTracker';
@@ -24,6 +24,15 @@ const dashboardCache = {
   userId: null
 };
 
+// Clear dashboard cache function
+const clearDashboardCache = () => {
+  dashboardCache.stats = null;
+  dashboardCache.recentTasks = null;
+  dashboardCache.pendingWorksheets = null;
+  dashboardCache.teamStats = null;
+  dashboardCache.userId = null;
+};
+
 const Dashboard = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
   const [stats, setStats] = useState(dashboardCache.stats || {});
@@ -34,15 +43,34 @@ const Dashboard = () => {
   const fetchingRef = useRef(false);
   const navigate = useNavigate();
 
-  // Clear cache and reset state when user changes (different login)
+  // Register cache clearing callback on mount
   useEffect(() => {
-    if (user && dashboardCache.userId && dashboardCache.userId !== user.id) {
+    const unregister = registerCacheCallback(() => {
+      clearDashboardCache();
+      setStats({});
+      setRecentTasks([]);
+      setPendingWorksheets([]);
+      setTeamStats({ teamMembers: 0, loggedInToday: 0 });
+      setInitialLoad(true);
+      fetchingRef.current = false;
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache and reset state when user changes (different login) or logs out
+  useEffect(() => {
+    if (!user) {
+      // User logged out - clear cache
+      clearDashboardCache();
+      setStats({});
+      setRecentTasks([]);
+      setPendingWorksheets([]);
+      setTeamStats({ teamMembers: 0, loggedInToday: 0 });
+      setInitialLoad(true);
+      fetchingRef.current = false;
+    } else if (dashboardCache.userId && dashboardCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
-      dashboardCache.stats = null;
-      dashboardCache.recentTasks = null;
-      dashboardCache.pendingWorksheets = null;
-      dashboardCache.teamStats = null;
-      dashboardCache.userId = null;
+      clearDashboardCache();
       setStats({});
       setRecentTasks([]);
       setPendingWorksheets([]);

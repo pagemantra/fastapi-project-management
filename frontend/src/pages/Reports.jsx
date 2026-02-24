@@ -8,7 +8,7 @@ import { DownloadOutlined, TeamOutlined, UserOutlined, CheckCircleOutlined, Pict
 const { RangePicker } = DatePicker;
 import { Column, Pie } from '@ant-design/charts';
 import { reportService } from '../api/services';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
@@ -25,6 +25,18 @@ const dataCache = {
   worksheets: null,
   team: null,
   lastParams: null
+};
+
+// Clear data cache function
+const clearDataCache = () => {
+  dataCache.productivity = null;
+  dataCache.projects = null;
+  dataCache.managerMembers = null;
+  dataCache.attendance = null;
+  dataCache.overtime = null;
+  dataCache.worksheets = null;
+  dataCache.team = null;
+  dataCache.lastParams = null;
 };
 
 const Reports = () => {
@@ -48,7 +60,40 @@ const Reports = () => {
   const [selectedProjectMember, setSelectedProjectMember] = useState({});
   const [initialLoading, setInitialLoading] = useState(!dataCache.productivity);
   const fetchingRef = useRef({});
-  useAuth();
+  const { user } = useAuth();
+
+  // Register cache clearing callback on mount
+  useEffect(() => {
+    const unregister = registerCacheCallback(() => {
+      clearDataCache();
+      setProductivityData([]);
+      setAttendanceData([]);
+      setOvertimeData([]);
+      setWorksheetAnalytics(null);
+      setTeamPerformance([]);
+      setProjectsData([]);
+      setManagerMembers({ managers: [], data: [] });
+      setInitialLoading(true);
+      fetchingRef.current = {};
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache when user logs out
+  useEffect(() => {
+    if (!user) {
+      clearDataCache();
+      setProductivityData([]);
+      setAttendanceData([]);
+      setOvertimeData([]);
+      setWorksheetAnalytics(null);
+      setTeamPerformance([]);
+      setProjectsData([]);
+      setManagerMembers({ managers: [], data: [] });
+      setInitialLoading(true);
+      fetchingRef.current = {};
+    }
+  }, [user]);
 
   const getParams = useCallback(() => ({
     start_date: dateRange[0].format('YYYY-MM-DD'),

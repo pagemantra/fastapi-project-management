@@ -1,8 +1,28 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authService } from '../api/services';
 import { message, Spin } from 'antd';
 
 const AuthContext = createContext(null);
+
+// Global cache clearing callbacks registry
+const cacheCallbacks = new Set();
+
+// Register a callback to be called when user logs out or changes
+export const registerCacheCallback = (callback) => {
+  cacheCallbacks.add(callback);
+  return () => cacheCallbacks.delete(callback);
+};
+
+// Clear all registered caches
+const clearAllCaches = () => {
+  cacheCallbacks.forEach(callback => {
+    try {
+      callback();
+    } catch (e) {
+      console.error('Error clearing cache:', e);
+    }
+  });
+};
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -56,12 +76,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
+    // Clear all caches before logging out
+    clearAllCaches();
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
     message.success('Logged out successfully');
-  };
+  }, []);
 
   const isAdmin = () => user?.role === 'admin' || user?.role === 'delivery_manager';
   const isDeliveryManager = () => user?.role === 'delivery_manager';

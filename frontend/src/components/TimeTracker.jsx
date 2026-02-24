@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../api/services';
+import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Text } = Typography;
@@ -27,6 +28,7 @@ const SCREEN_LOCK_THRESHOLD = 30000;
 
 const TimeTracker = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -352,9 +354,28 @@ const TimeTracker = () => {
     };
   }, []);
 
+  // Reset and refetch session when user changes
   useEffect(() => {
+    if (!user) {
+      // User logged out - reset all state
+      setSession(null);
+      setLoading(false);
+      setElapsedTime(0);
+      setHeartbeatActive(false);
+      setIsUserActive(true);
+      setIsScreenLocked(false);
+      setIdleState('active');
+      sessionRef.current = null;
+      return;
+    }
+
+    // User changed or logged in - reset and fetch fresh session
+    setLoading(true);
+    setSession(null);
+    setElapsedTime(0);
+    sessionRef.current = null;
     fetchCurrentSession();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     let interval;

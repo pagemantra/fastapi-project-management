@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { taskService, userService } from '../api/services';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth, registerCacheCallback } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
@@ -19,6 +19,13 @@ const tasksCache = {
   userId: null
 };
 
+// Clear tasks cache function
+const clearTasksCache = () => {
+  tasksCache.tasks = null;
+  tasksCache.employees = null;
+  tasksCache.userId = null;
+};
+
 const Tasks = () => {
   const [tasks, setTasks] = useState(tasksCache.tasks || []);
   const [loading, setLoading] = useState(false);
@@ -29,13 +36,30 @@ const Tasks = () => {
   const { user, isAdmin, isManager, isTeamLead, isEmployee } = useAuth();
   const fetchingRef = useRef(false);
 
-  // Clear cache and reset state when user changes (different login)
+  // Register cache clearing callback on mount
   useEffect(() => {
-    if (user && tasksCache.userId && tasksCache.userId !== user.id) {
+    const unregister = registerCacheCallback(() => {
+      clearTasksCache();
+      setTasks([]);
+      setEmployees([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    });
+    return () => unregister();
+  }, []);
+
+  // Clear cache and reset state when user changes (different login) or logs out
+  useEffect(() => {
+    if (!user) {
+      // User logged out - clear cache
+      clearTasksCache();
+      setTasks([]);
+      setEmployees([]);
+      setLoading(false);
+      fetchingRef.current = false;
+    } else if (tasksCache.userId && tasksCache.userId !== user.id) {
       // Different user logged in - clear cache and reset state
-      tasksCache.tasks = null;
-      tasksCache.employees = null;
-      tasksCache.userId = null;
+      clearTasksCache();
       setTasks([]);
       setEmployees([]);
       setLoading(false);
