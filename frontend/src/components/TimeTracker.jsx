@@ -95,6 +95,19 @@ const TimeTracker = () => {
     }
   }, []);
 
+  // Fetch current session - defined early so it can be used by other effects
+  const fetchCurrentSession = useCallback(async () => {
+    try {
+      const response = await attendanceService.getCurrentSession();
+      setSession(response.data);
+    } catch (error) {
+      console.error('Failed to fetch session:', error);
+      message.error('Failed to load attendance session');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Initialize Idle Detection API (Chrome 94+) - only when session is active
   useEffect(() => {
     // Only initialize when we have an active session
@@ -495,18 +508,6 @@ const TimeTracker = () => {
       if (interval) clearInterval(interval);
     };
   }, [session]);
-
-  const fetchCurrentSession = useCallback(async () => {
-    try {
-      const response = await attendanceService.getCurrentSession();
-      setSession(response.data);
-    } catch (error) {
-      console.error('Failed to fetch session:', error);
-      message.error('Failed to load attendance session');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   const handleClockIn = async () => {
     setActionLoading(true);
