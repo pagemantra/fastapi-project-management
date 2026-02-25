@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Table, DatePicker, Space, Typography, Row, Col, Tag, Select, Button, Form, InputNumber, Switch, Modal, message } from 'antd';
-import { SettingOutlined } from '@ant-design/icons';
+import { SettingOutlined, SyncOutlined } from '@ant-design/icons';
 import { attendanceService, teamService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import TimeTracker from '../components/TimeTracker';
@@ -8,6 +8,9 @@ import dayjs from '../utils/dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
+
+// Auto-refresh interval for attendance history (10 seconds)
+const HISTORY_REFRESH_INTERVAL = 10000;
 
 const Attendance = () => {
   const [history, setHistory] = useState([]);
@@ -18,13 +21,18 @@ const Attendance = () => {
   const [breakSettings, setBreakSettings] = useState(null);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [form] = Form.useForm();
-  const { user, isAdmin, isManager, isTeamLead, isEmployee, dataVersion } = useAuth();
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
+  const { user, isAdmin, isManager, isEmployee, dataVersion } = useAuth();
+  const refreshIntervalRef = useRef(null);
 
-  const fetchHistory = useCallback(async () => {
+  // Fetch history with optional silent mode (no loading state)
+  const fetchHistory = useCallback(async (silent = false) => {
     if (!dateRange || !dateRange[0] || !dateRange[1]) return;
     if (!user) return;
 
-    setLoading(true);
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const params = {
         start_date: dateRange[0].format('YYYY-MM-DD'),
@@ -32,10 +40,14 @@ const Attendance = () => {
       };
       const response = await attendanceService.getHistory(params);
       setHistory(response.data || []);
-    } catch (error) {
-      setHistory([]);
+    } catch {
+      if (!silent) {
+        setHistory([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [dateRange, user]);
 
@@ -61,6 +73,24 @@ const Attendance = () => {
     if (isAdmin() || isManager()) {
       fetchTeams();
     }
+
+    // Setup auto-refresh for attendance history
+    // This ensures the table data stays current (screen active time, break time, etc.)
+    refreshIntervalRef.current = setInterval(() => {
+      if (!document.hidden) {
+        setIsAutoRefreshing(true);
+        fetchHistory(true).finally(() => {
+          setIsAutoRefreshing(false);
+        });
+      }
+    }, HISTORY_REFRESH_INTERVAL);
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    };
   }, [user?.id, dataVersion, dateRange, fetchHistory, fetchTeams, isAdmin, isManager]);
 
   const fetchBreakSettings = async (teamId) => {
@@ -224,15 +254,16 @@ const Attendance = () => {
       },
     },
     {
-      title: 'Inactive Time',
+      title: 'Lock/Sleep Time',
       dataIndex: 'inactive_seconds',
       key: 'inactive_seconds',
       render: (seconds) => {
         if (!seconds && seconds !== 0) return '-';
+        if (seconds === 0) return <Text type="secondary">0m</Text>;
         const hours = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
         return (
-          <Text type={seconds > 0 ? 'warning' : 'secondary'}>
+          <Text type="warning">
             {hours > 0 ? `${hours}h ${mins}m` : `${mins}m`}
           </Text>
         );
@@ -328,7 +359,17 @@ const Attendance = () => {
         </Row>
       </Card>
 
-      <Card title="Attendance History">
+      <Card
+        title={
+          <Space>
+            <span>Attendance History</span>
+            {isAutoRefreshing && <SyncOutlined spin style={{ color: '#1890ff', fontSize: '14px' }} />}
+            <Text type="secondary" style={{ fontSize: '12px', fontWeight: 'normal' }}>
+              (Auto-refreshes every 10s)
+            </Text>
+          </Space>
+        }
+      >
         <Table
           dataSource={history}
           columns={columns}

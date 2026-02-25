@@ -7,10 +7,6 @@ import dayjs from '../utils/dayjs';
 
 const { Text } = Typography;
 
-// Threshold for detecting lock/sleep (in milliseconds)
-// If hidden for more than 30 seconds, treat as lock/sleep
-const LOCK_SLEEP_THRESHOLD_MS = 30000;
-
 // Poll session every 5 seconds to stay in sync
 const SESSION_POLL_INTERVAL_MS = 5000;
 
@@ -20,16 +16,15 @@ const ScreenActiveTime = () => {
   const [loading, setLoading] = useState(true);
   const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
   const [timerStatus, setTimerStatus] = useState('not_clocked_in'); // running, on_break, completed, not_clocked_in
-  const [lastLockSleepSkipped, setLastLockSleepSkipped] = useState(0);
 
   // Refs
   const sessionRef = useRef(null);
   const intervalRef = useRef(null);
-  const pageHiddenTimeRef = useRef(null);
-  const inactiveSecondsAtHideRef = useRef(0); // inactive_seconds when page was hidden
 
   // Calculate screen active time based on server data
-  // Formula: (now - login_time) - break_minutes - inactive_seconds
+  // Formula: (now - login_time) - break_minutes - inactive_seconds (from screen lock/sleep)
+  // Time runs continuously until clock out
+  // Pauses ONLY for: breaks (explicit) and screen lock/sleep (detected by client)
   const calculateScreenActiveTime = useCallback((sessionData) => {
     if (!sessionData || !sessionData.login_time) {
       return 0;
@@ -42,13 +37,27 @@ const ScreenActiveTime = () => {
     // Total elapsed seconds since login
     const totalElapsedSeconds = Math.floor((nowMs - loginTimeMs) / 1000);
 
-    // Break time in seconds
-    const breakSeconds = (sessionData.total_break_minutes || 0) * 60;
+    // Break time in seconds - calculate from breaks array for accuracy
+    let breakSeconds = 0;
+    if (sessionData.breaks && Array.isArray(sessionData.breaks)) {
+      sessionData.breaks.forEach(b => {
+        if (b.duration_minutes && b.duration_minutes > 0) {
+          breakSeconds += Math.round(b.duration_minutes * 60);
+        } else if (b.start_time && !b.end_time) {
+          // Ongoing break - calculate duration
+          const breakStartMs = new Date(b.start_time).getTime();
+          breakSeconds += Math.floor((nowMs - breakStartMs) / 1000);
+        }
+      });
+    } else {
+      // Fallback to total_break_minutes
+      breakSeconds = (sessionData.total_break_minutes || 0) * 60;
+    }
 
-    // Inactive time (lock/sleep) in seconds
+    // Inactive time from screen lock/sleep (detected by client)
     const inactiveSeconds = sessionData.inactive_seconds || 0;
 
-    // Screen active = elapsed - breaks - inactive
+    // Screen active = elapsed - breaks - inactive (screen lock/sleep)
     const activeSeconds = Math.max(0, totalElapsedSeconds - breakSeconds - inactiveSeconds);
 
     return activeSeconds;
@@ -87,60 +96,25 @@ const ScreenActiveTime = () => {
     }
   }, [calculateScreenActiveTime]);
 
-  // Add inactive time to server when lock/sleep detected
-  const addInactiveTime = useCallback(async (seconds) => {
-    if (!sessionRef.current || seconds <= 0) return;
-
-    try {
-      await attendanceService.addInactiveTime({ inactive_seconds_to_add: seconds });
-      console.log(`Added ${seconds}s inactive time to server`);
-      // Refresh session to get updated values
-      await fetchCurrentSession(true);
-    } catch (error) {
-      console.error('Failed to add inactive time:', error);
-    }
-  }, [fetchCurrentSession]);
-
-  // Handle visibility change - detect lock/sleep
+  // Handle visibility change - refresh session when page becomes visible
+  // Time continues running regardless of tab visibility
   const handleVisibilityChange = useCallback(() => {
     const isVisible = !document.hidden;
-    const now = Date.now();
 
-    if (!isVisible) {
-      // Page became hidden - record the time
-      pageHiddenTimeRef.current = now;
-      inactiveSecondsAtHideRef.current = sessionRef.current?.inactive_seconds || 0;
-      console.log('Screen Active Time: Page hidden');
-    } else {
-      // Page became visible again
-      if (pageHiddenTimeRef.current) {
-        const hiddenDuration = now - pageHiddenTimeRef.current;
-        const hiddenSeconds = Math.round(hiddenDuration / 1000);
+    if (isVisible) {
+      // Page became visible - refresh session to get latest data
+      console.log('Screen Active Time: Page visible - refreshing session');
 
-        if (hiddenDuration > LOCK_SLEEP_THRESHOLD_MS) {
-          // Lock/sleep detected - add this time as inactive
-          console.log(`Screen Active Time: Lock/sleep detected (${hiddenSeconds}s) - adding to inactive time`);
-          setLastLockSleepSkipped(hiddenSeconds);
-          addInactiveTime(hiddenSeconds);
-        } else {
-          // Tab switch - time continues normally (already counted in elapsed)
-          console.log(`Screen Active Time: Tab switch (${hiddenSeconds}s) - time continues`);
-          setLastLockSleepSkipped(0);
-
-          // Immediately update the displayed time (don't wait for interval)
-          if (sessionRef.current && sessionRef.current.status === 'active') {
-            const activeSeconds = calculateScreenActiveTime(sessionRef.current);
-            setScreenActiveSeconds(activeSeconds);
-          }
-        }
+      // Immediately update the displayed time
+      if (sessionRef.current && sessionRef.current.status === 'active') {
+        const activeSeconds = calculateScreenActiveTime(sessionRef.current);
+        setScreenActiveSeconds(activeSeconds);
       }
 
-      pageHiddenTimeRef.current = null;
-
-      // Refresh session to get latest data
+      // Refresh session to get latest data from server
       fetchCurrentSession(true);
     }
-  }, [addInactiveTime, fetchCurrentSession, calculateScreenActiveTime]);
+  }, [fetchCurrentSession, calculateScreenActiveTime]);
 
   // Setup visibility listener and session polling - reset when user changes
   useEffect(() => {
@@ -150,7 +124,6 @@ const ScreenActiveTime = () => {
       setLoading(false);
       setScreenActiveSeconds(0);
       setTimerStatus('not_clocked_in');
-      setLastLockSleepSkipped(0);
       sessionRef.current = null;
       return;
     }
@@ -217,36 +190,6 @@ const ScreenActiveTime = () => {
     };
   }, [session, calculateScreenActiveTime]);
 
-  // Handle page unload - try to save any pending inactive time
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      // If page was hidden when closing, the hidden time becomes inactive
-      if (pageHiddenTimeRef.current && sessionRef.current) {
-        const hiddenDuration = Date.now() - pageHiddenTimeRef.current;
-        if (hiddenDuration > LOCK_SLEEP_THRESHOLD_MS) {
-          const hiddenSeconds = Math.round(hiddenDuration / 1000);
-          // Use synchronous XHR for beforeunload
-          try {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', '/api/attendance/inactive-time', false);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            const token = localStorage.getItem('token');
-            if (token) {
-              xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-            }
-            xhr.send(JSON.stringify({ inactive_seconds_to_add: hiddenSeconds }));
-          } catch (e) {
-            console.error('Failed to save inactive time on unload:', e);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
 
   const formatTime = (seconds) => {
     const hrs = Math.floor(seconds / 3600);
@@ -298,13 +241,8 @@ const ScreenActiveTime = () => {
   };
 
   const getStatusMessage = () => {
-    if (lastLockSleepSkipped > 0) {
-      const mins = Math.floor(lastLockSleepSkipped / 60);
-      const secs = lastLockSleepSkipped % 60;
-      return `Resumed - paused ${mins > 0 ? mins + 'm ' : ''}${secs}s (lock/sleep)`;
-    }
     switch (timerStatus) {
-      case 'running': return 'Timer runs continuously, pauses only on break/lock/sleep';
+      case 'running': return 'Timer runs until clock out (pauses on break or screen lock/sleep)';
       case 'on_break': return 'Timer paused - you are on break';
       case 'completed': return 'Session ended';
       default: return '';
@@ -336,7 +274,7 @@ const ScreenActiveTime = () => {
           </Tag>
         }
       />
-      {(isSessionActive || lastLockSleepSkipped > 0) && (
+      {isSessionActive && (
         <Text
           type="secondary"
           style={{ fontSize: '12px', marginTop: 8, display: 'block' }}

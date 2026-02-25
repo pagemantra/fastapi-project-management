@@ -324,8 +324,10 @@ function formatSessionWithCalculatedHours(session) {
     overtimeHours = calculated.overtimeHours;
   }
 
-  // Calculate screen active time using the hybrid approach:
-  // screen_active = (end_time - login_time) - break_time - inactive_time
+  // Calculate screen active time:
+  // screen_active = (end_time - login_time) - break_time - inactive_time (screen lock/sleep)
+  // Time runs continuously until clock out
+  // Pauses ONLY for: breaks (explicit) and screen lock/sleep (detected by client)
   let screenActiveSeconds = session.screen_active_seconds || 0;
   const inactiveSeconds = session.inactive_seconds || 0;
 
@@ -334,7 +336,7 @@ function formatSessionWithCalculatedHours(session) {
     const totalElapsedSeconds = Math.round((new Date(endTime) - new Date(session.login_time)) / 1000);
     const breakSeconds = totalBreakMinutes * 60;
 
-    // Calculate based on elapsed time minus breaks and inactive time
+    // Calculate based on elapsed time minus breaks and inactive time (screen lock/sleep only)
     const calculatedActive = Math.max(0, totalElapsedSeconds - breakSeconds - inactiveSeconds);
 
     // Use the calculated value (more accurate than client-tracked)
@@ -2437,15 +2439,13 @@ app.post('/attendance/inactive-time', authenticate, async (req, res) => {
   }
 });
 
-// POST /attendance/heartbeat - Receive heartbeat from PWA for screen time tracking
-// Heartbeats are expected every 10 seconds
-// is_active: true = user has mouse/keyboard activity, false = idle (no activity for 40s+)
-// Gap detection: If no heartbeat for > 30 seconds, that time is considered inactive (lock/sleep)
-const HEARTBEAT_GAP_THRESHOLD_SECONDS = 30;
-
+// POST /attendance/heartbeat - Receive heartbeat from PWA to keep session alive
+// Time runs continuously from login until clock out
+// Pauses ONLY for: breaks (explicit) and screen lock/sleep (detected by client)
+// Tab switch or app close does NOT pause the timer
 app.post('/attendance/heartbeat', authenticate, async (req, res) => {
   try {
-    const { timestamp, is_active, is_closing } = req.body;
+    const { timestamp, screen_locked } = req.body;
     const db = getDatabase();
     const userId = req.user._id.toString();
     const today = moment.tz(IST).format('YYYY-MM-DD');
@@ -2461,38 +2461,24 @@ app.post('/attendance/heartbeat', authenticate, async (req, res) => {
       return res.status(400).json({ detail: 'No active session found' });
     }
 
-    // Get the last heartbeat time
+    // Get the last heartbeat time and lock status
     const lastHeartbeat = session.last_heartbeat || session.login_time;
     const lastHeartbeatTime = new Date(lastHeartbeat).getTime();
     const currentTime = now.getTime();
     const gapSeconds = Math.floor((currentTime - lastHeartbeatTime) / 1000);
+    const wasScreenLocked = session.last_screen_locked || false;
 
     // Initialize heartbeat tracking fields if not present
     let totalHeartbeats = session.total_heartbeats || 0;
-    let screenActiveSeconds = session.screen_active_seconds || 0;
     let inactiveSeconds = session.inactive_seconds || 0;
-
-    // Determine if time should be counted as active or inactive
-    const userIsActive = is_active !== false; // Default to true if not specified
-
-    // Check for large gap (lock/sleep/app was closed)
-    if (gapSeconds > HEARTBEAT_GAP_THRESHOLD_SECONDS) {
-      // Large gap = device was locked/sleeping/app closed - add ALL gap time as inactive
-      inactiveSeconds += gapSeconds;
-      console.log(`[Heartbeat] LOCK/SLEEP gap for ${userId}: ${gapSeconds}s added to inactive`);
-    } else if (gapSeconds > 0 && session.status === 'active') {
-      // Normal heartbeat interval
-      if (userIsActive) {
-        // User has mouse/keyboard activity - count as screen active time
-        screenActiveSeconds += gapSeconds;
-      } else {
-        // User is idle (no mouse movement for 40s+) - count as inactive
-        inactiveSeconds += gapSeconds;
-        console.log(`[Heartbeat] IDLE (no cursor) for ${userId}: ${gapSeconds}s added to inactive`);
-      }
-    }
-
     totalHeartbeats += 1;
+
+    // Track inactive time ONLY when screen is locked
+    // If screen was locked in the previous heartbeat and still locked, add the gap as inactive
+    if (wasScreenLocked && gapSeconds > 0) {
+      inactiveSeconds += gapSeconds;
+      console.log(`[Heartbeat] Screen locked for ${userId}: ${gapSeconds}s added to inactive (total: ${inactiveSeconds}s)`);
+    }
 
     // Update session with heartbeat data
     await db.collection('time_sessions').updateOne(
@@ -2501,9 +2487,8 @@ app.post('/attendance/heartbeat', authenticate, async (req, res) => {
         $set: {
           last_heartbeat: now,
           total_heartbeats: totalHeartbeats,
-          screen_active_seconds: screenActiveSeconds,
           inactive_seconds: inactiveSeconds,
-          last_user_active: userIsActive,
+          last_screen_locked: screen_locked || false,
           updated_at: now
         }
       }
@@ -2512,10 +2497,8 @@ app.post('/attendance/heartbeat', authenticate, async (req, res) => {
     res.json({
       success: true,
       heartbeat_count: totalHeartbeats,
-      screen_active_seconds: screenActiveSeconds,
       inactive_seconds: inactiveSeconds,
-      is_user_active: userIsActive,
-      gap_detected: gapSeconds > HEARTBEAT_GAP_THRESHOLD_SECONDS
+      screen_locked: screen_locked || false
     });
   } catch (error) {
     console.error('Heartbeat error:', error);
