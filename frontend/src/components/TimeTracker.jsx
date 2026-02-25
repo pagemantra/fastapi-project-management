@@ -139,7 +139,11 @@ const TimeTracker = () => {
               // Send the lock duration to the server
               if (lockDuration > 0 && sessionRef.current?.status === 'active') {
                 attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration })
-                  .then(() => console.log('[IdleDetector] Added', lockDuration, 's inactive time'))
+                  .then(() => {
+                    console.log('[IdleDetector] Added', lockDuration, 's inactive time');
+                    // Refresh session to get updated inactive_seconds
+                    fetchCurrentSession();
+                  })
                   .catch(err => console.error('[IdleDetector] Failed to add inactive time:', err));
               }
               screenLockStartRef.current = null;
@@ -272,12 +276,16 @@ const TimeTracker = () => {
         if (!idleDetectorRef.current && screenLockStartRef.current) {
           // Fallback: calculate lock duration when page becomes visible
           const lockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
-          console.log('[Visibility] Page visible after lock - duration:', lockDuration, 'seconds');
+          console.log('[Visibility] Page visible after hidden - duration:', lockDuration, 'seconds');
 
           if (lockDuration > 30 && sessionRef.current?.status === 'active') {
-            // Likely was a lock/sleep (not just a tab switch)
+            // Likely was a lock/sleep (hidden for > 30 seconds)
             attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration })
-              .then(() => console.log('[Visibility] Added', lockDuration, 's inactive time'))
+              .then(() => {
+                console.log('[Visibility] Added', lockDuration, 's inactive time');
+                // Refresh session to get updated inactive_seconds
+                fetchCurrentSession();
+              })
               .catch(err => console.error('[Visibility] Failed to add inactive time:', err));
           }
           screenLockStartRef.current = null;
@@ -406,7 +414,11 @@ const TimeTracker = () => {
             });
           }
 
-          const elapsed = Math.max(0, totalSeconds - breakSeconds);
+          // Get inactive seconds (lock/sleep time) from session
+          const inactiveSeconds = session.inactive_seconds || 0;
+
+          // Work time = total elapsed - breaks - inactive (lock/sleep)
+          const elapsed = Math.max(0, totalSeconds - breakSeconds - inactiveSeconds);
           setElapsedTime(elapsed);
           setCurrentSystemTime(now);
         } catch (error) {
@@ -432,7 +444,7 @@ const TimeTracker = () => {
     };
   }, [session]);
 
-  const fetchCurrentSession = async () => {
+  const fetchCurrentSession = useCallback(async () => {
     try {
       const response = await attendanceService.getCurrentSession();
       setSession(response.data);
@@ -442,7 +454,7 @@ const TimeTracker = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleClockIn = async () => {
     setActionLoading(true);
