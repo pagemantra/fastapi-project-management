@@ -19,6 +19,9 @@ const { TextArea } = Input;
 // Heartbeat interval - 10 seconds (keeps session alive)
 const HEARTBEAT_INTERVAL = 10000;
 
+// Screen lock detection threshold - if page is hidden for more than this, consider it locked/sleeping
+const SCREEN_LOCK_THRESHOLD_MS = 5000; // 5 seconds
+
 const TimeTracker = () => {
   const navigate = useNavigate();
   const { user, dataVersion } = useAuth();
@@ -41,8 +44,10 @@ const TimeTracker = () => {
   const isUserActiveRef = useRef(true);
   const isScreenLockedRef = useRef(false);
   const screenLockStartRef = useRef(null); // Track when screen lock started
+  const lockDetectionTimerRef = useRef(null); // Timer for detecting lock after page hidden
   const wakeLockRef = useRef(null);
   const idleDetectorRef = useRef(null);
+  const idleDetectorAvailableRef = useRef(false); // Track if IdleDetector is working
 
   // Keep refs in sync
   useEffect(() => {
@@ -100,7 +105,8 @@ const TimeTracker = () => {
     const initIdleDetector = async () => {
       // Check if IdleDetector is available
       if (typeof window === 'undefined' || !('IdleDetector' in window)) {
-        console.log('[IdleDetector] Not supported, using fallback');
+        console.log('[IdleDetector] Not supported, using visibility fallback');
+        idleDetectorAvailableRef.current = false;
         return;
       }
 
@@ -108,7 +114,8 @@ const TimeTracker = () => {
         // Request permission - this may throw or return 'denied'
         const permission = await IdleDetector.requestPermission();
         if (permission !== 'granted') {
-          console.log('[IdleDetector] Permission denied, using fallback');
+          console.log('[IdleDetector] Permission denied, using visibility fallback');
+          idleDetectorAvailableRef.current = false;
           return;
         }
 
@@ -157,10 +164,12 @@ const TimeTracker = () => {
         await idleDetectorRef.current.start({
           threshold: 30000, // 30 seconds idle threshold
         });
-        console.log('[IdleDetector] Started successfully');
+        idleDetectorAvailableRef.current = true;
+        console.log('[IdleDetector] Started successfully - using native detection');
       } catch (error) {
         // Don't crash on IdleDetector errors - fallback is fine
-        console.log('[IdleDetector] Not available, using fallback:', error.message);
+        console.log('[IdleDetector] Not available, using visibility fallback:', error.message);
+        idleDetectorAvailableRef.current = false;
       }
     };
 
@@ -175,6 +184,7 @@ const TimeTracker = () => {
         }
         idleDetectorRef.current = null;
       }
+      idleDetectorAvailableRef.current = false;
     };
   }, [session?.status]);
 
@@ -266,28 +276,78 @@ const TimeTracker = () => {
     }
   }, [session?.status, sendHeartbeat, notifyServiceWorker, requestWakeLock, releaseWakeLock]);
 
-  // Send heartbeat on visibility change (when app comes back to focus)
+  // Visibility change handler - detects screen lock/sleep when IdleDetector is not available
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden && sessionRef.current?.status === 'active') {
-        // Page became visible - check if we were locked
-        // If we were locked, the IdleDetector will handle it
-        // If IdleDetector is not available, we need a fallback
-        if (!idleDetectorRef.current && screenLockStartRef.current) {
-          // Fallback: calculate lock duration when page becomes visible
-          const lockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
-          console.log('[Visibility] Page visible after hidden - duration:', lockDuration, 'seconds');
+      const isActive = sessionRef.current?.status === 'active';
 
-          if (lockDuration > 30 && sessionRef.current?.status === 'active') {
-            // Likely was a lock/sleep (hidden for > 30 seconds)
+      if (document.hidden) {
+        // Page became hidden
+        console.log('[Visibility] Page hidden at', new Date().toLocaleTimeString());
+
+        // If IdleDetector is handling lock detection, let it do its job
+        if (idleDetectorAvailableRef.current) {
+          console.log('[Visibility] IdleDetector active, skipping fallback');
+          return;
+        }
+
+        // Fallback: Start tracking potential lock/sleep
+        if (!screenLockStartRef.current) {
+          screenLockStartRef.current = Date.now();
+        }
+
+        // Set a timer to detect lock/sleep after threshold
+        if (lockDetectionTimerRef.current) {
+          clearTimeout(lockDetectionTimerRef.current);
+        }
+
+        lockDetectionTimerRef.current = setTimeout(() => {
+          // If page is still hidden after threshold, consider it locked/sleeping
+          if (document.hidden && isActive) {
+            console.log('[Visibility] Page hidden for', SCREEN_LOCK_THRESHOLD_MS / 1000, 's - marking as LOCKED');
+            setIsScreenLocked(true);
+            setIsUserActive(false);
+          }
+        }, SCREEN_LOCK_THRESHOLD_MS);
+
+      } else {
+        // Page became visible
+        console.log('[Visibility] Page visible at', new Date().toLocaleTimeString());
+
+        // Clear the lock detection timer
+        if (lockDetectionTimerRef.current) {
+          clearTimeout(lockDetectionTimerRef.current);
+          lockDetectionTimerRef.current = null;
+        }
+
+        // If IdleDetector is handling lock detection, let it handle the unlock
+        if (idleDetectorAvailableRef.current) {
+          console.log('[Visibility] IdleDetector active, it will handle unlock');
+          // Still send heartbeat and request wake lock
+          if (isActive) {
+            sendHeartbeat();
+            requestWakeLock();
+          }
+          return;
+        }
+
+        // Fallback: Calculate lock duration if we were tracking
+        if (screenLockStartRef.current && isActive) {
+          const lockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
+          console.log('[Visibility] Page was hidden for', lockDuration, 'seconds');
+
+          // If was marked as locked (hidden > threshold), add the inactive time
+          if (isScreenLockedRef.current && lockDuration > 0) {
+            console.log('[Visibility] Adding', lockDuration, 's as inactive time (screen was locked)');
             attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration })
               .then(() => {
-                console.log('[Visibility] Added', lockDuration, 's inactive time');
+                console.log('[Visibility] Added', lockDuration, 's inactive time successfully');
                 // Refresh session to get updated inactive_seconds
                 fetchCurrentSession();
               })
               .catch(err => console.error('[Visibility] Failed to add inactive time:', err));
           }
+
           screenLockStartRef.current = null;
         }
 
@@ -295,40 +355,26 @@ const TimeTracker = () => {
         lastActivityRef.current = Date.now();
         setIsUserActive(true);
         setIsScreenLocked(false);
-        sendHeartbeat();
 
-        // Re-acquire wake lock (may have been released)
-        requestWakeLock();
-      } else if (document.hidden) {
-        // Page hidden - if IdleDetector is not available, track when it started
-        if (!idleDetectorRef.current && !screenLockStartRef.current) {
-          screenLockStartRef.current = Date.now();
-          console.log('[Visibility] Page hidden - tracking start time');
+        if (isActive) {
+          sendHeartbeat();
+          // Re-acquire wake lock (may have been released)
+          requestWakeLock();
         }
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [sendHeartbeat, requestWakeLock]);
-
-  // Handle app focus/blur
-  useEffect(() => {
-    const handleFocus = () => {
-      if (sessionRef.current?.status === 'active') {
-        lastActivityRef.current = Date.now();
-        setIsUserActive(true);
-        console.log('[Focus] App regained focus');
+      if (lockDetectionTimerRef.current) {
+        clearTimeout(lockDetectionTimerRef.current);
+        lockDetectionTimerRef.current = null;
       }
     };
+  }, [sendHeartbeat, requestWakeLock, fetchCurrentSession]);
 
-    window.addEventListener('focus', handleFocus);
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, []);
 
   // Send final heartbeat on page unload
   useEffect(() => {
@@ -366,6 +412,12 @@ const TimeTracker = () => {
     sessionRef.current = null;
     screenLockStartRef.current = null;
 
+    // Clear any pending lock detection timer
+    if (lockDetectionTimerRef.current) {
+      clearTimeout(lockDetectionTimerRef.current);
+      lockDetectionTimerRef.current = null;
+    }
+
     if (!user) {
       // User logged out
       setLoading(false);
@@ -375,7 +427,7 @@ const TimeTracker = () => {
     // User changed or logged in - fetch fresh session
     setLoading(true);
     fetchCurrentSession();
-  }, [user?.id, dataVersion]);
+  }, [user?.id, dataVersion, fetchCurrentSession]);
 
   useEffect(() => {
     let interval;
