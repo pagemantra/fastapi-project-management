@@ -33,7 +33,8 @@
       "Bash(node run-all-tests.js:*)",
       "Bash(node server.js:*)",
       "Bash(timeout /t 3 /nobreak)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(ping:*)"
     ],
     "deny": [],
     "ask": []
