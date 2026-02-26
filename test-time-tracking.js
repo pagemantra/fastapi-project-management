@@ -141,26 +141,48 @@ async function testHeartbeat() {
 }
 
 async function testScreenLockDetection() {
-  console.log('\n=== Testing Screen Lock Detection ===');
+  console.log('\n=== Testing Screen Lock Detection (IdleDetector simulation) ===');
 
   // Get initial session state
   const initialSession = await makeRequest('GET', '/attendance/current', null, token);
   const initialInactive = initialSession.data?.inactive_seconds || 0;
   console.log(`  Initial inactive seconds: ${initialInactive}`);
 
-  // Send heartbeat indicating screen is locked
-  console.log('  Sending heartbeat with screen_locked: true');
+  // Test 1: Normal heartbeat (screen unlocked) - NO inactive time added
+  console.log('  Sending heartbeat with screen_locked: false (normal operation)');
+  await makeRequest('POST', '/attendance/heartbeat', {
+    timestamp: new Date().toISOString(),
+    is_active: true,
+    screen_locked: false
+  }, token);
+
+  await wait(2000);
+
+  const normalHeartbeat = await makeRequest('POST', '/attendance/heartbeat', {
+    timestamp: new Date().toISOString(),
+    is_active: true,
+    screen_locked: false
+  }, token);
+
+  console.log(`  Inactive seconds after normal heartbeats: ${normalHeartbeat.data?.inactive_seconds}`);
+  assert(
+    normalHeartbeat.data && normalHeartbeat.data.inactive_seconds === initialInactive,
+    'Inactive seconds NOT increased during normal operation (tab switch/minimize should NOT add time)'
+  );
+
+  // Test 2: Screen lock detected by IdleDetector - SHOULD add inactive time
+  console.log('  Simulating IdleDetector detecting screen lock (screen_locked: true)');
   await makeRequest('POST', '/attendance/heartbeat', {
     timestamp: new Date().toISOString(),
     is_active: false,
     screen_locked: true
   }, token);
 
-  // Wait 3 seconds
+  // Wait 3 seconds (simulating screen being locked)
   console.log('  Waiting 3 seconds (simulating screen lock time)...');
   await wait(3000);
 
-  // Send another heartbeat still locked
+  // Send another heartbeat still locked - this should add the 3 seconds
   console.log('  Sending another heartbeat with screen still locked');
   const lockedHeartbeat = await makeRequest('POST', '/attendance/heartbeat', {
     timestamp: new Date().toISOString(),
@@ -172,11 +194,11 @@ async function testScreenLockDetection() {
 
   // The inactive seconds should have increased (gap between heartbeats when locked)
   assert(
-    lockedHeartbeat.data && lockedHeartbeat.data.inactive_seconds >= initialInactive,
-    'Inactive seconds increased while screen locked'
+    lockedHeartbeat.data && lockedHeartbeat.data.inactive_seconds > initialInactive,
+    'Inactive seconds INCREASED when screen is actually locked (IdleDetector detected)'
   );
 
-  // Now send heartbeat with screen unlocked
+  // Test 3: Screen unlocked - verify unlock heartbeat works
   console.log('  Sending heartbeat with screen_locked: false (unlocking)');
   const unlockedHeartbeat = await makeRequest('POST', '/attendance/heartbeat', {
     timestamp: new Date().toISOString(),
@@ -401,10 +423,12 @@ async function runAllTests() {
     console.log('╔══════════════════════════════════════════════════════════════╗');
     console.log('║              TIME TRACKING LOGIC VERIFIED                    ║');
     console.log('╠══════════════════════════════════════════════════════════════╣');
-    console.log('║ ✓ Heartbeat sends screen_locked status to server            ║');
-    console.log('║ ✓ Inactive seconds accumulate when screen is locked         ║');
+    console.log('║ ✓ Timer CONTINUES running on tab switch/minimize            ║');
+    console.log('║ ✓ Timer PAUSES only on actual screen lock (IdleDetector)    ║');
+    console.log('║ ✓ Timer PAUSES on explicit break (user clicks Break)        ║');
+    console.log('║ ✓ Inactive seconds only added when screen_locked=true       ║');
     console.log('║ ✓ Screen active = elapsed - breaks - inactive               ║');
-    console.log('║ ✓ Break time is tracked in breaks array                     ║');
+    console.log('║ ✓ Break time tracked in breaks array with details           ║');
     console.log('║ ✓ Lock/Sleep time stored in inactive_seconds column         ║');
     console.log('║ ✓ All time data returned in attendance history              ║');
     console.log('╚══════════════════════════════════════════════════════════════╝\n');

@@ -34,7 +34,8 @@
       "Bash(node server.js:*)",
       "Bash(timeout /t 3 /nobreak)",
       "Bash(node:*)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(npx vite:*)"
     ],
     "deny": [],
     "ask": []
