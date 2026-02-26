@@ -35,7 +35,10 @@
       "Bash(timeout /t 3 /nobreak)",
       "Bash(node:*)",
       "Bash(ping:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "WebSearch",
+      "WebFetch(domain:developer.chrome.com)",
+      "WebFetch(domain:gist.github.com)"
     ],
     "deny": [],
     "ask": []

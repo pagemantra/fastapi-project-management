@@ -12,19 +12,13 @@ import { useNavigate } from 'react-router-dom';
 import { attendanceService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
+import screenLockDetector from '../utils/screenLockDetector';
 
 const { Text } = Typography;
 const { TextArea } = Input;
 
 // Heartbeat interval - 10 seconds (keeps session alive)
 const HEARTBEAT_INTERVAL = 10000;
-
-// Lock/Sleep detection configuration
-// The key insight: When screen locks/sleeps, JS freezes, so heartbeat gap >> hidden duration
-// When tab switches: JS continues (with some throttling), so heartbeat gap ≈ hidden duration
-// We detect sleep when: heartbeat_gap > hidden_duration + SLEEP_BUFFER
-const SLEEP_DETECTION_BUFFER_MS = 20000; // 20 seconds buffer to account for browser throttling
-const MIN_SLEEP_DURATION_SECONDS = 10; // Minimum 10 seconds to count as sleep
 
 const TimeTracker = () => {
   const navigate = useNavigate();
@@ -38,34 +32,19 @@ const TimeTracker = () => {
   const [breakComment, setBreakComment] = useState('');
   const [currentSystemTime, setCurrentSystemTime] = useState(dayjs());
   const [heartbeatActive, setHeartbeatActive] = useState(false);
-  const [isUserActive, setIsUserActive] = useState(true);
   const [isScreenLocked, setIsScreenLocked] = useState(false);
 
   // Refs
   const heartbeatIntervalRef = useRef(null);
   const sessionRef = useRef(null);
   const lastActivityRef = useRef(Date.now());
-  const isUserActiveRef = useRef(true);
-  const isScreenLockedRef = useRef(false);
-  const screenLockStartRef = useRef(null); // Track when screen lock started (IdleDetector only)
-  const pageHiddenTimeRef = useRef(null); // Track when page became hidden (for fallback detection)
-  const lastHeartbeatTimeRef = useRef(Date.now()); // Track last successful heartbeat time
   const wakeLockRef = useRef(null);
-  const idleDetectorRef = useRef(null);
-  const idleDetectorAvailableRef = useRef(false); // Track if IdleDetector is working
+  const detectorInitializedRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
-
-  useEffect(() => {
-    isUserActiveRef.current = isUserActive;
-  }, [isUserActive]);
-
-  useEffect(() => {
-    isScreenLockedRef.current = isScreenLocked;
-  }, [isScreenLocked]);
 
   // Notify service worker about session state
   const notifyServiceWorker = useCallback((type, data) => {
@@ -100,7 +79,7 @@ const TimeTracker = () => {
     }
   }, []);
 
-  // Fetch current session - defined early so it can be used by other effects
+  // Fetch current session
   const fetchCurrentSession = useCallback(async () => {
     try {
       const response = await attendanceService.getCurrentSession();
@@ -113,110 +92,79 @@ const TimeTracker = () => {
     }
   }, []);
 
-  // Initialize Idle Detection API (Chrome 94+) - only when session is active
+  // Initialize screen lock detector when session is active
   useEffect(() => {
-    // Only initialize when we have an active session
     if (!session || session.status !== 'active') {
       return;
     }
 
-    const initIdleDetector = async () => {
-      // Check if IdleDetector is available
-      if (typeof window === 'undefined' || !('IdleDetector' in window)) {
-        console.log('[IdleDetector] Not supported - timer will run continuously');
-        idleDetectorAvailableRef.current = false;
-        return;
-      }
+    // Don't re-initialize if already done
+    if (detectorInitializedRef.current) {
+      return;
+    }
 
-      try {
-        // Request permission - this may throw or return 'denied'
-        const permission = await IdleDetector.requestPermission();
-        if (permission !== 'granted') {
-          console.log('[IdleDetector] Permission denied - timer will run continuously');
-          idleDetectorAvailableRef.current = false;
-          return;
-        }
+    const initDetector = async () => {
+      await screenLockDetector.init({
+        onLock: () => {
+          console.log('[TimeTracker] Screen locked - timer paused');
+          setIsScreenLocked(true);
+        },
 
-        idleDetectorRef.current = new IdleDetector();
+        onUnlock: (duration) => {
+          console.log('[TimeTracker] Screen unlocked - was locked for', duration, 's');
 
-        idleDetectorRef.current.addEventListener('change', () => {
-          if (!idleDetectorRef.current) return;
-
-          const { userState, screenState } = idleDetectorRef.current;
-          console.log('[IdleDetector] State changed:', { userState, screenState });
-
-          // Detect screen lock - this should pause the timer
-          if (screenState === 'locked') {
-            if (!isScreenLockedRef.current) {
-              // Screen just got locked - record the time
-              screenLockStartRef.current = Date.now();
-              console.log('[IdleDetector] Screen LOCKED at', new Date().toLocaleTimeString());
-            }
-            setIsScreenLocked(true);
-            setIsUserActive(false);
-          } else {
-            // Screen unlocked
-            if (isScreenLockedRef.current && screenLockStartRef.current) {
-              // Calculate how long the screen was locked
-              const lockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
-              console.log('[IdleDetector] Screen UNLOCKED - was locked for', lockDuration, 'seconds');
-
-              // Send the lock duration to the server
-              if (lockDuration > 0 && sessionRef.current?.status === 'active') {
-                attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration })
-                  .then(() => {
-                    console.log('[IdleDetector] Added', lockDuration, 's inactive time');
-                    // Refresh session to get updated inactive_seconds
-                    fetchCurrentSession();
-                  })
-                  .catch(err => console.error('[IdleDetector] Failed to add inactive time:', err));
-              }
-              screenLockStartRef.current = null;
-            }
-            setIsScreenLocked(false);
-            lastActivityRef.current = Date.now();
-            setIsUserActive(true);
+          // Add lock time to server
+          if (duration > 0 && sessionRef.current?.status === 'active') {
+            attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
+              .then(() => {
+                console.log('[TimeTracker] Added', duration, 's to Lock/Sleep');
+                fetchCurrentSession();
+              })
+              .catch(err => console.error('[TimeTracker] Failed to add inactive time:', err));
           }
-        });
 
-        await idleDetectorRef.current.start({
-          threshold: 30000, // 30 seconds idle threshold
-        });
-        idleDetectorAvailableRef.current = true;
-        console.log('[IdleDetector] Started successfully - using native detection');
-      } catch (error) {
-        // Don't crash on IdleDetector errors - fallback is fine
-        console.log('[IdleDetector] Error - timer will run continuously:', error.message);
-        idleDetectorAvailableRef.current = false;
-      }
-    };
+          setIsScreenLocked(false);
+        },
 
-    initIdleDetector();
+        onSleep: () => {
+          console.log('[TimeTracker] System sleep detected');
+          setIsScreenLocked(true);
+        },
 
-    return () => {
-      if (idleDetectorRef.current) {
-        try {
-          idleDetectorRef.current.stop();
-        } catch {
-          // Ignore errors when stopping
+        onWake: (duration) => {
+          console.log('[TimeTracker] System wake - was sleeping for', duration, 's');
+
+          // Add sleep time to server
+          if (duration > 0 && sessionRef.current?.status === 'active') {
+            attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
+              .then(() => {
+                console.log('[TimeTracker] Added', duration, 's sleep time');
+                fetchCurrentSession();
+              })
+              .catch(err => console.error('[TimeTracker] Failed to add sleep time:', err));
+          }
+
+          setIsScreenLocked(false);
+        },
+
+        onError: (err) => {
+          console.error('[TimeTracker] Detector error:', err);
         }
-        idleDetectorRef.current = null;
-      }
-      idleDetectorAvailableRef.current = false;
+      });
+
+      detectorInitializedRef.current = true;
+      console.log('[TimeTracker] Screen lock detector initialized');
     };
-  }, [session?.status]);
+
+    initDetector();
+  }, [session?.status, fetchCurrentSession]);
 
   // Track user activity (mouse movement, keyboard, clicks, touch)
-  // This is now just for display purposes - time runs continuously regardless
   useEffect(() => {
     const updateActivity = () => {
       lastActivityRef.current = Date.now();
-      if (!isUserActiveRef.current) {
-        setIsUserActive(true);
-      }
     };
 
-    // Track all user interactions
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel', 'click'];
     events.forEach(event => {
       document.addEventListener(event, updateActivity, { passive: true });
@@ -229,33 +177,24 @@ const TimeTracker = () => {
     };
   }, []);
 
-  // Send heartbeat to server - keeps session alive and reports screen lock status
-  // Sleep detection is handled by the visibility change handler (more reliable)
+  // Send heartbeat to server
   const sendHeartbeat = useCallback(async () => {
     const currentSession = sessionRef.current;
     if (!currentSession || currentSession.status !== 'active') {
       return;
     }
 
-    const now = Date.now();
-    const timeSinceLastHeartbeat = now - lastHeartbeatTimeRef.current;
-
-    // Report as inactive only if screen is locked (detected by IdleDetector)
-    const isActive = !isScreenLockedRef.current;
+    const isLocked = screenLockDetector.isLocked();
 
     try {
       await attendanceService.sendHeartbeat({
         timestamp: new Date().toISOString(),
-        is_active: isActive,
-        screen_locked: isScreenLockedRef.current
+        is_active: !isLocked,
+        screen_locked: isLocked
       });
       setHeartbeatActive(true);
-      console.log('[Heartbeat] Sent at', new Date().toLocaleTimeString(), '- Gap:', Math.floor(timeSinceLastHeartbeat / 1000), 's');
-
-      // Update last heartbeat time on success
-      lastHeartbeatTimeRef.current = now;
+      console.log('[Heartbeat] Sent at', new Date().toLocaleTimeString(), '- locked:', isLocked);
     } catch (error) {
-      // Silently handle heartbeat failures - don't crash the app
       console.log('[Heartbeat] Failed (will retry):', error.message || 'Network error');
       setHeartbeatActive(false);
     }
@@ -264,18 +203,15 @@ const TimeTracker = () => {
   // Heartbeat management
   useEffect(() => {
     if (session && session.status === 'active') {
-      // Start heartbeat
       console.log('[Heartbeat] Starting...');
-      sendHeartbeat(); // Initial heartbeat
+      sendHeartbeat();
 
-      // Notify service worker
       const token = localStorage.getItem('token');
       if (token) {
         notifyServiceWorker('SET_AUTH_TOKEN', { token });
         notifyServiceWorker('SET_SESSION_ACTIVE', { active: true });
       }
 
-      // Request wake lock
       requestWakeLock();
 
       heartbeatIntervalRef.current = setInterval(() => {
@@ -290,7 +226,6 @@ const TimeTracker = () => {
         releaseWakeLock();
       };
     } else {
-      // Stop heartbeat
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = null;
@@ -301,80 +236,14 @@ const TimeTracker = () => {
     }
   }, [session?.status, sendHeartbeat, notifyServiceWorker, requestWakeLock, releaseWakeLock]);
 
-  // Visibility change handler - detects screen lock/sleep when page becomes visible
-  //
-  // How sleep detection works (fallback for browsers without IdleDetector):
-  // - Tab switch: Page hidden, but JS continues → heartbeat gap ≈ hidden duration
-  // - Screen lock/sleep: Page hidden, JS FREEZES → heartbeat gap >> hidden duration
-  //
-  // We detect sleep when: heartbeat_gap > hidden_duration + buffer (20 seconds)
-  // This reliably distinguishes tab switch from actual sleep
+  // Handle visibility change - refresh session when page becomes visible
   useEffect(() => {
     const handleVisibilityChange = () => {
-      const isActive = sessionRef.current?.status === 'active';
-
-      if (document.hidden) {
-        // Page became hidden - record the time
-        pageHiddenTimeRef.current = Date.now();
-        console.log('[Visibility] Page hidden at', new Date().toLocaleTimeString());
-      } else {
-        // Page became visible again
-        const now = Date.now();
-        const hiddenDuration = pageHiddenTimeRef.current ? now - pageHiddenTimeRef.current : 0;
-        const hiddenSeconds = Math.floor(hiddenDuration / 1000);
-        const heartbeatGap = now - lastHeartbeatTimeRef.current;
-        const heartbeatGapSeconds = Math.floor(heartbeatGap / 1000);
-
-        console.log('[Visibility] Page visible - hidden:', hiddenSeconds, 's, heartbeat gap:', heartbeatGapSeconds, 's');
-
-        // Update activity timestamp
-        lastActivityRef.current = now;
-        setIsUserActive(true);
-
-        // Detect sleep: If heartbeat gap is much larger than hidden duration,
-        // it means JS was frozen (screen lock/sleep), not just tab switch
-        // IdleDetector handles this in Chrome 94+, this is the fallback for other browsers
-        if (isActive && !idleDetectorAvailableRef.current && pageHiddenTimeRef.current) {
-          // Calculate the unexpected gap - if JS was running, gap should equal hidden time
-          const unexpectedGap = heartbeatGap - hiddenDuration;
-
-          console.log('[Visibility] Unexpected gap:', Math.floor(unexpectedGap / 1000), 's (buffer:', Math.floor(SLEEP_DETECTION_BUFFER_MS / 1000), 's)');
-
-          if (unexpectedGap > SLEEP_DETECTION_BUFFER_MS) {
-            // JS was frozen for longer than expected - this is actual sleep/lock
-            // Sleep duration = heartbeat gap minus one interval (last heartbeat was sent before sleep)
-            const sleepDuration = Math.floor((heartbeatGap - HEARTBEAT_INTERVAL) / 1000);
-
-            if (sleepDuration >= MIN_SLEEP_DURATION_SECONDS) {
-              console.log('[Visibility] *** SLEEP DETECTED! Adding', sleepDuration, 's to Lock/Sleep time ***');
-
-              setIsScreenLocked(true);
-              attendanceService.addInactiveTime({ inactive_seconds_to_add: sleepDuration })
-                .then(() => {
-                  console.log('[Visibility] Successfully added', sleepDuration, 's to Lock/Sleep');
-                  fetchCurrentSession();
-                })
-                .catch(err => console.error('[Visibility] Failed to add sleep time:', err))
-                .finally(() => {
-                  setIsScreenLocked(false);
-                  lastHeartbeatTimeRef.current = now;
-                });
-            }
-          } else {
-            console.log('[Visibility] Tab switch detected - timer continued running, no inactive time added');
-          }
-        }
-
-        pageHiddenTimeRef.current = null;
-
-        if (isActive) {
-          // Re-acquire wake lock
-          requestWakeLock();
-          // Send heartbeat to sync with server
-          sendHeartbeat();
-          // Refresh session to get latest data
-          fetchCurrentSession();
-        }
+      if (!document.hidden && sessionRef.current?.status === 'active') {
+        console.log('[TimeTracker] Page visible - refreshing session');
+        requestWakeLock();
+        sendHeartbeat();
+        fetchCurrentSession();
       }
     };
 
@@ -384,7 +253,6 @@ const TimeTracker = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [sendHeartbeat, requestWakeLock, fetchCurrentSession]);
-
 
   // Send final heartbeat on page unload
   useEffect(() => {
@@ -413,38 +281,40 @@ const TimeTracker = () => {
 
   // Reset and refetch session when user changes
   useEffect(() => {
-    // Always reset state when user/dataVersion changes
     setSession(null);
     setElapsedTime(0);
     setHeartbeatActive(false);
-    setIsUserActive(true);
     setIsScreenLocked(false);
     sessionRef.current = null;
-    screenLockStartRef.current = null;
-    pageHiddenTimeRef.current = null;
-    lastHeartbeatTimeRef.current = Date.now();
 
     if (!user) {
-      // User logged out
       setLoading(false);
       return;
     }
 
-    // User changed or logged in - fetch fresh session
     setLoading(true);
     fetchCurrentSession();
   }, [user?.id, dataVersion, fetchCurrentSession]);
 
+  // Cleanup detector on unmount
+  useEffect(() => {
+    return () => {
+      if (detectorInitializedRef.current) {
+        // Don't destroy here - ScreenActiveTime might be using it
+        // screenLockDetector.destroy();
+        detectorInitializedRef.current = false;
+      }
+    };
+  }, []);
+
+  // Calculate elapsed time every second
   useEffect(() => {
     let interval;
     if (session && (session.status === 'active' || session.status === 'on_break')) {
-      // Calculate elapsed time immediately, then update every second
       const calculateElapsedTime = () => {
         try {
-          // Parse login time - handle both UTC and local formats
           let loginTime;
           if (session.login_time) {
-            // Try parsing as UTC first, then as local
             loginTime = dayjs.utc(session.login_time).isValid()
               ? dayjs.utc(session.login_time).tz('Asia/Kolkata')
               : dayjs(session.login_time).tz('Asia/Kolkata');
@@ -463,7 +333,6 @@ const TimeTracker = () => {
               if (b.duration_minutes && typeof b.duration_minutes === 'number') {
                 breakSeconds += Math.round(b.duration_minutes * 60);
               } else if (b.start_time && !b.end_time) {
-                // Ongoing break - calculate duration in seconds
                 const breakStart = dayjs.utc(b.start_time).isValid()
                   ? dayjs.utc(b.start_time).tz('Asia/Kolkata')
                   : dayjs(b.start_time).tz('Asia/Kolkata');
@@ -477,9 +346,12 @@ const TimeTracker = () => {
 
           // If screen is currently locked, also subtract the CURRENT lock duration
           // This makes the timer pause immediately when screen locks
-          if (isScreenLockedRef.current && screenLockStartRef.current) {
-            const currentLockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
+          const currentLockDuration = screenLockDetector.getCurrentLockDuration();
+          if (currentLockDuration > 0) {
             inactiveSeconds += currentLockDuration;
+            setIsScreenLocked(true);
+          } else {
+            setIsScreenLocked(screenLockDetector.isLocked());
           }
 
           // Work time = total elapsed - breaks - inactive (lock/sleep)
@@ -492,13 +364,9 @@ const TimeTracker = () => {
         }
       };
 
-      // Calculate immediately
       calculateElapsedTime();
-
-      // Then update every second
       interval = setInterval(calculateElapsedTime, 1000);
     } else {
-      // Update system time every second even when not clocked in
       setElapsedTime(0);
       interval = setInterval(() => {
         setCurrentSystemTime(dayjs().tz('Asia/Kolkata'));
@@ -540,7 +408,6 @@ const TimeTracker = () => {
     try {
       const response = await attendanceService.clockOut({});
       setSession(response.data);
-      // Clear service worker session
       notifyServiceWorker('CLEAR_SESSION', {});
       message.success('Clocked out successfully!');
     } catch (error) {
@@ -551,7 +418,6 @@ const TimeTracker = () => {
   };
 
   const handleStartBreak = async () => {
-    // If break type is meeting or other, require comment
     if (breakType === 'meeting' || breakType === 'other') {
       setCommentModalVisible(true);
       return;
@@ -677,7 +543,6 @@ const TimeTracker = () => {
             value={(() => {
               if (!session) return '0 min';
               let totalMins = session.total_break_minutes || 0;
-              // Add ongoing break time if on break
               if (session.status === 'on_break' && session.breaks && Array.isArray(session.breaks)) {
                 const ongoingBreak = session.breaks.find(b => b.start_time && !b.end_time);
                 if (ongoingBreak) {

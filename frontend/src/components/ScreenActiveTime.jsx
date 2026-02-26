@@ -4,6 +4,7 @@ import { DesktopOutlined, PauseCircleOutlined, CoffeeOutlined, LockOutlined } fr
 import { attendanceService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
+import screenLockDetector from '../utils/screenLockDetector';
 
 const { Text } = Typography;
 
@@ -15,15 +16,13 @@ const ScreenActiveTime = () => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
-  const [currentLockSeconds, setCurrentLockSeconds] = useState(0); // Current lock duration
+  const [currentLockSeconds, setCurrentLockSeconds] = useState(0);
   const [timerStatus, setTimerStatus] = useState('not_clocked_in'); // running, on_break, screen_locked, completed, not_clocked_in
 
   // Refs
   const sessionRef = useRef(null);
   const intervalRef = useRef(null);
-  const isScreenLockedRef = useRef(false);
-  const screenLockStartRef = useRef(null);
-  const idleDetectorRef = useRef(null);
+  const detectorInitializedRef = useRef(false);
 
   // Calculate screen active time based on server data
   // Formula: (now - login_time) - break_minutes - inactive_seconds - current_lock_duration
@@ -80,14 +79,14 @@ const ScreenActiveTime = () => {
         setScreenActiveSeconds(calculateScreenActiveTime(newSession));
       } else if (newSession.status === 'active') {
         // Check if screen is currently locked
-        if (isScreenLockedRef.current) {
+        const lockDuration = screenLockDetector.getCurrentLockDuration();
+        if (screenLockDetector.isLocked()) {
           setTimerStatus('screen_locked');
+          setCurrentLockSeconds(lockDuration);
         } else {
           setTimerStatus('running');
+          setCurrentLockSeconds(0);
         }
-        const lockDuration = isScreenLockedRef.current && screenLockStartRef.current
-          ? Math.floor((Date.now() - screenLockStartRef.current) / 1000)
-          : 0;
         setScreenActiveSeconds(calculateScreenActiveTime(newSession, lockDuration));
       }
     } catch (error) {
@@ -99,78 +98,77 @@ const ScreenActiveTime = () => {
     }
   }, [calculateScreenActiveTime]);
 
-  // Initialize IdleDetector for screen lock detection
+  // Initialize screen lock detector when session is active
   useEffect(() => {
     if (!session || session.status !== 'active') {
       return;
     }
 
-    const initIdleDetector = async () => {
-      if (typeof window === 'undefined' || !('IdleDetector' in window)) {
-        console.log('[ScreenActiveTime] IdleDetector not supported');
-        return;
-      }
+    // Don't re-initialize if already done
+    if (detectorInitializedRef.current) {
+      return;
+    }
 
-      try {
-        const permission = await IdleDetector.requestPermission();
-        if (permission !== 'granted') {
-          console.log('[ScreenActiveTime] IdleDetector permission denied');
-          return;
-        }
+    const initDetector = async () => {
+      await screenLockDetector.init({
+        onLock: () => {
+          console.log('[ScreenActiveTime] Screen locked - pausing timer');
+          setTimerStatus('screen_locked');
+        },
 
-        idleDetectorRef.current = new IdleDetector();
+        onUnlock: (duration) => {
+          console.log('[ScreenActiveTime] Screen unlocked - was locked for', duration, 's');
 
-        idleDetectorRef.current.addEventListener('change', () => {
-          if (!idleDetectorRef.current) return;
-
-          const { screenState } = idleDetectorRef.current;
-          console.log('[ScreenActiveTime] Screen state:', screenState);
-
-          if (screenState === 'locked') {
-            if (!isScreenLockedRef.current) {
-              screenLockStartRef.current = Date.now();
-              console.log('[ScreenActiveTime] Screen LOCKED - timer paused');
-            }
-            isScreenLockedRef.current = true;
-            setTimerStatus('screen_locked');
-          } else {
-            if (isScreenLockedRef.current && screenLockStartRef.current) {
-              const lockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
-              console.log('[ScreenActiveTime] Screen UNLOCKED - was locked for', lockDuration, 's');
-
-              // Add lock time to server
-              if (lockDuration > 0 && sessionRef.current?.status === 'active') {
-                attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration })
-                  .then(() => {
-                    console.log('[ScreenActiveTime] Added', lockDuration, 's to Lock/Sleep');
-                    fetchCurrentSession(true);
-                  })
-                  .catch(err => console.error('[ScreenActiveTime] Failed to add inactive time:', err));
-              }
-              screenLockStartRef.current = null;
-            }
-            isScreenLockedRef.current = false;
-            setTimerStatus('running');
-            setCurrentLockSeconds(0);
+          // Add lock time to server
+          if (duration > 0 && sessionRef.current?.status === 'active') {
+            attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
+              .then(() => {
+                console.log('[ScreenActiveTime] Added', duration, 's to Lock/Sleep');
+                fetchCurrentSession(true);
+              })
+              .catch(err => console.error('[ScreenActiveTime] Failed to add inactive time:', err));
           }
-        });
 
-        await idleDetectorRef.current.start({ threshold: 30000 });
-        console.log('[ScreenActiveTime] IdleDetector started');
-      } catch (error) {
-        console.log('[ScreenActiveTime] IdleDetector error:', error.message);
-      }
+          setTimerStatus('running');
+          setCurrentLockSeconds(0);
+        },
+
+        onSleep: () => {
+          console.log('[ScreenActiveTime] System sleep detected');
+          setTimerStatus('screen_locked');
+        },
+
+        onWake: (duration) => {
+          console.log('[ScreenActiveTime] System wake - was sleeping for', duration, 's');
+
+          // Add sleep time to server
+          if (duration > 0 && sessionRef.current?.status === 'active') {
+            attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
+              .then(() => {
+                console.log('[ScreenActiveTime] Added', duration, 's sleep time');
+                fetchCurrentSession(true);
+              })
+              .catch(err => console.error('[ScreenActiveTime] Failed to add sleep time:', err));
+          }
+
+          setTimerStatus('running');
+          setCurrentLockSeconds(0);
+        },
+
+        onError: (err) => {
+          console.error('[ScreenActiveTime] Detector error:', err);
+        }
+      });
+
+      detectorInitializedRef.current = true;
+      console.log('[ScreenActiveTime] Screen lock detector initialized');
     };
 
-    initIdleDetector();
+    initDetector();
 
     return () => {
-      if (idleDetectorRef.current) {
-        try {
-          idleDetectorRef.current.stop();
-        } catch {}
-        idleDetectorRef.current = null;
-      }
+      // Don't destroy on cleanup - we want to keep it running
+      // It will be destroyed when component fully unmounts
     };
   }, [session?.status, fetchCurrentSession]);
 
@@ -191,8 +189,6 @@ const ScreenActiveTime = () => {
       setCurrentLockSeconds(0);
       setTimerStatus('not_clocked_in');
       sessionRef.current = null;
-      isScreenLockedRef.current = false;
-      screenLockStartRef.current = null;
       return;
     }
 
@@ -202,8 +198,6 @@ const ScreenActiveTime = () => {
     setCurrentLockSeconds(0);
     setTimerStatus('not_clocked_in');
     sessionRef.current = null;
-    isScreenLockedRef.current = false;
-    screenLockStartRef.current = null;
     fetchCurrentSession();
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -219,6 +213,16 @@ const ScreenActiveTime = () => {
       clearInterval(sessionPollInterval);
     };
   }, [user, fetchCurrentSession, handleVisibilityChange]);
+
+  // Cleanup detector on full unmount
+  useEffect(() => {
+    return () => {
+      if (detectorInitializedRef.current) {
+        screenLockDetector.destroy();
+        detectorInitializedRef.current = false;
+      }
+    };
+  }, []);
 
   // Timer that updates display every second
   useEffect(() => {
@@ -242,10 +246,10 @@ const ScreenActiveTime = () => {
       if (sess.status === 'on_break') {
         setTimerStatus('on_break');
       } else if (sess.status === 'active') {
-        // Calculate current lock duration if screen is locked
-        let lockDuration = 0;
-        if (isScreenLockedRef.current && screenLockStartRef.current) {
-          lockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
+        // Get current lock duration from detector
+        const lockDuration = screenLockDetector.getCurrentLockDuration();
+
+        if (screenLockDetector.isLocked()) {
           setCurrentLockSeconds(lockDuration);
           setTimerStatus('screen_locked');
         } else {
