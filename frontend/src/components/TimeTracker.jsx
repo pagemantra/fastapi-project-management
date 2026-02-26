@@ -473,7 +473,14 @@ const TimeTracker = () => {
           }
 
           // Get inactive seconds (lock/sleep time) from session
-          const inactiveSeconds = session.inactive_seconds || 0;
+          let inactiveSeconds = session.inactive_seconds || 0;
+
+          // If screen is currently locked, also subtract the CURRENT lock duration
+          // This makes the timer pause immediately when screen locks
+          if (isScreenLockedRef.current && screenLockStartRef.current) {
+            const currentLockDuration = Math.floor((Date.now() - screenLockStartRef.current) / 1000);
+            inactiveSeconds += currentLockDuration;
+          }
 
           // Work time = total elapsed - breaks - inactive (lock/sleep)
           const elapsed = Math.max(0, totalSeconds - breakSeconds - inactiveSeconds);
