@@ -19,10 +19,12 @@ const { TextArea } = Input;
 // Heartbeat interval - 10 seconds (keeps session alive)
 const HEARTBEAT_INTERVAL = 10000;
 
-// NOTE: We do NOT use visibility API to detect lock/sleep anymore
-// Tab switching and minimizing should NOT pause the timer
-// Only IdleDetector API can reliably detect actual screen lock
-// If IdleDetector is not available, timer runs continuously (no pause on lock)
+// Lock/Sleep detection thresholds
+// If heartbeat gap is more than this, it indicates sleep/lock (JS was frozen)
+const SLEEP_DETECTION_THRESHOLD_MS = 15000; // 15 seconds (1.5x heartbeat interval)
+
+// Minimum gap to consider as actual sleep (not just network delay)
+const MIN_SLEEP_DURATION_MS = 20000; // 20 seconds
 
 const TimeTracker = () => {
   const navigate = useNavigate();
@@ -46,6 +48,8 @@ const TimeTracker = () => {
   const isUserActiveRef = useRef(true);
   const isScreenLockedRef = useRef(false);
   const screenLockStartRef = useRef(null); // Track when screen lock started (IdleDetector only)
+  const pageHiddenTimeRef = useRef(null); // Track when page became hidden (for fallback detection)
+  const lastHeartbeatTimeRef = useRef(Date.now()); // Track last successful heartbeat time
   const wakeLockRef = useRef(null);
   const idleDetectorRef = useRef(null);
   const idleDetectorAvailableRef = useRef(false); // Track if IdleDetector is working
@@ -225,14 +229,44 @@ const TimeTracker = () => {
     };
   }, []);
 
-  // Send heartbeat to server - keeps session alive and reports screen lock status
+  // Send heartbeat to server - keeps session alive and detects sleep/lock via time gaps
   const sendHeartbeat = useCallback(async () => {
     const currentSession = sessionRef.current;
     if (!currentSession || currentSession.status !== 'active') {
       return;
     }
 
-    // Report as inactive only if screen is locked
+    const now = Date.now();
+    const lastHeartbeat = lastHeartbeatTimeRef.current;
+    const timeSinceLastHeartbeat = now - lastHeartbeat;
+
+    // Detect sleep/lock: If time since last heartbeat is much larger than expected,
+    // it means JavaScript was frozen (computer sleeping/screen locked)
+    let sleepDetected = false;
+    let sleepDuration = 0;
+
+    if (timeSinceLastHeartbeat > SLEEP_DETECTION_THRESHOLD_MS) {
+      // Large gap detected - computer was likely sleeping
+      // The sleep duration is the gap minus one normal interval
+      sleepDuration = Math.floor((timeSinceLastHeartbeat - HEARTBEAT_INTERVAL) / 1000);
+
+      if (sleepDuration >= Math.floor(MIN_SLEEP_DURATION_MS / 1000)) {
+        sleepDetected = true;
+        console.log('[Heartbeat] SLEEP DETECTED! Gap:', Math.floor(timeSinceLastHeartbeat / 1000), 's, Sleep duration:', sleepDuration, 's');
+
+        // Add the sleep time as inactive time
+        try {
+          await attendanceService.addInactiveTime({ inactive_seconds_to_add: sleepDuration });
+          console.log('[Heartbeat] Added', sleepDuration, 's to Lock/Sleep time');
+          // Refresh session to get updated inactive_seconds
+          fetchCurrentSession();
+        } catch (err) {
+          console.error('[Heartbeat] Failed to add sleep time:', err);
+        }
+      }
+    }
+
+    // Report as inactive only if screen is locked (detected by IdleDetector)
     const isActive = !isScreenLockedRef.current;
 
     try {
@@ -242,13 +276,19 @@ const TimeTracker = () => {
         screen_locked: isScreenLockedRef.current
       });
       setHeartbeatActive(true);
-      console.log('[Heartbeat] Sent at', new Date().toLocaleTimeString(), '- Screen locked:', isScreenLockedRef.current);
+
+      if (!sleepDetected) {
+        console.log('[Heartbeat] Sent at', new Date().toLocaleTimeString(), '- Gap:', Math.floor(timeSinceLastHeartbeat / 1000), 's');
+      }
+
+      // Update last heartbeat time on success
+      lastHeartbeatTimeRef.current = now;
     } catch (error) {
       // Silently handle heartbeat failures - don't crash the app
       console.log('[Heartbeat] Failed (will retry):', error.message || 'Network error');
       setHeartbeatActive(false);
     }
-  }, []);
+  }, [fetchCurrentSession]);
 
   // Heartbeat management
   useEffect(() => {
@@ -290,32 +330,70 @@ const TimeTracker = () => {
     }
   }, [session?.status, sendHeartbeat, notifyServiceWorker, requestWakeLock, releaseWakeLock]);
 
-  // Visibility change handler - ONLY handles wake lock and heartbeat
-  // IMPORTANT: Tab switching/minimizing does NOT pause the timer
-  // Only IdleDetector can detect actual screen lock (if available)
-  // If IdleDetector is not available, timer runs continuously without pause
+  // Visibility change handler - detects sleep/lock when page becomes visible
+  // The key insight: When computer sleeps, JavaScript freezes completely
+  // When user comes back, there will be a large gap in heartbeat timing
+  //
+  // Tab switching: heartbeats continue normally, no gap → NO inactive time
+  // Screen lock/sleep: heartbeats stop, large gap → ADD inactive time
   useEffect(() => {
     const handleVisibilityChange = () => {
       const isActive = sessionRef.current?.status === 'active';
 
       if (document.hidden) {
-        // Page became hidden (tab switch, minimize, etc.)
-        // IMPORTANT: This does NOT mean screen is locked - do NOT add inactive time
-        console.log('[Visibility] Page hidden at', new Date().toLocaleTimeString(), '- Timer continues running');
-        // Timer continues running - no action needed
+        // Page became hidden - record the time
+        pageHiddenTimeRef.current = Date.now();
+        console.log('[Visibility] Page hidden at', new Date().toLocaleTimeString());
       } else {
         // Page became visible again
+        const now = Date.now();
+        const hiddenDuration = pageHiddenTimeRef.current ? now - pageHiddenTimeRef.current : 0;
+        const hiddenSeconds = Math.floor(hiddenDuration / 1000);
+        const heartbeatGap = now - lastHeartbeatTimeRef.current;
+        const heartbeatGapSeconds = Math.floor(heartbeatGap / 1000);
+
         console.log('[Visibility] Page visible at', new Date().toLocaleTimeString());
+        console.log('[Visibility] Hidden for:', hiddenSeconds, 's, Heartbeat gap:', heartbeatGapSeconds, 's');
 
         // Update activity timestamp
-        lastActivityRef.current = Date.now();
+        lastActivityRef.current = now;
         setIsUserActive(true);
 
+        // Detect sleep/lock based on heartbeat gap
+        // If the gap is much larger than hidden duration, computer was sleeping
+        // (because during normal tab switch, heartbeats continue in background)
+        if (isActive && heartbeatGap > SLEEP_DETECTION_THRESHOLD_MS) {
+          const sleepDuration = Math.floor((heartbeatGap - HEARTBEAT_INTERVAL) / 1000);
+
+          if (sleepDuration >= Math.floor(MIN_SLEEP_DURATION_MS / 1000)) {
+            console.log('[Visibility] SLEEP DETECTED! Adding', sleepDuration, 's to Lock/Sleep time');
+            setIsScreenLocked(true);
+
+            attendanceService.addInactiveTime({ inactive_seconds_to_add: sleepDuration })
+              .then(() => {
+                console.log('[Visibility] Added', sleepDuration, 's inactive time successfully');
+                fetchCurrentSession();
+              })
+              .catch(err => console.error('[Visibility] Failed to add inactive time:', err))
+              .finally(() => {
+                setIsScreenLocked(false);
+                // Update last heartbeat time to prevent double-counting
+                lastHeartbeatTimeRef.current = now;
+              });
+          } else {
+            console.log('[Visibility] Gap detected but below threshold - not adding inactive time');
+          }
+        } else {
+          console.log('[Visibility] Normal tab switch - no inactive time added');
+        }
+
+        pageHiddenTimeRef.current = null;
+
         if (isActive) {
-          // Send heartbeat to sync with server
-          sendHeartbeat();
           // Re-acquire wake lock (may have been released when hidden)
           requestWakeLock();
+          // Send heartbeat to sync with server (this also updates lastHeartbeatTimeRef)
+          sendHeartbeat();
         }
       }
     };
@@ -325,7 +403,7 @@ const TimeTracker = () => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [sendHeartbeat, requestWakeLock]);
+  }, [sendHeartbeat, requestWakeLock, fetchCurrentSession]);
 
 
   // Send final heartbeat on page unload
@@ -363,6 +441,8 @@ const TimeTracker = () => {
     setIsScreenLocked(false);
     sessionRef.current = null;
     screenLockStartRef.current = null;
+    pageHiddenTimeRef.current = null;
+    lastHeartbeatTimeRef.current = Date.now();
 
     if (!user) {
       // User logged out
