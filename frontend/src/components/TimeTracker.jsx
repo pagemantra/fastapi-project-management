@@ -19,12 +19,12 @@ const { TextArea } = Input;
 // Heartbeat interval - 10 seconds (keeps session alive)
 const HEARTBEAT_INTERVAL = 10000;
 
-// Lock/Sleep detection thresholds
-// If heartbeat gap is more than this, it indicates sleep/lock (JS was frozen)
-const SLEEP_DETECTION_THRESHOLD_MS = 15000; // 15 seconds (1.5x heartbeat interval)
-
-// Minimum gap to consider as actual sleep (not just network delay)
-const MIN_SLEEP_DURATION_MS = 20000; // 20 seconds
+// Lock/Sleep detection thresholds - MUST be high enough to avoid false positives on tab switch
+// When switching tabs: browser may throttle JS, causing gaps of 30-60 seconds
+// When screen locks/sleeps: JS freezes completely, causing gaps of MINUTES or HOURS
+// We only want to detect REAL lock/sleep, not tab switching
+const SLEEP_DETECTION_THRESHOLD_MS = 120000; // 2 minutes - anything less could be tab throttling
+const MIN_SLEEP_DURATION_MS = 60000; // 1 minute minimum to count as sleep
 
 const TimeTracker = () => {
   const navigate = useNavigate();
@@ -123,7 +123,7 @@ const TimeTracker = () => {
     const initIdleDetector = async () => {
       // Check if IdleDetector is available
       if (typeof window === 'undefined' || !('IdleDetector' in window)) {
-        console.log('[IdleDetector] Not supported, using visibility fallback');
+        console.log('[IdleDetector] Not supported - timer will run continuously');
         idleDetectorAvailableRef.current = false;
         return;
       }
@@ -132,7 +132,7 @@ const TimeTracker = () => {
         // Request permission - this may throw or return 'denied'
         const permission = await IdleDetector.requestPermission();
         if (permission !== 'granted') {
-          console.log('[IdleDetector] Permission denied, using visibility fallback');
+          console.log('[IdleDetector] Permission denied - timer will run continuously');
           idleDetectorAvailableRef.current = false;
           return;
         }
@@ -186,7 +186,7 @@ const TimeTracker = () => {
         console.log('[IdleDetector] Started successfully - using native detection');
       } catch (error) {
         // Don't crash on IdleDetector errors - fallback is fine
-        console.log('[IdleDetector] Not available, using visibility fallback:', error.message);
+        console.log('[IdleDetector] Error - timer will run continuously:', error.message);
         idleDetectorAvailableRef.current = false;
       }
     };
@@ -330,70 +330,43 @@ const TimeTracker = () => {
     }
   }, [session?.status, sendHeartbeat, notifyServiceWorker, requestWakeLock, releaseWakeLock]);
 
-  // Visibility change handler - detects sleep/lock when page becomes visible
-  // The key insight: When computer sleeps, JavaScript freezes completely
-  // When user comes back, there will be a large gap in heartbeat timing
+  // Visibility change handler - ONLY refreshes session and re-acquires wake lock
+  // IMPORTANT: This does NOT add inactive time because:
+  // - Tab switching makes page hidden but timer should CONTINUE
+  // - We cannot distinguish tab switch from screen lock using visibility API alone
   //
-  // Tab switching: heartbeats continue normally, no gap → NO inactive time
-  // Screen lock/sleep: heartbeats stop, large gap → ADD inactive time
+  // Sleep/lock detection is handled by:
+  // 1. IdleDetector API (for screen lock - Chrome 94+)
+  // 2. Heartbeat gap detection (for computer sleep - very large gaps only)
   useEffect(() => {
     const handleVisibilityChange = () => {
       const isActive = sessionRef.current?.status === 'active';
 
       if (document.hidden) {
-        // Page became hidden - record the time
+        // Page became hidden - just log it, DO NOT add inactive time
         pageHiddenTimeRef.current = Date.now();
-        console.log('[Visibility] Page hidden at', new Date().toLocaleTimeString());
+        console.log('[Visibility] Page hidden at', new Date().toLocaleTimeString(), '- Timer CONTINUES (not lock/sleep)');
       } else {
         // Page became visible again
         const now = Date.now();
         const hiddenDuration = pageHiddenTimeRef.current ? now - pageHiddenTimeRef.current : 0;
         const hiddenSeconds = Math.floor(hiddenDuration / 1000);
-        const heartbeatGap = now - lastHeartbeatTimeRef.current;
-        const heartbeatGapSeconds = Math.floor(heartbeatGap / 1000);
 
-        console.log('[Visibility] Page visible at', new Date().toLocaleTimeString());
-        console.log('[Visibility] Hidden for:', hiddenSeconds, 's, Heartbeat gap:', heartbeatGapSeconds, 's');
+        console.log('[Visibility] Page visible at', new Date().toLocaleTimeString(), '- was hidden for', hiddenSeconds, 's');
 
         // Update activity timestamp
         lastActivityRef.current = now;
         setIsUserActive(true);
-
-        // Detect sleep/lock based on heartbeat gap
-        // If the gap is much larger than hidden duration, computer was sleeping
-        // (because during normal tab switch, heartbeats continue in background)
-        if (isActive && heartbeatGap > SLEEP_DETECTION_THRESHOLD_MS) {
-          const sleepDuration = Math.floor((heartbeatGap - HEARTBEAT_INTERVAL) / 1000);
-
-          if (sleepDuration >= Math.floor(MIN_SLEEP_DURATION_MS / 1000)) {
-            console.log('[Visibility] SLEEP DETECTED! Adding', sleepDuration, 's to Lock/Sleep time');
-            setIsScreenLocked(true);
-
-            attendanceService.addInactiveTime({ inactive_seconds_to_add: sleepDuration })
-              .then(() => {
-                console.log('[Visibility] Added', sleepDuration, 's inactive time successfully');
-                fetchCurrentSession();
-              })
-              .catch(err => console.error('[Visibility] Failed to add inactive time:', err))
-              .finally(() => {
-                setIsScreenLocked(false);
-                // Update last heartbeat time to prevent double-counting
-                lastHeartbeatTimeRef.current = now;
-              });
-          } else {
-            console.log('[Visibility] Gap detected but below threshold - not adding inactive time');
-          }
-        } else {
-          console.log('[Visibility] Normal tab switch - no inactive time added');
-        }
-
         pageHiddenTimeRef.current = null;
 
         if (isActive) {
           // Re-acquire wake lock (may have been released when hidden)
           requestWakeLock();
-          // Send heartbeat to sync with server (this also updates lastHeartbeatTimeRef)
+          // Send heartbeat to sync with server
+          // The heartbeat will detect if there was actual sleep (very large gap)
           sendHeartbeat();
+          // Refresh session to get latest data
+          fetchCurrentSession();
         }
       }
     };
