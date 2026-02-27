@@ -4,6 +4,7 @@
 const CACHE_NAME = 'work-tracker-v2';
 const STATIC_CACHE = 'work-tracker-static-v2';
 const HEARTBEAT_SYNC_TAG = 'heartbeat-sync';
+const API_BASE_URL = 'https://fastapi-project-management-production-22e0.up.railway.app';
 
 // Assets to cache immediately on install
 const PRECACHE_ASSETS = [
@@ -166,7 +167,7 @@ async function sendBackgroundHeartbeat() {
       return;
     }
 
-    const response = await fetch('/api/attendance/heartbeat', {
+    const response = await fetch(`${API_BASE_URL}/attendance/heartbeat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

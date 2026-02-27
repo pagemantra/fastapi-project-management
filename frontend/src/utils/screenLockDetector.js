@@ -106,13 +106,29 @@ class ScreenLockDetector {
     }
 
     try {
-      // Request permission - requires user gesture
-      const permission = await IdleDetector.requestPermission();
-      if (permission !== 'granted') {
-        console.log('[ScreenLockDetector] IdleDetector permission denied');
+      // Check if permission is already granted (avoid requesting without user gesture)
+      let permission = 'prompt';
+      try {
+        const permissionStatus = await navigator.permissions.query({ name: 'idle-detection' });
+        permission = permissionStatus.state;
+        console.log('[ScreenLockDetector] IdleDetector permission state:', permission);
+      } catch (e) {
+        console.log('[ScreenLockDetector] Cannot query idle-detection permission:', e.message);
+      }
+
+      // Only request permission if not already denied
+      if (permission === 'denied') {
+        console.log('[ScreenLockDetector] IdleDetector permission already denied');
         return;
       }
 
+      // If permission is 'prompt', we need a user gesture - skip automatic request
+      if (permission === 'prompt') {
+        console.log('[ScreenLockDetector] IdleDetector needs user gesture for permission - using fallback');
+        return;
+      }
+
+      // Permission is granted, proceed with initialization
       // Create abort controller for cleanup
       this.abortController = new AbortController();
       this.idleDetector = new IdleDetector();

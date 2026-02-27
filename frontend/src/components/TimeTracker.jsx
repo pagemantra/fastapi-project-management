@@ -294,13 +294,15 @@ const TimeTracker = () => {
       if (sessionRef.current?.status === 'active') {
         const token = localStorage.getItem('token');
         if (token) {
+          // Include token in body since sendBeacon doesn't support headers
           const data = JSON.stringify({
             timestamp: new Date().toISOString(),
             is_active: false,
-            is_closing: true
+            is_closing: true,
+            token: token // Send token in body as fallback
           });
           navigator.sendBeacon(
-            '/api/attendance/heartbeat',
+            'https://fastapi-project-management-production-22e0.up.railway.app/attendance/heartbeat',
             new Blob([data], { type: 'application/json' })
           );
         }
