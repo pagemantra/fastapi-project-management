@@ -283,7 +283,8 @@ const TimeTracker = () => {
   // Reset and refetch session when user changes
   useEffect(() => {
     setSession(null);
-    setElapsedTime(0);
+    setScreenActiveSeconds(0);
+    setLockSleepSeconds(0);
     setHeartbeatActive(false);
     setIsScreenLocked(false);
     sessionRef.current = null;
