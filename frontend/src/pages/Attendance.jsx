@@ -61,6 +61,24 @@ const Attendance = () => {
     }
   }, []);
 
+  // Handle visibility change - refresh history when page becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user && dateRange && dateRange[0] && dateRange[1]) {
+        console.log('[Attendance] Page visible - refreshing history');
+        setIsAutoRefreshing(true);
+        fetchHistory(true).finally(() => {
+          setIsAutoRefreshing(false);
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user, dateRange, fetchHistory]);
+
   useEffect(() => {
     // Clear state when user changes
     setHistory([]);
@@ -77,12 +95,12 @@ const Attendance = () => {
     // Setup auto-refresh for attendance history
     // This ensures the table data stays current (screen active time, break time, etc.)
     refreshIntervalRef.current = setInterval(() => {
-      if (!document.hidden) {
-        setIsAutoRefreshing(true);
-        fetchHistory(true).finally(() => {
-          setIsAutoRefreshing(false);
-        });
-      }
+      // Always refresh even when document is hidden to keep data current
+      // The timers on the server are still running
+      setIsAutoRefreshing(true);
+      fetchHistory(true).finally(() => {
+        setIsAutoRefreshing(false);
+      });
     }, HISTORY_REFRESH_INTERVAL);
 
     return () => {

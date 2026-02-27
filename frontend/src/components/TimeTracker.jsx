@@ -26,13 +26,14 @@ const TimeTracker = () => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [elapsedTime, setElapsedTime] = useState(0);
   const [breakType, setBreakType] = useState('short_break');
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [breakComment, setBreakComment] = useState('');
   const [currentSystemTime, setCurrentSystemTime] = useState(dayjs());
   const [heartbeatActive, setHeartbeatActive] = useState(false);
   const [isScreenLocked, setIsScreenLocked] = useState(false);
+  const [screenActiveSeconds, setScreenActiveSeconds] = useState(0);
+  const [lockSleepSeconds, setLockSleepSeconds] = useState(0);
 
   // Refs
   const heartbeatIntervalRef = useRef(null);
@@ -307,11 +308,11 @@ const TimeTracker = () => {
     };
   }, []);
 
-  // Calculate elapsed time every second
+  // Calculate screen active time and lock/sleep time every second
   useEffect(() => {
     let interval;
     if (session && (session.status === 'active' || session.status === 'on_break')) {
-      const calculateElapsedTime = () => {
+      const calculateTimes = () => {
         try {
           let loginTime;
           if (session.login_time) {
@@ -319,7 +320,8 @@ const TimeTracker = () => {
               ? dayjs.utc(session.login_time).tz('Asia/Kolkata')
               : dayjs(session.login_time).tz('Asia/Kolkata');
           } else {
-            setElapsedTime(0);
+            setScreenActiveSeconds(0);
+            setLockSleepSeconds(0);
             return;
           }
 
@@ -341,33 +343,39 @@ const TimeTracker = () => {
             });
           }
 
-          // Get inactive seconds (lock/sleep time) from session
-          let inactiveSeconds = session.inactive_seconds || 0;
+          // Get inactive seconds (lock/sleep time) from session (already saved to server)
+          const savedInactiveSeconds = session.inactive_seconds || 0;
 
-          // If screen is currently locked, also subtract the CURRENT lock duration
-          // This makes the timer pause immediately when screen locks
-          const currentLockDuration = screenLockDetector.getCurrentLockDuration();
-          if (currentLockDuration > 0) {
-            inactiveSeconds += currentLockDuration;
+          // Get current lock duration if screen is currently locked
+          const currentLockDur = screenLockDetector.getCurrentLockDuration();
+
+          // Total lock/sleep time = saved + current ongoing lock
+          const totalLockSleepSecs = savedInactiveSeconds + currentLockDur;
+          setLockSleepSeconds(totalLockSleepSecs);
+
+          // Update screen locked state
+          if (currentLockDur > 0) {
             setIsScreenLocked(true);
           } else {
             setIsScreenLocked(screenLockDetector.isLocked());
           }
 
-          // Work time = total elapsed - breaks - inactive (lock/sleep)
-          const elapsed = Math.max(0, totalSeconds - breakSeconds - inactiveSeconds);
-          setElapsedTime(elapsed);
+          // Screen Active Time = total elapsed - breaks - lock/sleep (saved + current)
+          const activeSeconds = Math.max(0, totalSeconds - breakSeconds - totalLockSleepSecs);
+          setScreenActiveSeconds(activeSeconds);
           setCurrentSystemTime(now);
         } catch (error) {
-          console.error('[TimeTracker] Error calculating elapsed time:', error);
-          setElapsedTime(0);
+          console.error('[TimeTracker] Error calculating times:', error);
+          setScreenActiveSeconds(0);
+          setLockSleepSeconds(0);
         }
       };
 
-      calculateElapsedTime();
-      interval = setInterval(calculateElapsedTime, 1000);
+      calculateTimes();
+      interval = setInterval(calculateTimes, 1000);
     } else {
-      setElapsedTime(0);
+      setScreenActiveSeconds(0);
+      setLockSleepSeconds(0);
       interval = setInterval(() => {
         setCurrentSystemTime(dayjs().tz('Asia/Kolkata'));
       }, 1000);
@@ -529,15 +537,41 @@ const TimeTracker = () => {
       loading={loading}
     >
       <Row gutter={[16, 16]} align="middle">
-        <Col xs={24} md={6}>
+        <Col xs={24} md={5}>
           <Statistic
-            title="Work Time"
-            value={formatTime(Math.max(0, elapsedTime))}
+            title={
+              <span>
+                Screen Active Time{' '}
+                {session?.status === 'active' && (
+                  <Tag color={isScreenLocked ? 'red' : 'green'} style={{ fontSize: '10px', marginLeft: 4 }}>
+                    {isScreenLocked ? 'PAUSED' : 'RUNNING'}
+                  </Tag>
+                )}
+              </span>
+            }
+            value={formatTime(Math.max(0, screenActiveSeconds))}
             prefix={<ClockCircleOutlined />}
-            styles={{ value: { fontSize: 28, color: session?.status === 'active' ? '#52c41a' : '#1890ff' } }}
+            styles={{ value: { fontSize: 24, color: isScreenLocked ? '#ff4d4f' : (session?.status === 'active' ? '#52c41a' : '#1890ff') } }}
           />
         </Col>
-        <Col xs={24} md={6}>
+        <Col xs={24} md={5}>
+          <Statistic
+            title={
+              <span>
+                Lock/Sleep Time{' '}
+                {isScreenLocked && session?.status === 'active' && (
+                  <Tag color="orange" style={{ fontSize: '10px', marginLeft: 4 }}>
+                    RUNNING
+                  </Tag>
+                )}
+              </span>
+            }
+            value={formatTime(lockSleepSeconds)}
+            prefix={<LockOutlined />}
+            styles={{ value: { fontSize: 24, color: isScreenLocked ? '#faad14' : '#8c8c8c' } }}
+          />
+        </Col>
+        <Col xs={24} md={4}>
           <Statistic
             title="Break Time"
             value={(() => {
@@ -562,7 +596,7 @@ const TimeTracker = () => {
             prefix={<CoffeeOutlined />}
           />
         </Col>
-        <Col xs={24} md={6}>
+        <Col xs={24} md={10}>
           <Space orientation="vertical" style={{ width: '100%' }}>
             {!session || session.status === 'completed' ? (
               <Button
@@ -640,6 +674,15 @@ const TimeTracker = () => {
           </>
         )}
       </div>
+      {session?.status === 'active' && (
+        <div style={{ marginTop: 8 }}>
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            {isScreenLocked
+              ? '⏸️ Screen Active timer is PAUSED. Lock/Sleep timer is running. Timer will resume when you unlock your screen.'
+              : '▶️ Screen Active timer is RUNNING. It will pause automatically when your screen locks or goes to sleep. Tab minimize/switch does NOT pause the timer.'}
+          </Text>
+        </div>
+      )}
 
       {/* Comment Modal for Meeting/Other breaks */}
       <Modal
