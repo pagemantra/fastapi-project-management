@@ -43,7 +43,6 @@ const TimeTracker = () => {
   const detectorInitializedRef = useRef(false);
   const pendingInactiveSecondsRef = useRef(0); // Track inactive time sent but not yet confirmed
   const lastConfirmedInactiveRef = useRef(0); // Track last confirmed inactive_seconds from server
-  const screenActiveAtLockRef = useRef(0); // Store screen active time when lock starts
   const lockStartTimeRef = useRef(null); // Track when lock started (client-side timestamp)
   const isLockedRef = useRef(false); // Track lock state in ref for accurate timing
   const currentScreenActiveRef = useRef(0); // Always track current screen active seconds
@@ -129,12 +128,9 @@ const TimeTracker = () => {
     const initDetector = async () => {
       await screenLockDetector.init({
         onLock: () => {
-          console.log('[TimeTracker] Screen locked - timer paused');
-          // Save current screen active time at moment of lock (use ref for latest value)
-          screenActiveAtLockRef.current = currentScreenActiveRef.current;
+          console.log('[TimeTracker] Screen locked - timer paused at:', currentScreenActiveRef.current);
           lockStartTimeRef.current = Date.now();
           isLockedRef.current = true;
-          console.log('[TimeTracker] Saved screen active time at lock:', screenActiveAtLockRef.current);
           setIsScreenLocked(true);
         },
 
@@ -179,13 +175,10 @@ const TimeTracker = () => {
         },
 
         onSleep: () => {
-          console.log('[TimeTracker] System sleep detected');
-          // Save current screen active time at moment of sleep (use ref for latest value)
+          console.log('[TimeTracker] System sleep detected at:', currentScreenActiveRef.current);
           if (!isLockedRef.current) {
-            screenActiveAtLockRef.current = currentScreenActiveRef.current;
             lockStartTimeRef.current = Date.now();
             isLockedRef.current = true;
-            console.log('[TimeTracker] Saved screen active time at sleep:', screenActiveAtLockRef.current);
           }
           setIsScreenLocked(true);
         },
@@ -374,9 +367,9 @@ const TimeTracker = () => {
     sessionRef.current = null;
     pendingInactiveSecondsRef.current = 0;
     lastConfirmedInactiveRef.current = 0;
-    screenActiveAtLockRef.current = 0;
     lockStartTimeRef.current = null;
     isLockedRef.current = false;
+    currentScreenActiveRef.current = 0;
 
     if (!user) {
       setLoading(false);
@@ -445,39 +438,31 @@ const TimeTracker = () => {
             console.log('[TimeTracker] Server confirmed inactive time. Saved:', savedInactiveSeconds, 'Pending:', pendingInactiveSecondsRef.current);
           }
 
-          // Check if screen is currently locked (use our ref for accurate state)
-          const isCurrentlyLocked = isLockedRef.current || screenLockDetector.isLocked();
+          // Check if screen is currently locked
+          // Only use isLockedRef which we control directly from callbacks
+          const isCurrentlyLocked = isLockedRef.current;
 
-          // Calculate current lock duration
+          // Calculate current lock duration from our client-side tracking
           let currentLockDur = 0;
           if (isCurrentlyLocked && lockStartTimeRef.current) {
-            // Use our client-side tracking for accurate duration
             currentLockDur = Math.floor((Date.now() - lockStartTimeRef.current) / 1000);
-          } else {
-            // Fall back to detector's duration
-            currentLockDur = screenLockDetector.getCurrentLockDuration();
           }
+          // Note: We don't use screenLockDetector.getCurrentLockDuration() here
+          // because it might be out of sync with our state
 
           // Total lock/sleep time = saved + pending (not yet confirmed) + current ongoing lock
           const totalLockSleepSecs = savedInactiveSeconds + pendingInactiveSecondsRef.current + currentLockDur;
           setLockSleepSeconds(totalLockSleepSecs);
 
-          // Update screen locked state
+          // Update screen locked state for UI
           setIsScreenLocked(isCurrentlyLocked);
 
-          // Screen Active Time calculation
-          let activeSeconds;
-          if (isCurrentlyLocked && screenActiveAtLockRef.current > 0) {
-            // When locked, use the saved value from when lock started (frozen)
-            activeSeconds = screenActiveAtLockRef.current;
-          } else {
-            // When not locked, calculate normally
-            activeSeconds = Math.max(0, totalSeconds - breakSeconds - totalLockSleepSecs);
-            // Update the saved value for next lock
-            if (!isCurrentlyLocked && activeSeconds > 0) {
-              screenActiveAtLockRef.current = activeSeconds;
-            }
-          }
+          // Screen Active Time = total elapsed - breaks - lock/sleep time
+          // This naturally "freezes" during lock because currentLockDur grows at same rate as totalSeconds
+          const activeSeconds = Math.max(0, totalSeconds - breakSeconds - totalLockSleepSecs);
+
+          // Save current value for reference
+          currentScreenActiveRef.current = activeSeconds;
 
           setScreenActiveSeconds(activeSeconds);
           setCurrentSystemTime(now);
