@@ -41,6 +41,8 @@ const TimeTracker = () => {
   const lastActivityRef = useRef(Date.now());
   const wakeLockRef = useRef(null);
   const detectorInitializedRef = useRef(false);
+  const pendingInactiveSecondsRef = useRef(0); // Track inactive time sent but not yet confirmed
+  const lastConfirmedInactiveRef = useRef(0); // Track last confirmed inactive_seconds from server
 
   // Keep refs in sync
   useEffect(() => {
@@ -84,7 +86,18 @@ const TimeTracker = () => {
   const fetchCurrentSession = useCallback(async () => {
     try {
       const response = await attendanceService.getCurrentSession();
-      setSession(response.data);
+      const sessionData = response.data;
+      setSession(sessionData);
+
+      // Initialize lastConfirmedInactiveRef if this is the first load or session changed
+      if (sessionData && sessionData.inactive_seconds !== undefined) {
+        // Only update if server has more than what we've confirmed
+        // This handles the case when session is refreshed after unlock
+        if (sessionData.inactive_seconds >= lastConfirmedInactiveRef.current + pendingInactiveSecondsRef.current) {
+          lastConfirmedInactiveRef.current = sessionData.inactive_seconds;
+          pendingInactiveSecondsRef.current = 0;
+        }
+      }
     } catch (error) {
       console.error('Failed to fetch session:', error);
       message.error('Failed to load attendance session');
@@ -114,14 +127,24 @@ const TimeTracker = () => {
         onUnlock: (duration) => {
           console.log('[TimeTracker] Screen unlocked - was locked for', duration, 's');
 
+          // Add lock time to pending (to prevent time jump during API call)
+          if (duration > 0) {
+            pendingInactiveSecondsRef.current += duration;
+            console.log('[TimeTracker] Pending inactive seconds:', pendingInactiveSecondsRef.current);
+          }
+
           // Add lock time to server
           if (duration > 0 && sessionRef.current?.status === 'active') {
             attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
               .then(() => {
-                console.log('[TimeTracker] Added', duration, 's to Lock/Sleep');
+                console.log('[TimeTracker] Added', duration, 's to Lock/Sleep on server');
                 fetchCurrentSession();
               })
-              .catch(err => console.error('[TimeTracker] Failed to add inactive time:', err));
+              .catch(err => {
+                console.error('[TimeTracker] Failed to add inactive time:', err);
+                // Revert pending on error
+                pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - duration);
+              });
           }
 
           setIsScreenLocked(false);
@@ -135,14 +158,24 @@ const TimeTracker = () => {
         onWake: (duration) => {
           console.log('[TimeTracker] System wake - was sleeping for', duration, 's');
 
+          // Add sleep time to pending (to prevent time jump during API call)
+          if (duration > 0) {
+            pendingInactiveSecondsRef.current += duration;
+            console.log('[TimeTracker] Pending inactive seconds:', pendingInactiveSecondsRef.current);
+          }
+
           // Add sleep time to server
           if (duration > 0 && sessionRef.current?.status === 'active') {
             attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
               .then(() => {
-                console.log('[TimeTracker] Added', duration, 's sleep time');
+                console.log('[TimeTracker] Added', duration, 's sleep time on server');
                 fetchCurrentSession();
               })
-              .catch(err => console.error('[TimeTracker] Failed to add sleep time:', err));
+              .catch(err => {
+                console.error('[TimeTracker] Failed to add sleep time:', err);
+                // Revert pending on error
+                pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - duration);
+              });
           }
 
           setIsScreenLocked(false);
@@ -288,6 +321,8 @@ const TimeTracker = () => {
     setHeartbeatActive(false);
     setIsScreenLocked(false);
     sessionRef.current = null;
+    pendingInactiveSecondsRef.current = 0;
+    lastConfirmedInactiveRef.current = 0;
 
     if (!user) {
       setLoading(false);
@@ -347,11 +382,21 @@ const TimeTracker = () => {
           // Get inactive seconds (lock/sleep time) from session (already saved to server)
           const savedInactiveSeconds = session.inactive_seconds || 0;
 
+          // Check if server has confirmed the pending inactive seconds
+          // If savedInactiveSeconds increased, clear the corresponding pending amount
+          if (savedInactiveSeconds > lastConfirmedInactiveRef.current) {
+            const confirmedAmount = savedInactiveSeconds - lastConfirmedInactiveRef.current;
+            pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - confirmedAmount);
+            lastConfirmedInactiveRef.current = savedInactiveSeconds;
+            console.log('[TimeTracker] Server confirmed inactive time. Saved:', savedInactiveSeconds, 'Pending:', pendingInactiveSecondsRef.current);
+          }
+
           // Get current lock duration if screen is currently locked
           const currentLockDur = screenLockDetector.getCurrentLockDuration();
 
-          // Total lock/sleep time = saved + current ongoing lock
-          const totalLockSleepSecs = savedInactiveSeconds + currentLockDur;
+          // Total lock/sleep time = saved + pending (not yet confirmed) + current ongoing lock
+          // This ensures no gap when screen unlocks but server hasn't confirmed yet
+          const totalLockSleepSecs = savedInactiveSeconds + pendingInactiveSecondsRef.current + currentLockDur;
           setLockSleepSeconds(totalLockSleepSecs);
 
           // Update screen locked state
@@ -361,7 +406,7 @@ const TimeTracker = () => {
             setIsScreenLocked(screenLockDetector.isLocked());
           }
 
-          // Screen Active Time = total elapsed - breaks - lock/sleep (saved + current)
+          // Screen Active Time = total elapsed - breaks - lock/sleep (saved + pending + current)
           const activeSeconds = Math.max(0, totalSeconds - breakSeconds - totalLockSleepSecs);
           setScreenActiveSeconds(activeSeconds);
           setCurrentSystemTime(now);

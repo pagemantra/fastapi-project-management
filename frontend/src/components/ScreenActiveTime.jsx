@@ -23,9 +23,11 @@ const ScreenActiveTime = () => {
   const sessionRef = useRef(null);
   const intervalRef = useRef(null);
   const detectorInitializedRef = useRef(false);
+  const pendingInactiveSecondsRef = useRef(0); // Track inactive time sent but not yet confirmed
+  const lastConfirmedInactiveRef = useRef(0); // Track last confirmed inactive_seconds from server
 
   // Calculate screen active time based on server data
-  // Formula: (now - login_time) - break_minutes - inactive_seconds - current_lock_duration
+  // Formula: (now - login_time) - break_minutes - inactive_seconds - pending_inactive - current_lock_duration
   const calculateScreenActiveTime = useCallback((sessionData, currentLockDuration = 0) => {
     if (!sessionData || !sessionData.login_time) {
       return 0;
@@ -51,10 +53,20 @@ const ScreenActiveTime = () => {
     }
 
     // Inactive time from server (past lock/sleep time)
-    const inactiveSeconds = sessionData.inactive_seconds || 0;
+    const savedInactiveSeconds = sessionData.inactive_seconds || 0;
 
-    // Screen active = elapsed - breaks - past_inactive - current_lock
-    const activeSeconds = Math.max(0, totalElapsedSeconds - breakSeconds - inactiveSeconds - currentLockDuration);
+    // Check if server has confirmed the pending inactive seconds
+    if (savedInactiveSeconds > lastConfirmedInactiveRef.current) {
+      const confirmedAmount = savedInactiveSeconds - lastConfirmedInactiveRef.current;
+      pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - confirmedAmount);
+      lastConfirmedInactiveRef.current = savedInactiveSeconds;
+    }
+
+    // Total inactive = saved + pending (not yet confirmed) + current lock
+    const totalInactiveSeconds = savedInactiveSeconds + pendingInactiveSecondsRef.current + currentLockDuration;
+
+    // Screen active = elapsed - breaks - total_inactive
+    const activeSeconds = Math.max(0, totalElapsedSeconds - breakSeconds - totalInactiveSeconds);
 
     return activeSeconds;
   }, []);
@@ -119,6 +131,11 @@ const ScreenActiveTime = () => {
         onUnlock: (duration) => {
           console.log('[ScreenActiveTime] Screen unlocked - was locked for', duration, 's');
 
+          // Add to pending (to prevent time jump during API call)
+          if (duration > 0) {
+            pendingInactiveSecondsRef.current += duration;
+          }
+
           // Add lock time to server
           if (duration > 0 && sessionRef.current?.status === 'active') {
             attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
@@ -126,7 +143,10 @@ const ScreenActiveTime = () => {
                 console.log('[ScreenActiveTime] Added', duration, 's to Lock/Sleep');
                 fetchCurrentSession(true);
               })
-              .catch(err => console.error('[ScreenActiveTime] Failed to add inactive time:', err));
+              .catch(err => {
+                console.error('[ScreenActiveTime] Failed to add inactive time:', err);
+                pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - duration);
+              });
           }
 
           setTimerStatus('running');
@@ -141,6 +161,11 @@ const ScreenActiveTime = () => {
         onWake: (duration) => {
           console.log('[ScreenActiveTime] System wake - was sleeping for', duration, 's');
 
+          // Add to pending (to prevent time jump during API call)
+          if (duration > 0) {
+            pendingInactiveSecondsRef.current += duration;
+          }
+
           // Add sleep time to server
           if (duration > 0 && sessionRef.current?.status === 'active') {
             attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
@@ -148,7 +173,10 @@ const ScreenActiveTime = () => {
                 console.log('[ScreenActiveTime] Added', duration, 's sleep time');
                 fetchCurrentSession(true);
               })
-              .catch(err => console.error('[ScreenActiveTime] Failed to add sleep time:', err));
+              .catch(err => {
+                console.error('[ScreenActiveTime] Failed to add sleep time:', err);
+                pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - duration);
+              });
           }
 
           setTimerStatus('running');
@@ -189,11 +217,15 @@ const ScreenActiveTime = () => {
       setCurrentLockSeconds(0);
       setTimerStatus('not_clocked_in');
       sessionRef.current = null;
+      pendingInactiveSecondsRef.current = 0;
+      lastConfirmedInactiveRef.current = 0;
       return;
     }
 
     setLoading(true);
     setSession(null);
+    pendingInactiveSecondsRef.current = 0;
+    lastConfirmedInactiveRef.current = 0;
     setScreenActiveSeconds(0);
     setCurrentLockSeconds(0);
     setTimerStatus('not_clocked_in');
