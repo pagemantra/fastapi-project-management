@@ -2461,33 +2461,27 @@ app.post('/attendance/heartbeat', authenticate, async (req, res) => {
       return res.status(400).json({ detail: 'No active session found' });
     }
 
-    // Get the last heartbeat time and lock status
-    const lastHeartbeat = session.last_heartbeat || session.login_time;
-    const lastHeartbeatTime = new Date(lastHeartbeat).getTime();
-    const currentTime = now.getTime();
-    const gapSeconds = Math.floor((currentTime - lastHeartbeatTime) / 1000);
-    const wasScreenLocked = session.last_screen_locked || false;
-
     // Initialize heartbeat tracking fields if not present
     let totalHeartbeats = session.total_heartbeats || 0;
-    let inactiveSeconds = session.inactive_seconds || 0;
+    const inactiveSeconds = session.inactive_seconds || 0;
     totalHeartbeats += 1;
 
-    // Track inactive time ONLY when screen is locked
-    // If screen was locked in the previous heartbeat and still locked, add the gap as inactive
-    if (wasScreenLocked && gapSeconds > 0) {
-      inactiveSeconds += gapSeconds;
-      console.log(`[Heartbeat] Screen locked for ${userId}: ${gapSeconds}s added to inactive (total: ${inactiveSeconds}s)`);
-    }
+    // NOTE: We do NOT auto-add inactive time from heartbeat gaps anymore!
+    // The frontend handles lock detection via IdleDetector/Page Lifecycle API and
+    // reports lock duration via /attendance/inactive-time endpoint when screen unlocks.
+    // This prevents double-counting since:
+    // 1. When screen is locked, JS freezes so no heartbeats are sent anyway
+    // 2. Frontend accurately measures lock duration from client-side timestamps
+    // 3. Heartbeat gap detection was causing double-counting with frontend reporting
 
     // Update session with heartbeat data
+    // Note: We don't update inactive_seconds here - that's only done via /attendance/inactive-time
     await db.collection('time_sessions').updateOne(
       { _id: session._id },
       {
         $set: {
           last_heartbeat: now,
           total_heartbeats: totalHeartbeats,
-          inactive_seconds: inactiveSeconds,
           last_screen_locked: screen_locked || false,
           updated_at: now
         }
@@ -2497,7 +2491,7 @@ app.post('/attendance/heartbeat', authenticate, async (req, res) => {
     res.json({
       success: true,
       heartbeat_count: totalHeartbeats,
-      inactive_seconds: inactiveSeconds,
+      inactive_seconds: inactiveSeconds, // Return current value for frontend reference
       screen_locked: screen_locked || false
     });
   } catch (error) {
