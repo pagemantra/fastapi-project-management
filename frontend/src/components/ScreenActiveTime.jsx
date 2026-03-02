@@ -132,8 +132,11 @@ const ScreenActiveTime = () => {
         onUnlock: (duration) => {
           console.log('[ScreenActiveTime] Screen unlocked - was locked for', duration, 's');
 
-          // Note: TimeTracker handles the API call to add inactive time
-          // We just update our UI state here
+          // Add to pending to prevent time jump while API updates
+          // TimeTracker handles the actual API call
+          if (duration > 0) {
+            pendingInactiveSecondsRef.current += duration;
+          }
 
           setTimerStatus('running');
           setCurrentLockSeconds(0);
@@ -150,8 +153,11 @@ const ScreenActiveTime = () => {
         onWake: (duration) => {
           console.log('[ScreenActiveTime] System wake - was sleeping for', duration, 's');
 
-          // Note: TimeTracker handles the API call to add sleep time
-          // We just update our UI state here
+          // Add to pending to prevent time jump while API updates
+          // TimeTracker handles the actual API call
+          if (duration > 0) {
+            pendingInactiveSecondsRef.current += duration;
+          }
 
           setTimerStatus('running');
           setCurrentLockSeconds(0);
@@ -350,8 +356,8 @@ const ScreenActiveTime = () => {
 
   const isSessionActive = session && (session.status === 'active' || session.status === 'on_break');
 
-  // Calculate total lock/sleep time (saved + current)
-  const totalLockSleepSeconds = (session?.inactive_seconds || 0) + currentLockSeconds;
+  // Calculate total lock/sleep time (saved + pending + current)
+  const totalLockSleepSeconds = (session?.inactive_seconds || 0) + pendingInactiveSecondsRef.current + currentLockSeconds;
 
   return (
     <Card loading={loading} style={{ height: '100%' }}>
