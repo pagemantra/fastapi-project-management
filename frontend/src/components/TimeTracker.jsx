@@ -41,11 +41,13 @@ const TimeTracker = () => {
   const lastActivityRef = useRef(Date.now());
   const wakeLockRef = useRef(null);
   const detectorInitializedRef = useRef(false);
+  const detectorCleanupRef = useRef(null); // Cleanup function from detector.init()
   const pendingInactiveSecondsRef = useRef(0); // Track inactive time sent but not yet confirmed
   const lastConfirmedInactiveRef = useRef(0); // Track last confirmed inactive_seconds from server
   const lockStartTimeRef = useRef(null); // Track when lock started (client-side timestamp)
   const isLockedRef = useRef(false); // Track lock state in ref for accurate timing
   const currentScreenActiveRef = useRef(0); // Always track current screen active seconds
+  const screenActiveAtLockRef = useRef(0); // Store screen active time when lock started
 
   // Keep refs in sync
   useEffect(() => {
@@ -126,9 +128,10 @@ const TimeTracker = () => {
     }
 
     const initDetector = async () => {
-      await screenLockDetector.init({
+      const cleanup = await screenLockDetector.init({
         onLock: () => {
           console.log('[TimeTracker] Screen locked - timer paused at:', currentScreenActiveRef.current);
+          screenActiveAtLockRef.current = currentScreenActiveRef.current; // Save screen active time at lock
           lockStartTimeRef.current = Date.now();
           isLockedRef.current = true;
           setIsScreenLocked(true);
@@ -177,6 +180,7 @@ const TimeTracker = () => {
         onSleep: () => {
           console.log('[TimeTracker] System sleep detected at:', currentScreenActiveRef.current);
           if (!isLockedRef.current) {
+            screenActiveAtLockRef.current = currentScreenActiveRef.current; // Save screen active time at sleep
             lockStartTimeRef.current = Date.now();
             isLockedRef.current = true;
           }
@@ -228,6 +232,7 @@ const TimeTracker = () => {
         }
       });
 
+      detectorCleanupRef.current = cleanup;
       detectorInitializedRef.current = true;
       console.log('[TimeTracker] Screen lock detector initialized');
     };
@@ -370,6 +375,7 @@ const TimeTracker = () => {
     lockStartTimeRef.current = null;
     isLockedRef.current = false;
     currentScreenActiveRef.current = 0;
+    screenActiveAtLockRef.current = 0;
 
     if (!user) {
       setLoading(false);
@@ -380,12 +386,14 @@ const TimeTracker = () => {
     fetchCurrentSession();
   }, [user?.id, dataVersion, fetchCurrentSession]);
 
-  // Cleanup detector on unmount
+  // Cleanup detector callbacks on unmount
   useEffect(() => {
     return () => {
-      if (detectorInitializedRef.current) {
-        // Don't destroy here - ScreenActiveTime might be using it
-        // screenLockDetector.destroy();
+      if (detectorInitializedRef.current && detectorCleanupRef.current) {
+        // Remove our callbacks but don't destroy the detector
+        // since ScreenActiveTime might still be using it
+        detectorCleanupRef.current();
+        detectorCleanupRef.current = null;
         detectorInitializedRef.current = false;
       }
     };

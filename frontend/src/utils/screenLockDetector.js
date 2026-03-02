@@ -42,11 +42,11 @@ class ScreenLockDetector {
     this.isFrozen = false;
     this.freezeStartTime = null;
 
-    // Callbacks
-    this.onLock = null;
-    this.onUnlock = null;
-    this.onSleep = null;
-    this.onWake = null;
+    // Callbacks - now supports multiple listeners
+    this.lockCallbacks = [];
+    this.unlockCallbacks = [];
+    this.sleepCallbacks = [];
+    this.wakeCallbacks = [];
     this.onError = null;
 
     // API availability
@@ -66,32 +66,47 @@ class ScreenLockDetector {
    * @param {Function} options.onSleep - Called when system sleeps
    * @param {Function} options.onWake - Called when system wakes, receives duration in seconds
    * @param {Function} options.onError - Called on errors
+   * @returns {Function} Cleanup function to remove the registered callbacks
    */
   async init(options = {}) {
-    if (this.isInitialized) {
-      console.log('[ScreenLockDetector] Already initialized');
-      return;
-    }
+    // Register callbacks (supports multiple listeners)
+    const lockCallback = options.onLock || (() => {});
+    const unlockCallback = options.onUnlock || (() => {});
+    const sleepCallback = options.onSleep || (() => {});
+    const wakeCallback = options.onWake || (() => {});
 
-    this.onLock = options.onLock || (() => {});
-    this.onUnlock = options.onUnlock || (() => {});
-    this.onSleep = options.onSleep || (() => {});
-    this.onWake = options.onWake || (() => {});
+    this.lockCallbacks.push(lockCallback);
+    this.unlockCallbacks.push(unlockCallback);
+    this.sleepCallbacks.push(sleepCallback);
+    this.wakeCallbacks.push(wakeCallback);
     this.onError = options.onError || ((err) => console.error('[ScreenLockDetector] Error:', err));
 
-    // Initialize all detection methods
-    await this.initIdleDetector();
-    this.initPageLifecycleDetection();
-    this.initVisibilityDetection();
-    this.startHeartbeat();
+    // Only initialize detection methods once
+    if (!this.isInitialized) {
+      // Initialize all detection methods
+      await this.initIdleDetector();
+      this.initPageLifecycleDetection();
+      this.initVisibilityDetection();
+      this.startHeartbeat();
 
-    this.isInitialized = true;
-    console.log('[ScreenLockDetector] Initialized with:', {
-      idleDetector: this.idleDetectorAvailable,
-      pageLifecycle: 'onfreeze' in document,
-      visibility: true,
-      heartbeat: true
-    });
+      this.isInitialized = true;
+      console.log('[ScreenLockDetector] Initialized with:', {
+        idleDetector: this.idleDetectorAvailable,
+        pageLifecycle: 'onfreeze' in document,
+        visibility: true,
+        heartbeat: true
+      });
+    } else {
+      console.log('[ScreenLockDetector] Already initialized, added new callbacks');
+    }
+
+    // Return cleanup function
+    return () => {
+      this.lockCallbacks = this.lockCallbacks.filter(cb => cb !== lockCallback);
+      this.unlockCallbacks = this.unlockCallbacks.filter(cb => cb !== unlockCallback);
+      this.sleepCallbacks = this.sleepCallbacks.filter(cb => cb !== sleepCallback);
+      this.wakeCallbacks = this.wakeCallbacks.filter(cb => cb !== wakeCallback);
+    };
   }
 
   /**
@@ -171,7 +186,14 @@ class ScreenLockDetector {
       console.log('[ScreenLockDetector] Page FROZEN (system sleep/hibernate)');
       this.isFrozen = true;
       this.freezeStartTime = Date.now();
-      this.onSleep();
+      // Call all registered sleep callbacks
+      this.sleepCallbacks.forEach(cb => {
+        try {
+          cb();
+        } catch (err) {
+          console.error('[ScreenLockDetector] Sleep callback error:', err);
+        }
+      });
     });
 
     // Resume event - fires when system wakes
@@ -180,7 +202,14 @@ class ScreenLockDetector {
       if (this.isFrozen && this.freezeStartTime) {
         const sleepDuration = Math.floor((Date.now() - this.freezeStartTime) / 1000);
         console.log('[ScreenLockDetector] System was sleeping for', sleepDuration, 'seconds');
-        this.onWake(sleepDuration);
+        // Call all registered wake callbacks
+        this.wakeCallbacks.forEach(cb => {
+          try {
+            cb(sleepDuration);
+          } catch (err) {
+            console.error('[ScreenLockDetector] Wake callback error:', err);
+          }
+        });
       }
       this.isFrozen = false;
       this.freezeStartTime = null;
@@ -266,7 +295,14 @@ class ScreenLockDetector {
     this.isScreenLocked = true;
     this.screenLockStartTime = Date.now();
     console.log('[ScreenLockDetector] Screen LOCKED (source:', source, ') at', new Date().toLocaleTimeString());
-    this.onLock();
+    // Call all registered lock callbacks
+    this.lockCallbacks.forEach(cb => {
+      try {
+        cb();
+      } catch (err) {
+        console.error('[ScreenLockDetector] Lock callback error:', err);
+      }
+    });
   }
 
   /**
@@ -288,7 +324,14 @@ class ScreenLockDetector {
 
     this.isScreenLocked = false;
     this.screenLockStartTime = null;
-    this.onUnlock(lockDuration);
+    // Call all registered unlock callbacks
+    this.unlockCallbacks.forEach(cb => {
+      try {
+        cb(lockDuration);
+      } catch (err) {
+        console.error('[ScreenLockDetector] Unlock callback error:', err);
+      }
+    });
   }
 
   /**
@@ -344,6 +387,12 @@ class ScreenLockDetector {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
     }
+
+    // Clear all callbacks
+    this.lockCallbacks = [];
+    this.unlockCallbacks = [];
+    this.sleepCallbacks = [];
+    this.wakeCallbacks = [];
 
     this.isInitialized = false;
     this.idleDetectorAvailable = false;

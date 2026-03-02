@@ -23,6 +23,7 @@ const ScreenActiveTime = () => {
   const sessionRef = useRef(null);
   const intervalRef = useRef(null);
   const detectorInitializedRef = useRef(false);
+  const detectorCleanupRef = useRef(null); // Cleanup function from detector.init()
   const pendingInactiveSecondsRef = useRef(0); // Track inactive time sent but not yet confirmed
   const lastConfirmedInactiveRef = useRef(0); // Track last confirmed inactive_seconds from server
 
@@ -122,7 +123,7 @@ const ScreenActiveTime = () => {
     }
 
     const initDetector = async () => {
-      await screenLockDetector.init({
+      const cleanup = await screenLockDetector.init({
         onLock: () => {
           console.log('[ScreenActiveTime] Screen locked - pausing timer');
           setTimerStatus('screen_locked');
@@ -131,26 +132,14 @@ const ScreenActiveTime = () => {
         onUnlock: (duration) => {
           console.log('[ScreenActiveTime] Screen unlocked - was locked for', duration, 's');
 
-          // Add to pending (to prevent time jump during API call)
-          if (duration > 0) {
-            pendingInactiveSecondsRef.current += duration;
-          }
-
-          // Add lock time to server
-          if (duration > 0 && sessionRef.current?.status === 'active') {
-            attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
-              .then(() => {
-                console.log('[ScreenActiveTime] Added', duration, 's to Lock/Sleep');
-                fetchCurrentSession(true);
-              })
-              .catch(err => {
-                console.error('[ScreenActiveTime] Failed to add inactive time:', err);
-                pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - duration);
-              });
-          }
+          // Note: TimeTracker handles the API call to add inactive time
+          // We just update our UI state here
 
           setTimerStatus('running');
           setCurrentLockSeconds(0);
+
+          // Refresh session to get latest data
+          fetchCurrentSession(true);
         },
 
         onSleep: () => {
@@ -161,26 +150,14 @@ const ScreenActiveTime = () => {
         onWake: (duration) => {
           console.log('[ScreenActiveTime] System wake - was sleeping for', duration, 's');
 
-          // Add to pending (to prevent time jump during API call)
-          if (duration > 0) {
-            pendingInactiveSecondsRef.current += duration;
-          }
-
-          // Add sleep time to server
-          if (duration > 0 && sessionRef.current?.status === 'active') {
-            attendanceService.addInactiveTime({ inactive_seconds_to_add: duration })
-              .then(() => {
-                console.log('[ScreenActiveTime] Added', duration, 's sleep time');
-                fetchCurrentSession(true);
-              })
-              .catch(err => {
-                console.error('[ScreenActiveTime] Failed to add sleep time:', err);
-                pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - duration);
-              });
-          }
+          // Note: TimeTracker handles the API call to add sleep time
+          // We just update our UI state here
 
           setTimerStatus('running');
           setCurrentLockSeconds(0);
+
+          // Refresh session to get latest data
+          fetchCurrentSession(true);
         },
 
         onError: (err) => {
@@ -188,6 +165,7 @@ const ScreenActiveTime = () => {
         }
       });
 
+      detectorCleanupRef.current = cleanup;
       detectorInitializedRef.current = true;
       console.log('[ScreenActiveTime] Screen lock detector initialized');
     };
@@ -195,8 +173,11 @@ const ScreenActiveTime = () => {
     initDetector();
 
     return () => {
-      // Don't destroy on cleanup - we want to keep it running
-      // It will be destroyed when component fully unmounts
+      // Cleanup our callbacks when effect re-runs
+      if (detectorCleanupRef.current) {
+        detectorCleanupRef.current();
+        detectorCleanupRef.current = null;
+      }
     };
   }, [session?.status, fetchCurrentSession]);
 
@@ -246,11 +227,12 @@ const ScreenActiveTime = () => {
     };
   }, [user, fetchCurrentSession, handleVisibilityChange]);
 
-  // Cleanup detector on full unmount
+  // Cleanup detector callbacks on full unmount
   useEffect(() => {
     return () => {
-      if (detectorInitializedRef.current) {
-        screenLockDetector.destroy();
+      if (detectorInitializedRef.current && detectorCleanupRef.current) {
+        detectorCleanupRef.current();
+        detectorCleanupRef.current = null;
         detectorInitializedRef.current = false;
       }
     };
