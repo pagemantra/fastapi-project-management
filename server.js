@@ -4311,27 +4311,37 @@ app.get('/worksheets', authenticate, async (req, res) => {
       const assignedTeams = await db.collection('teams').find({ team_lead_id: userId, is_active: true }).toArray();
       // Collect all member IDs from assigned teams
       const memberIds = new Set();
-      memberIds.add(userId); // Include Team Lead's own worksheets
       assignedTeams.forEach(team => {
         if (team.members) {
           team.members.forEach(memberId => memberIds.add(memberId));
         }
       });
       const memberIdsArray = Array.from(memberIds);
-      if (employee_id && memberIdsArray.includes(employee_id)) {
+
+      if (employee_id) {
+        // If specific employee requested
         query.employee_id = employee_id;
       } else {
-        query.employee_id = { $in: memberIdsArray };
+        // Team Lead sees: their own worksheets (all statuses) + team member worksheets (excluding rejected)
+        query.$or = [
+          { employee_id: userId }, // Team Lead's own worksheets (all statuses including rejected)
+          {
+            employee_id: { $in: memberIdsArray },
+            status: { $ne: WorksheetStatus.REJECTED }
+          }
+        ];
       }
-      if (!status) {
-        query.status = { $ne: WorksheetStatus.REJECTED };
+      // Override status filter if explicitly provided
+      if (status) {
+        delete query.$or;
+        query.employee_id = { $in: [userId, ...memberIdsArray] };
+        query.status = status;
       }
     } else if (userRole === UserRole.MANAGER) {
       // Get all teams where user is manager
       const assignedTeams = await db.collection('teams').find({ manager_id: userId, is_active: true }).toArray();
       // Collect all member IDs and team lead IDs from assigned teams
       const employeeIds = new Set();
-      employeeIds.add(userId); // Include Manager's own worksheets
       assignedTeams.forEach(team => {
         if (team.team_lead_id) {
           employeeIds.add(team.team_lead_id);
@@ -4341,13 +4351,29 @@ app.get('/worksheets', authenticate, async (req, res) => {
         }
       });
       const employeeIdsArray = Array.from(employeeIds);
-      if (employee_id && employeeIdsArray.includes(employee_id)) {
-        query.employee_id = employee_id;
+
+      if (employee_id) {
+        // If specific employee requested
+        if (employee_id === userId || employeeIdsArray.includes(employee_id)) {
+          query.employee_id = employee_id;
+        } else {
+          query.employee_id = employee_id; // Allow filter but may return nothing
+        }
       } else {
-        query.employee_id = { $in: employeeIdsArray };
+        // Manager sees: their own worksheets (all statuses) + team worksheets (verified/approved)
+        query.$or = [
+          { employee_id: userId }, // Manager's own worksheets (all statuses)
+          {
+            employee_id: { $in: employeeIdsArray },
+            status: { $in: [WorksheetStatus.TL_VERIFIED, WorksheetStatus.MANAGER_APPROVED, WorksheetStatus.DM_APPROVED] }
+          }
+        ];
       }
-      if (!status) {
-        query.status = { $in: [WorksheetStatus.TL_VERIFIED, WorksheetStatus.MANAGER_APPROVED] };
+      // Override status filter if explicitly provided
+      if (status) {
+        delete query.$or;
+        query.employee_id = { $in: [userId, ...employeeIdsArray] };
+        query.status = status;
       }
     } else if (employee_id) {
       query.employee_id = employee_id;
