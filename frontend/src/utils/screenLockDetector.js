@@ -137,10 +137,20 @@ class ScreenLockDetector {
         return;
       }
 
-      // If permission is 'prompt', we need a user gesture - skip automatic request
+      // Request permission if needed (will show browser prompt)
       if (permission === 'prompt') {
-        console.log('[ScreenLockDetector] IdleDetector needs user gesture for permission - using fallback');
-        return;
+        console.log('[ScreenLockDetector] Requesting IdleDetector permission...');
+        try {
+          const result = await IdleDetector.requestPermission();
+          console.log('[ScreenLockDetector] IdleDetector permission result:', result);
+          if (result !== 'granted') {
+            console.log('[ScreenLockDetector] IdleDetector permission not granted - using fallback');
+            return;
+          }
+        } catch (e) {
+          console.log('[ScreenLockDetector] IdleDetector permission request failed:', e.message);
+          return;
+        }
       }
 
       // Permission is granted, proceed with initialization

@@ -41,7 +41,10 @@
       "WebFetch(domain:gist.github.com)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "Bash(rundll32.exe user32.dll,LockWorkStation)",
+      "Bash(powershell:*)",
+      "Bash(timeout /t 15 /nobreak)"
     ],
     "deny": [],
     "ask": []
