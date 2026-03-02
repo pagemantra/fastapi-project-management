@@ -83,6 +83,31 @@ const Users = () => {
       ...record,
       password: undefined,
     });
+    // Ensure the current manager is available in the managers list for display
+    if (record.manager_id) {
+      const exists = managers.some(m => m.id === record.manager_id);
+      if (!exists) {
+        // Find manager name from the record or use a placeholder
+        const managerName = record.manager_name || 'Current Manager';
+        setManagers(prev => [...prev, {
+          id: record.manager_id,
+          full_name: managerName,
+          employee_id: 'Current'
+        }]);
+      }
+    }
+    // Ensure the current team lead is available in the teamLeads list for display
+    if (record.team_lead_id) {
+      const exists = teamLeads.some(tl => tl.id === record.team_lead_id);
+      if (!exists) {
+        const teamLeadName = record.team_lead_name || 'Current Team Lead';
+        setTeamLeads(prev => [...prev, {
+          id: record.team_lead_id,
+          full_name: teamLeadName,
+          employee_id: 'Current'
+        }]);
+      }
+    }
     setModalVisible(true);
   };
 
