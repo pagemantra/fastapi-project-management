@@ -877,14 +877,45 @@ app.get('/users/managers', authenticate, requireRoles([UserRole.ADMIN, UserRole.
 app.get('/users/team-leads', authenticate, requireRoles([UserRole.ADMIN, UserRole.DELIVERY_MANAGER, UserRole.MANAGER]), async (req, res) => {
   try {
     const db = getDatabase();
-    const query = { role: UserRole.TEAM_LEAD, is_active: true };
+    const managerId = req.user._id.toString();
 
     if (req.user.role === UserRole.MANAGER) {
-      query.manager_id = req.user._id.toString();
-    }
+      // For managers, get team leads who:
+      // 1. Report directly to them (manager_id matches)
+      // 2. Are assigned to teams they manage
 
-    const teamLeads = await db.collection('users').find(query).toArray();
-    res.json(teamLeads.map(formatUserResponse));
+      // First, get teams this manager manages
+      const managerTeams = await db.collection('teams').find({
+        manager_id: managerId,
+        is_active: true
+      }).toArray();
+
+      // Collect all team_lead_ids from those teams
+      const teamLeadIdsFromTeams = managerTeams
+        .filter(t => t.team_lead_id)
+        .map(t => t.team_lead_id);
+
+      // Query: team leads who report to this manager OR are on their teams
+      const teamLeads = await db.collection('users').find({
+        role: UserRole.TEAM_LEAD,
+        is_active: true,
+        $or: [
+          { manager_id: managerId },
+          { _id: { $in: teamLeadIdsFromTeams.map(id => {
+            try { return new ObjectId(id); } catch { return id; }
+          }) } }
+        ]
+      }).toArray();
+
+      res.json(teamLeads.map(formatUserResponse));
+    } else {
+      // Admin/Delivery Manager can see all team leads
+      const teamLeads = await db.collection('users').find({
+        role: UserRole.TEAM_LEAD,
+        is_active: true
+      }).toArray();
+      res.json(teamLeads.map(formatUserResponse));
+    }
   } catch (error) {
     console.error('Get team leads error:', error);
     res.status(500).json({ detail: error.message });
