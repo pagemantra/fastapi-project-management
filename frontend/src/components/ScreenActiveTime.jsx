@@ -132,16 +132,14 @@ const ScreenActiveTime = () => {
         onUnlock: (duration) => {
           console.log('[ScreenActiveTime] Screen unlocked - was locked for', duration, 's');
 
-          // Add to pending to prevent time jump while API updates
-          // TimeTracker handles the actual API call
-          if (duration > 0) {
-            pendingInactiveSecondsRef.current += duration;
-          }
+          // DON'T add to pending here - TimeTracker handles everything
+          // We just update the UI state and let the session fetch bring in the correct values
+          // Adding here would cause double-counting in display
 
           setTimerStatus('running');
           setCurrentLockSeconds(0);
 
-          // Refresh session to get latest data
+          // Refresh session to get latest data (TimeTracker sends the API call)
           fetchCurrentSession(true);
         },
 
@@ -153,16 +151,14 @@ const ScreenActiveTime = () => {
         onWake: (duration) => {
           console.log('[ScreenActiveTime] System wake - was sleeping for', duration, 's');
 
-          // Add to pending to prevent time jump while API updates
-          // TimeTracker handles the actual API call
-          if (duration > 0) {
-            pendingInactiveSecondsRef.current += duration;
-          }
+          // DON'T add to pending here - TimeTracker handles everything
+          // We just update the UI state and let the session fetch bring in the correct values
+          // Adding here would cause double-counting in display
 
           setTimerStatus('running');
           setCurrentLockSeconds(0);
 
-          // Refresh session to get latest data
+          // Refresh session to get latest data (TimeTracker sends the API call)
           fetchCurrentSession(true);
         },
 

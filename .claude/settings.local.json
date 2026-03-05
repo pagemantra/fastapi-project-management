@@ -47,7 +47,8 @@
       "Bash(timeout /t 15 /nobreak)",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTMwNTE1ZGQwYTcwMDA5Y2NhNjU4ZDAiLCJlbWFpbCI6bnVsbCwiZW1wbG95ZWVfaWQiOiJKU0FOMjY3Iiwicm9sZSI6InRlYW1fbGVhZCIsImlhdCI6MTc3MjQ0ODcwOSwiZXhwIjoxNzcyNTM1MTA5fQ.2JCCLVWwmDo5DgLIcXF6DRlHMUwmt4DRgGLyMVIc2RY\")",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2OTcwZjNmOTYwZWI5ZWFlMzdkNWQxZWQiLCJlbWFpbCI6bnVsbCwiZW1wbG95ZWVfaWQiOiJKU0FOMzE3Iiwicm9sZSI6Im1hbmFnZXIiLCJpYXQiOjE3NzI0NDg3NDUsImV4cCI6MTc3MjUzNTE0NX0.v3wXMvD6AvvxCCRo4HwZMUMB9MjgS4LFUxq2YW3Cph8\")",
-      "Bash(GIT_TERMINAL_PROMPT=0 git push:*)"
+      "Bash(GIT_TERMINAL_PROMPT=0 git push:*)",
+      "Bash(ls -la \"D:\\Development\\fastapi-project-management\\.vercel\"\" 2>/dev/null || echo \"Not found \")"
     ],
     "deny": [],
     "ask": []

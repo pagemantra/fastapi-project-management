@@ -56,6 +56,11 @@ class ScreenLockDetector {
 
     // Heartbeat interval
     this.heartbeatInterval = null;
+
+    // Event deduplication - track current lock event
+    this.currentLockEventId = null;
+    this.lastUnlockTime = 0;
+    this.UNLOCK_DEBOUNCE_MS = 500; // Minimum time between unlock events
   }
 
   /**
@@ -300,11 +305,15 @@ class ScreenLockDetector {
    * @param {string} source - Detection source (idleDetector, heartbeat)
    */
   handleScreenLock(source) {
-    if (this.isScreenLocked) return; // Already locked
+    if (this.isScreenLocked) {
+      console.log('[ScreenLockDetector] Already locked, ignoring lock event from:', source);
+      return;
+    }
 
     this.isScreenLocked = true;
     this.screenLockStartTime = Date.now();
-    console.log('[ScreenLockDetector] Screen LOCKED (source:', source, ') at', new Date().toLocaleTimeString());
+    this.currentLockEventId = Date.now(); // Unique ID for this lock event
+    console.log('[ScreenLockDetector] Screen LOCKED (source:', source, ') at', new Date().toLocaleTimeString(), 'eventId:', this.currentLockEventId);
     // Call all registered lock callbacks
     this.lockCallbacks.forEach(cb => {
       try {
@@ -321,7 +330,17 @@ class ScreenLockDetector {
    * @param {number} overrideDuration - Override duration in seconds (for heartbeat detection)
    */
   handleScreenUnlock(source, overrideDuration = null) {
-    if (!this.isScreenLocked && overrideDuration === null) return; // Not locked
+    // Debounce rapid unlock events
+    const now = Date.now();
+    if (now - this.lastUnlockTime < this.UNLOCK_DEBOUNCE_MS) {
+      console.log('[ScreenLockDetector] Debouncing unlock event from:', source, '- too soon after last unlock');
+      return;
+    }
+
+    if (!this.isScreenLocked && overrideDuration === null) {
+      console.log('[ScreenLockDetector] Not locked, ignoring unlock event from:', source);
+      return;
+    }
 
     let lockDuration = 0;
     if (overrideDuration !== null) {
@@ -330,10 +349,14 @@ class ScreenLockDetector {
       lockDuration = Math.floor((Date.now() - this.screenLockStartTime) / 1000);
     }
 
-    console.log('[ScreenLockDetector] Screen UNLOCKED (source:', source, ') - was locked for', lockDuration, 'seconds');
+    const eventId = this.currentLockEventId;
+    console.log('[ScreenLockDetector] Screen UNLOCKED (source:', source, ') - was locked for', lockDuration, 'seconds, eventId:', eventId);
 
     this.isScreenLocked = false;
     this.screenLockStartTime = null;
+    this.currentLockEventId = null;
+    this.lastUnlockTime = now;
+
     // Call all registered unlock callbacks
     this.unlockCallbacks.forEach(cb => {
       try {

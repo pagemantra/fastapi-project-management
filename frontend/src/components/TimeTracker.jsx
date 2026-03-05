@@ -48,6 +48,8 @@ const TimeTracker = () => {
   const isLockedRef = useRef(false); // Track lock state in ref for accurate timing
   const currentScreenActiveRef = useRef(0); // Always track current screen active seconds
   const screenActiveAtLockRef = useRef(0); // Store screen active time when lock started
+  const lockEventIdRef = useRef(null); // Unique ID for current lock event to prevent double-counting
+  const inactiveTimeReportedRef = useRef(false); // Flag to prevent double-reporting inactive time
 
   // Keep refs in sync
   useEffect(() => {
@@ -131,15 +133,33 @@ const TimeTracker = () => {
       const cleanup = await screenLockDetector.init({
         onLock: () => {
           console.log('[TimeTracker] Screen locked - timer paused at:', currentScreenActiveRef.current);
-          screenActiveAtLockRef.current = currentScreenActiveRef.current; // Save screen active time at lock
-          lockStartTimeRef.current = Date.now();
-          isLockedRef.current = true;
+          // Only start tracking if not already locked (prevent duplicate lock events)
+          if (!isLockedRef.current) {
+            screenActiveAtLockRef.current = currentScreenActiveRef.current;
+            lockStartTimeRef.current = Date.now();
+            lockEventIdRef.current = Date.now(); // Unique ID for this lock event
+            isLockedRef.current = true;
+            inactiveTimeReportedRef.current = false; // Reset the reported flag
+            console.log('[TimeTracker] Lock event started with ID:', lockEventIdRef.current);
+          }
           setIsScreenLocked(true);
         },
 
         onUnlock: (duration) => {
           console.log('[TimeTracker] Screen unlocked - was locked for', duration, 's');
           console.log('[TimeTracker] Screen active at lock was:', screenActiveAtLockRef.current);
+          console.log('[TimeTracker] Already reported?', inactiveTimeReportedRef.current);
+
+          // Skip if already reported (prevents double-counting from sleep/wake + lock/unlock)
+          if (inactiveTimeReportedRef.current) {
+            console.log('[TimeTracker] Skipping unlock - inactive time already reported for this lock event');
+            // Just clear the lock state
+            lockStartTimeRef.current = null;
+            lockEventIdRef.current = null;
+            isLockedRef.current = false;
+            setIsScreenLocked(false);
+            return;
+          }
 
           // Calculate actual lock duration from our client-side tracking
           let actualDuration = duration;
@@ -151,6 +171,9 @@ const TimeTracker = () => {
           // Use the larger of the two durations (detector vs client-side)
           const finalDuration = Math.max(duration, actualDuration);
 
+          // Mark as reported to prevent duplicate reports
+          inactiveTimeReportedRef.current = true;
+
           // Add lock time to pending (to prevent time jump during API call)
           if (finalDuration > 0) {
             pendingInactiveSecondsRef.current += finalDuration;
@@ -159,30 +182,38 @@ const TimeTracker = () => {
 
           // Add lock time to server
           if (finalDuration > 0 && sessionRef.current?.status === 'active') {
+            const eventId = lockEventIdRef.current;
             attendanceService.addInactiveTime({ inactive_seconds_to_add: finalDuration })
               .then(() => {
-                console.log('[TimeTracker] Added', finalDuration, 's to Lock/Sleep on server');
+                console.log('[TimeTracker] Added', finalDuration, 's to Lock/Sleep on server (event:', eventId, ')');
                 fetchCurrentSession();
               })
               .catch(err => {
                 console.error('[TimeTracker] Failed to add inactive time:', err);
                 // Revert pending on error
                 pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - finalDuration);
+                // Also reset reported flag so it can retry
+                inactiveTimeReportedRef.current = false;
               });
           }
 
           // Clear lock tracking
           lockStartTimeRef.current = null;
+          lockEventIdRef.current = null;
           isLockedRef.current = false;
           setIsScreenLocked(false);
         },
 
         onSleep: () => {
           console.log('[TimeTracker] System sleep detected at:', currentScreenActiveRef.current);
+          // Only start tracking if not already locked (screen lock already captures this)
           if (!isLockedRef.current) {
-            screenActiveAtLockRef.current = currentScreenActiveRef.current; // Save screen active time at sleep
+            screenActiveAtLockRef.current = currentScreenActiveRef.current;
             lockStartTimeRef.current = Date.now();
+            lockEventIdRef.current = Date.now();
             isLockedRef.current = true;
+            inactiveTimeReportedRef.current = false;
+            console.log('[TimeTracker] Sleep event started with ID:', lockEventIdRef.current);
           }
           setIsScreenLocked(true);
         },
@@ -190,6 +221,18 @@ const TimeTracker = () => {
         onWake: (duration) => {
           console.log('[TimeTracker] System wake - was sleeping for', duration, 's');
           console.log('[TimeTracker] Screen active at sleep was:', screenActiveAtLockRef.current);
+          console.log('[TimeTracker] Already reported?', inactiveTimeReportedRef.current);
+
+          // Skip if already reported (prevents double-counting from sleep/wake + lock/unlock)
+          if (inactiveTimeReportedRef.current) {
+            console.log('[TimeTracker] Skipping wake - inactive time already reported for this lock event');
+            // Just clear the lock state
+            lockStartTimeRef.current = null;
+            lockEventIdRef.current = null;
+            isLockedRef.current = false;
+            setIsScreenLocked(false);
+            return;
+          }
 
           // Calculate actual sleep duration from our client-side tracking
           let actualDuration = duration;
@@ -201,6 +244,9 @@ const TimeTracker = () => {
           // Use the larger of the two durations
           const finalDuration = Math.max(duration, actualDuration);
 
+          // Mark as reported to prevent duplicate reports
+          inactiveTimeReportedRef.current = true;
+
           // Add sleep time to pending (to prevent time jump during API call)
           if (finalDuration > 0) {
             pendingInactiveSecondsRef.current += finalDuration;
@@ -209,20 +255,24 @@ const TimeTracker = () => {
 
           // Add sleep time to server
           if (finalDuration > 0 && sessionRef.current?.status === 'active') {
+            const eventId = lockEventIdRef.current;
             attendanceService.addInactiveTime({ inactive_seconds_to_add: finalDuration })
               .then(() => {
-                console.log('[TimeTracker] Added', finalDuration, 's sleep time on server');
+                console.log('[TimeTracker] Added', finalDuration, 's sleep time on server (event:', eventId, ')');
                 fetchCurrentSession();
               })
               .catch(err => {
                 console.error('[TimeTracker] Failed to add sleep time:', err);
                 // Revert pending on error
                 pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - finalDuration);
+                // Also reset reported flag so it can retry
+                inactiveTimeReportedRef.current = false;
               });
           }
 
           // Clear lock tracking
           lockStartTimeRef.current = null;
+          lockEventIdRef.current = null;
           isLockedRef.current = false;
           setIsScreenLocked(false);
         },
@@ -376,6 +426,8 @@ const TimeTracker = () => {
     isLockedRef.current = false;
     currentScreenActiveRef.current = 0;
     screenActiveAtLockRef.current = 0;
+    lockEventIdRef.current = null;
+    inactiveTimeReportedRef.current = false;
 
     if (!user) {
       setLoading(false);
