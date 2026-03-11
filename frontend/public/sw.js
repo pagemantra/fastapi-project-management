@@ -291,9 +291,31 @@ self.addEventListener('message', async (event) => {
       }
       break;
 
+    case 'SET_LOCK_STATE':
+      // Persist lock state for recovery after app crash/close
+      if (data.isLocked && data.lockStartTime) {
+        await saveToDB('lockState', {
+          isLocked: true,
+          lockStartTime: data.lockStartTime,
+          sessionDate: data.sessionDate,
+          savedAt: Date.now()
+        });
+        console.log('[SW] Lock state saved');
+      } else {
+        await saveToDB('lockState', null);
+        console.log('[SW] Lock state cleared');
+      }
+      break;
+
+    case 'GET_LOCK_STATE':
+      const lockState = await getFromDB('lockState');
+      event.ports[0]?.postMessage(lockState);
+      break;
+
     case 'CLEAR_SESSION':
       await saveToDB('authToken', null);
       await saveToDB('sessionActive', false);
+      await saveToDB('lockState', null);
       console.log('[SW] Session cleared');
       break;
 
@@ -301,7 +323,8 @@ self.addEventListener('message', async (event) => {
       const status = {
         token: !!(await getFromDB('authToken')),
         sessionActive: await getFromDB('sessionActive'),
-        lastHeartbeat: await getFromDB('lastHeartbeat')
+        lastHeartbeat: await getFromDB('lastHeartbeat'),
+        lockState: await getFromDB('lockState')
       };
       event.ports[0]?.postMessage(status);
       break;

@@ -202,12 +202,22 @@ function validateEmployeeId(employeeId) {
 
 async function authenticate(req, res, next) {
   try {
+    let token = null;
+
+    // First, try to get token from Authorization header
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ detail: 'No authentication token provided' });
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
     }
 
-    const token = authHeader.substring(7);
+    // Fallback: check for token in request body (for sendBeacon which can't set headers)
+    if (!token && req.body && req.body.token) {
+      token = req.body.token;
+    }
+
+    if (!token) {
+      return res.status(401).json({ detail: 'No authentication token provided' });
+    }
     const payload = decodeToken(token);
 
     if (!payload) {

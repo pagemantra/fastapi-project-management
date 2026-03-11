@@ -94,8 +94,59 @@ const TimeTracker = () => {
     }
   }, []);
 
+  // Recover lock state from localStorage (after app close/reopen)
+  const recoverLockState = useCallback(async (sessionData) => {
+    try {
+      const savedState = localStorage.getItem('timeTracker_lockState');
+      if (!savedState) return;
+
+      const lockState = JSON.parse(savedState);
+      console.log('[TimeTracker] Found persisted lock state:', lockState);
+
+      // Verify the lock state is for today's session
+      if (lockState.sessionDate !== sessionData?.date) {
+        console.log('[TimeTracker] Lock state is from different date, clearing');
+        localStorage.removeItem('timeTracker_lockState');
+        return;
+      }
+
+      // Check if too old (more than 24 hours) - safety check
+      const stateAge = Date.now() - lockState.savedAt;
+      if (stateAge > 24 * 60 * 60 * 1000) {
+        console.log('[TimeTracker] Lock state too old, clearing');
+        localStorage.removeItem('timeTracker_lockState');
+        return;
+      }
+
+      // Calculate the lock duration from saved start time until now
+      const lockDuration = Math.floor((Date.now() - lockState.lockStartTime) / 1000);
+      console.log('[TimeTracker] Recovered lock duration:', lockDuration, 's');
+
+      // Only add if significant (more than 5 seconds)
+      if (lockDuration > 5 && sessionData?.status === 'active') {
+        // Send the recovered lock time to server
+        try {
+          await attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration });
+          console.log('[TimeTracker] Sent recovered lock time to server:', lockDuration, 's');
+          const mins = Math.floor(lockDuration / 60);
+          const secs = lockDuration % 60;
+          const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+          message.info(`Recovered ${timeStr} of lock/sleep time`);
+        } catch (err) {
+          console.error('[TimeTracker] Failed to send recovered lock time:', err);
+        }
+      }
+
+      // Clear the saved state after recovery
+      localStorage.removeItem('timeTracker_lockState');
+    } catch (error) {
+      console.error('[TimeTracker] Error recovering lock state:', error);
+      localStorage.removeItem('timeTracker_lockState');
+    }
+  }, []);
+
   // Fetch current session
-  const fetchCurrentSession = useCallback(async () => {
+  const fetchCurrentSession = useCallback(async (isInitialLoad = false) => {
     try {
       const response = await attendanceService.getCurrentSession();
       const sessionData = response.data;
@@ -110,13 +161,18 @@ const TimeTracker = () => {
           pendingInactiveSecondsRef.current = 0;
         }
       }
+
+      // On initial load, check for any persisted lock state to recover
+      if (isInitialLoad && sessionData?.status === 'active') {
+        await recoverLockState(sessionData);
+      }
     } catch (error) {
       console.error('Failed to fetch session:', error);
       message.error('Failed to load attendance session');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [recoverLockState]);
 
   // Initialize screen lock detector when session is active
   useEffect(() => {
@@ -141,6 +197,16 @@ const TimeTracker = () => {
             isLockedRef.current = true;
             inactiveTimeReportedRef.current = false; // Reset the reported flag
             console.log('[TimeTracker] Lock event started with ID:', lockEventIdRef.current);
+
+            // Persist lock state to localStorage and notify service worker
+            const lockState = {
+              isLocked: true,
+              lockStartTime: lockStartTimeRef.current,
+              sessionDate: sessionRef.current?.date,
+              savedAt: Date.now()
+            };
+            localStorage.setItem('timeTracker_lockState', JSON.stringify(lockState));
+            notifyServiceWorker('SET_LOCK_STATE', lockState);
           }
           setIsScreenLocked(true);
         },
@@ -202,6 +268,10 @@ const TimeTracker = () => {
           lockEventIdRef.current = null;
           isLockedRef.current = false;
           setIsScreenLocked(false);
+
+          // Clear persisted lock state
+          localStorage.removeItem('timeTracker_lockState');
+          notifyServiceWorker('SET_LOCK_STATE', { isLocked: false });
         },
 
         onSleep: () => {
@@ -214,6 +284,16 @@ const TimeTracker = () => {
             isLockedRef.current = true;
             inactiveTimeReportedRef.current = false;
             console.log('[TimeTracker] Sleep event started with ID:', lockEventIdRef.current);
+
+            // Persist lock state to localStorage and notify service worker
+            const lockState = {
+              isLocked: true,
+              lockStartTime: lockStartTimeRef.current,
+              sessionDate: sessionRef.current?.date,
+              savedAt: Date.now()
+            };
+            localStorage.setItem('timeTracker_lockState', JSON.stringify(lockState));
+            notifyServiceWorker('SET_LOCK_STATE', lockState);
           }
           setIsScreenLocked(true);
         },
@@ -275,6 +355,10 @@ const TimeTracker = () => {
           lockEventIdRef.current = null;
           isLockedRef.current = false;
           setIsScreenLocked(false);
+
+          // Clear persisted lock state
+          localStorage.removeItem('timeTracker_lockState');
+          notifyServiceWorker('SET_LOCK_STATE', { isLocked: false });
         },
 
         onError: (err) => {
@@ -288,7 +372,7 @@ const TimeTracker = () => {
     };
 
     initDetector();
-  }, [session?.status, fetchCurrentSession]);
+  }, [session?.status, fetchCurrentSession, notifyServiceWorker]);
 
   // Track user activity (mouse movement, keyboard, clicks, touch)
   useEffect(() => {
@@ -385,32 +469,75 @@ const TimeTracker = () => {
     };
   }, [sendHeartbeat, requestWakeLock, fetchCurrentSession]);
 
-  // Send final heartbeat on page unload
+  // Persist lock state to localStorage for recovery after app close/reopen
+  const persistLockState = useCallback(() => {
+    if (isLockedRef.current && lockStartTimeRef.current) {
+      const lockState = {
+        isLocked: true,
+        lockStartTime: lockStartTimeRef.current,
+        sessionDate: sessionRef.current?.date,
+        savedAt: Date.now()
+      };
+      localStorage.setItem('timeTracker_lockState', JSON.stringify(lockState));
+      console.log('[TimeTracker] Persisted lock state:', lockState);
+    } else {
+      localStorage.removeItem('timeTracker_lockState');
+    }
+  }, []);
+
+  // Send final heartbeat and accumulated lock time on page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (sessionRef.current?.status === 'active') {
         const token = localStorage.getItem('token');
         if (token) {
-          // Include token in body since sendBeacon doesn't support headers
-          const data = JSON.stringify({
+          const apiBase = 'https://fastapi-project-management-production-22e0.up.railway.app';
+
+          // If currently locked, persist lock state for recovery when app reopens
+          // We DON'T send via sendBeacon here because it's fire-and-forget
+          // and we can't know if it succeeded. Recovery on reopen is more reliable.
+          if (isLockedRef.current && lockStartTimeRef.current) {
+            const lockState = {
+              isLocked: true,
+              lockStartTime: lockStartTimeRef.current,
+              sessionDate: sessionRef.current?.date,
+              savedAt: Date.now()
+            };
+            localStorage.setItem('timeTracker_lockState', JSON.stringify(lockState));
+            console.log('[TimeTracker] Persisted lock state on close:', lockState);
+          }
+
+          // Send final heartbeat
+          const heartbeatData = JSON.stringify({
             timestamp: new Date().toISOString(),
             is_active: false,
             is_closing: true,
-            token: token // Send token in body as fallback
+            screen_locked: isLockedRef.current,
+            token: token
           });
           navigator.sendBeacon(
-            'https://fastapi-project-management-production-22e0.up.railway.app/attendance/heartbeat',
-            new Blob([data], { type: 'application/json' })
+            `${apiBase}/attendance/heartbeat`,
+            new Blob([heartbeatData], { type: 'application/json' })
           );
         }
       }
     };
 
+    // Also persist state periodically while locked (in case of crash)
+    const handleVisibilityHidden = () => {
+      if (document.hidden && isLockedRef.current) {
+        persistLockState();
+      }
+    };
+
     window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityHidden);
+
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityHidden);
     };
-  }, []);
+  }, [persistLockState]);
 
   // Reset and refetch session when user changes
   useEffect(() => {
@@ -435,7 +562,7 @@ const TimeTracker = () => {
     }
 
     setLoading(true);
-    fetchCurrentSession();
+    fetchCurrentSession(true); // Initial load - check for lock state recovery
   }, [user?.id, dataVersion, fetchCurrentSession]);
 
   // Cleanup detector callbacks on unmount
