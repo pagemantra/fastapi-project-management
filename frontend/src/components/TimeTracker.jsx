@@ -94,53 +94,79 @@ const TimeTracker = () => {
     }
   }, []);
 
-  // Recover lock state from localStorage (after app close/reopen)
-  const recoverLockState = useCallback(async (sessionData) => {
+  // Recover inactive time from app close (after app close/reopen)
+  // This handles BOTH: screen lock during close AND app simply being closed
+  const recoverAppCloseTime = useCallback(async (sessionData) => {
     try {
-      const savedState = localStorage.getItem('timeTracker_lockState');
-      if (!savedState) return;
+      const savedState = localStorage.getItem('timeTracker_appCloseState');
+      if (!savedState) {
+        console.log('[TimeTracker] No app close state found');
+        return;
+      }
 
-      const lockState = JSON.parse(savedState);
-      console.log('[TimeTracker] Found persisted lock state:', lockState);
+      const closeState = JSON.parse(savedState);
+      console.log('[TimeTracker] Found app close state:', closeState);
 
-      // Verify the lock state is for today's session
-      if (lockState.sessionDate !== sessionData?.date) {
-        console.log('[TimeTracker] Lock state is from different date, clearing');
-        localStorage.removeItem('timeTracker_lockState');
+      // Verify the close state is for today's session
+      if (closeState.sessionDate !== sessionData?.date) {
+        console.log('[TimeTracker] Close state is from different date, clearing');
+        localStorage.removeItem('timeTracker_appCloseState');
+        localStorage.removeItem('timeTracker_lockState'); // Also clear old lock state
         return;
       }
 
       // Check if too old (more than 24 hours) - safety check
-      const stateAge = Date.now() - lockState.savedAt;
+      const now = Date.now();
+      const stateAge = now - closeState.closeTime;
       if (stateAge > 24 * 60 * 60 * 1000) {
-        console.log('[TimeTracker] Lock state too old, clearing');
+        console.log('[TimeTracker] Close state too old, clearing');
+        localStorage.removeItem('timeTracker_appCloseState');
         localStorage.removeItem('timeTracker_lockState');
         return;
       }
 
-      // Calculate the lock duration from saved start time until now
-      const lockDuration = Math.floor((Date.now() - lockState.lockStartTime) / 1000);
-      console.log('[TimeTracker] Recovered lock duration:', lockDuration, 's');
+      // Calculate inactive duration: from inactiveStartTime until now
+      // inactiveStartTime is either:
+      // - The lock start time (if screen was locked when app closed)
+      // - The close time (if screen was not locked when app closed)
+      const inactiveStartTime = closeState.inactiveStartTime || closeState.closeTime;
+      const inactiveDuration = Math.floor((now - inactiveStartTime) / 1000);
+      console.log('[TimeTracker] Total inactive duration:', inactiveDuration, 's',
+        closeState.wasLocked ? '(was locked at close)' : '(was not locked at close)');
 
-      // Only add if significant (more than 5 seconds)
-      if (lockDuration > 5 && sessionData?.status === 'active') {
-        // Send the recovered lock time to server
+      // Only add if significant (more than 10 seconds to avoid false positives from quick refreshes)
+      if (inactiveDuration > 10 && sessionData?.status === 'active') {
+        // Send the inactive time to server
         try {
-          await attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration });
-          console.log('[TimeTracker] Sent recovered lock time to server:', lockDuration, 's');
-          const mins = Math.floor(lockDuration / 60);
-          const secs = lockDuration % 60;
-          const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-          message.info(`Recovered ${timeStr} of lock/sleep time`);
+          await attendanceService.addInactiveTime({ inactive_seconds_to_add: inactiveDuration });
+          console.log('[TimeTracker] Sent inactive time to server:', inactiveDuration, 's');
+
+          // Show user-friendly message
+          const hours = Math.floor(inactiveDuration / 3600);
+          const mins = Math.floor((inactiveDuration % 3600) / 60);
+          const secs = inactiveDuration % 60;
+          let timeStr = '';
+          if (hours > 0) {
+            timeStr = `${hours}h ${mins}m`;
+          } else if (mins > 0) {
+            timeStr = `${mins}m ${secs}s`;
+          } else {
+            timeStr = `${secs}s`;
+          }
+          message.info(`Added ${timeStr} to inactive time (app was closed${closeState.wasLocked ? '/locked' : ''})`);
         } catch (err) {
-          console.error('[TimeTracker] Failed to send recovered lock time:', err);
+          console.error('[TimeTracker] Failed to send inactive time:', err);
         }
+      } else {
+        console.log('[TimeTracker] Inactive duration too short, not adding:', inactiveDuration, 's');
       }
 
-      // Clear the saved state after recovery
+      // Clear ALL saved states after recovery
+      localStorage.removeItem('timeTracker_appCloseState');
       localStorage.removeItem('timeTracker_lockState');
     } catch (error) {
-      console.error('[TimeTracker] Error recovering lock state:', error);
+      console.error('[TimeTracker] Error recovering app close state:', error);
+      localStorage.removeItem('timeTracker_appCloseState');
       localStorage.removeItem('timeTracker_lockState');
     }
   }, []);
@@ -162,9 +188,9 @@ const TimeTracker = () => {
         }
       }
 
-      // On initial load, check for any persisted lock state to recover
+      // On initial load, check for any app close time to recover as inactive time
       if (isInitialLoad && sessionData?.status === 'active') {
-        await recoverLockState(sessionData);
+        await recoverAppCloseTime(sessionData);
       }
     } catch (error) {
       console.error('Failed to fetch session:', error);
@@ -172,7 +198,7 @@ const TimeTracker = () => {
     } finally {
       setLoading(false);
     }
-  }, [recoverLockState]);
+  }, [recoverAppCloseTime]);
 
   // Initialize screen lock detector when session is active
   useEffect(() => {
@@ -451,11 +477,60 @@ const TimeTracker = () => {
     }
   }, [session?.status, sendHeartbeat, notifyServiceWorker, requestWakeLock, releaseWakeLock]);
 
-  // Handle visibility change - refresh session when page becomes visible
+  // Handle visibility change - refresh session and recover inactive time when page becomes visible
   useEffect(() => {
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (!document.hidden && sessionRef.current?.status === 'active') {
-        console.log('[TimeTracker] Page visible - refreshing session');
+        console.log('[TimeTracker] Page visible - checking for inactive time');
+
+        // Check if there's saved close state (from being hidden/closed)
+        const savedState = localStorage.getItem('timeTracker_appCloseState');
+        if (savedState) {
+          try {
+            const closeState = JSON.parse(savedState);
+            const now = Date.now();
+
+            // Calculate inactive duration from inactiveStartTime
+            const inactiveStartTime = closeState.inactiveStartTime || closeState.closeTime;
+            const inactiveDuration = Math.floor((now - inactiveStartTime) / 1000);
+
+            console.log('[TimeTracker] Was hidden/closed for:', inactiveDuration, 's',
+              closeState.wasLocked ? '(was locked)' : '');
+
+            // Only add inactive time if hidden for more than 30 seconds
+            // This avoids counting quick tab switches as inactive
+            if (inactiveDuration > 30 && closeState.sessionDate === sessionRef.current?.date) {
+              try {
+                await attendanceService.addInactiveTime({ inactive_seconds_to_add: inactiveDuration });
+                console.log('[TimeTracker] Added inactive time:', inactiveDuration, 's');
+
+                // Show user-friendly message for significant durations (> 1 min)
+                if (inactiveDuration > 60) {
+                  const hours = Math.floor(inactiveDuration / 3600);
+                  const mins = Math.floor((inactiveDuration % 3600) / 60);
+                  let timeStr = '';
+                  if (hours > 0) {
+                    timeStr = `${hours}h ${mins}m`;
+                  } else {
+                    timeStr = `${mins}m`;
+                  }
+                  message.info(`Added ${timeStr} to inactive time`);
+                }
+              } catch (err) {
+                console.error('[TimeTracker] Failed to add inactive time:', err);
+              }
+            }
+
+            // Clear ALL saved states
+            localStorage.removeItem('timeTracker_appCloseState');
+            localStorage.removeItem('timeTracker_lockState');
+          } catch (e) {
+            console.error('[TimeTracker] Error parsing close state:', e);
+            localStorage.removeItem('timeTracker_appCloseState');
+            localStorage.removeItem('timeTracker_lockState');
+          }
+        }
+
         requestWakeLock();
         sendHeartbeat();
         fetchCurrentSession();
@@ -469,43 +544,35 @@ const TimeTracker = () => {
     };
   }, [sendHeartbeat, requestWakeLock, fetchCurrentSession]);
 
-  // Persist lock state to localStorage for recovery after app close/reopen
-  const persistLockState = useCallback(() => {
-    if (isLockedRef.current && lockStartTimeRef.current) {
-      const lockState = {
-        isLocked: true,
-        lockStartTime: lockStartTimeRef.current,
-        sessionDate: sessionRef.current?.date,
-        savedAt: Date.now()
-      };
-      localStorage.setItem('timeTracker_lockState', JSON.stringify(lockState));
-      console.log('[TimeTracker] Persisted lock state:', lockState);
-    } else {
-      localStorage.removeItem('timeTracker_lockState');
-    }
-  }, []);
-
-  // Send final heartbeat and accumulated lock time on page unload
+  // Send final heartbeat and persist app close time on page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (sessionRef.current?.status === 'active') {
         const token = localStorage.getItem('token');
+        const now = Date.now();
+
+        // ALWAYS save the app close time - this is critical for tracking inactive time
+        // when user closes the app completely
+        // If currently locked, use the lock start time as the "inactive start" time
+        // This ensures we capture the full inactive period (lock + app closed)
+        const inactiveStartTime = isLockedRef.current && lockStartTimeRef.current
+          ? lockStartTimeRef.current
+          : now;
+
+        const appCloseState = {
+          closeTime: now,
+          inactiveStartTime: inactiveStartTime,
+          sessionDate: sessionRef.current?.date,
+          wasLocked: isLockedRef.current
+        };
+        localStorage.setItem('timeTracker_appCloseState', JSON.stringify(appCloseState));
+        console.log('[TimeTracker] Saved app close state:', appCloseState);
+
+        // Clear the separate lock state to avoid double-counting
+        localStorage.removeItem('timeTracker_lockState');
+
         if (token) {
           const apiBase = 'https://fastapi-project-management-production-22e0.up.railway.app';
-
-          // If currently locked, persist lock state for recovery when app reopens
-          // We DON'T send via sendBeacon here because it's fire-and-forget
-          // and we can't know if it succeeded. Recovery on reopen is more reliable.
-          if (isLockedRef.current && lockStartTimeRef.current) {
-            const lockState = {
-              isLocked: true,
-              lockStartTime: lockStartTimeRef.current,
-              sessionDate: sessionRef.current?.date,
-              savedAt: Date.now()
-            };
-            localStorage.setItem('timeTracker_lockState', JSON.stringify(lockState));
-            console.log('[TimeTracker] Persisted lock state on close:', lockState);
-          }
 
           // Send final heartbeat
           const heartbeatData = JSON.stringify({
@@ -523,10 +590,22 @@ const TimeTracker = () => {
       }
     };
 
-    // Also persist state periodically while locked (in case of crash)
+    // Also persist state periodically while hidden (in case of crash)
     const handleVisibilityHidden = () => {
-      if (document.hidden && isLockedRef.current) {
-        persistLockState();
+      if (document.hidden && sessionRef.current?.status === 'active') {
+        const now = Date.now();
+        // If currently locked, use the lock start time as the "inactive start" time
+        const inactiveStartTime = isLockedRef.current && lockStartTimeRef.current
+          ? lockStartTimeRef.current
+          : now;
+
+        const appCloseState = {
+          closeTime: now,
+          inactiveStartTime: inactiveStartTime,
+          sessionDate: sessionRef.current?.date,
+          wasLocked: isLockedRef.current
+        };
+        localStorage.setItem('timeTracker_appCloseState', JSON.stringify(appCloseState));
       }
     };
 
@@ -537,7 +616,7 @@ const TimeTracker = () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityHidden);
     };
-  }, [persistLockState]);
+  }, []);
 
   // Reset and refetch session when user changes
   useEffect(() => {
