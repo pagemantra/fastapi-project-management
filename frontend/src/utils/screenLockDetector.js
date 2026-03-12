@@ -248,7 +248,11 @@ class ScreenLockDetector {
 
   /**
    * Handle page becoming visible
-   * Detects sleep via heartbeat gap when IdleDetector is not available
+   * IMPORTANT: This does NOT trigger inactive time for normal tab switches
+   * Only detects actual sleep via heartbeat gap when IdleDetector is not available
+   *
+   * The key insight: When tab is hidden but JS keeps running (tab switch/minimize),
+   * the heartbeat continues. When system sleeps, JS freezes so heartbeat gap >> hidden time.
    */
   handlePageVisible() {
     const now = Date.now();
@@ -260,30 +264,32 @@ class ScreenLockDetector {
       Math.floor(heartbeatGap / 1000), 's');
 
     // Only use heartbeat gap detection if IdleDetector is not available
+    // AND there's a significant unexpected gap (JS was frozen = actual sleep)
     if (!this.idleDetectorAvailable && this.pageHiddenTime) {
-      // Calculate unexpected gap - if JS was running, gap should equal hidden time
-      const unexpectedGap = heartbeatGap - hiddenDuration;
+      // Calculate unexpected gap - if JS was running (tab switch), gap should roughly equal hidden time
+      // If JS was frozen (sleep), gap will be much larger than expected
+      const expectedGap = hiddenDuration + HEARTBEAT_INTERVAL_MS; // Hidden time + one interval
+      const unexpectedGap = heartbeatGap - expectedGap;
 
-      console.log('[ScreenLockDetector] Unexpected gap:',
-        Math.floor(unexpectedGap / 1000), 's (buffer:',
-        Math.floor(SLEEP_DETECTION_BUFFER_MS / 1000), 's)');
+      console.log('[ScreenLockDetector] Expected gap:', Math.floor(expectedGap / 1000), 's, Actual gap:',
+        Math.floor(heartbeatGap / 1000), 's, Unexpected:', Math.floor(unexpectedGap / 1000), 's');
 
-      if (unexpectedGap > SLEEP_DETECTION_BUFFER_MS) {
-        // JS was frozen for longer than expected - this is actual sleep/lock
-        const sleepDuration = Math.floor((heartbeatGap - HEARTBEAT_INTERVAL_MS) / 1000);
+      // Only trigger sleep if there's a significant unexpected gap
+      // This means JS was frozen (system sleep), not just tab hidden
+      if (unexpectedGap > SLEEP_DETECTION_BUFFER_MS && heartbeatGap > MIN_SLEEP_DURATION_MS) {
+        // JS was frozen for longer than expected - this is actual sleep
+        const sleepDuration = Math.floor(unexpectedGap / 1000);
 
-        if (sleepDuration * 1000 >= MIN_SLEEP_DURATION_MS) {
-          console.log('[ScreenLockDetector] *** SLEEP DETECTED via heartbeat gap! Duration:', sleepDuration, 's ***');
+        console.log('[ScreenLockDetector] *** ACTUAL SLEEP DETECTED via heartbeat gap! Duration:', sleepDuration, 's ***');
 
-          // Treat this as screen lock since we can't distinguish
-          this.handleScreenLock('heartbeat');
-          // Immediately unlock and report the duration
-          setTimeout(() => {
-            this.handleScreenUnlock('heartbeat', sleepDuration);
-          }, 100);
-        }
+        // Treat this as screen lock since we can't distinguish
+        this.handleScreenLock('heartbeat');
+        // Immediately unlock and report the duration
+        setTimeout(() => {
+          this.handleScreenUnlock('heartbeat', sleepDuration);
+        }, 100);
       } else {
-        console.log('[ScreenLockDetector] Tab switch detected - no sleep');
+        console.log('[ScreenLockDetector] Tab switch detected (JS was running) - NO inactive time');
       }
     }
 

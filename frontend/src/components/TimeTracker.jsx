@@ -95,7 +95,8 @@ const TimeTracker = () => {
   }, []);
 
   // Recover inactive time from app close (after app close/reopen)
-  // This handles BOTH: screen lock during close AND app simply being closed
+  // IMPORTANT: Only add time to Lock/Sleep if screen was LOCKED when app closed
+  // If screen was ACTIVE when app closed, timer keeps running (screen active time continues)
   const recoverAppCloseTime = useCallback(async (sessionData) => {
     try {
       const savedState = localStorage.getItem('timeTracker_appCloseState');
@@ -107,11 +108,19 @@ const TimeTracker = () => {
       const closeState = JSON.parse(savedState);
       console.log('[TimeTracker] Found app close state:', closeState);
 
+      // Only process TRUE app close events (set via beforeunload with isAppClose flag)
+      if (!closeState.isAppClose) {
+        console.log('[TimeTracker] State is not from app close (likely old format), clearing');
+        localStorage.removeItem('timeTracker_appCloseState');
+        localStorage.removeItem('timeTracker_lockState');
+        return;
+      }
+
       // Verify the close state is for today's session
       if (closeState.sessionDate !== sessionData?.date) {
         console.log('[TimeTracker] Close state is from different date, clearing');
         localStorage.removeItem('timeTracker_appCloseState');
-        localStorage.removeItem('timeTracker_lockState'); // Also clear old lock state
+        localStorage.removeItem('timeTracker_lockState');
         return;
       }
 
@@ -125,26 +134,35 @@ const TimeTracker = () => {
         return;
       }
 
-      // Calculate inactive duration: from inactiveStartTime until now
-      // inactiveStartTime is either:
-      // - The lock start time (if screen was locked when app closed)
-      // - The close time (if screen was not locked when app closed)
-      const inactiveStartTime = closeState.inactiveStartTime || closeState.closeTime;
-      const inactiveDuration = Math.floor((now - inactiveStartTime) / 1000);
-      console.log('[TimeTracker] Total inactive duration:', inactiveDuration, 's',
-        closeState.wasLocked ? '(was locked at close)' : '(was not locked at close)');
+      // CRITICAL: Only add to Lock/Sleep time if screen was LOCKED when app closed
+      // If screen was ACTIVE, the time while app was closed counts as SCREEN ACTIVE time
+      // (timer conceptually keeps running - we don't add anything to inactive)
+      if (!closeState.wasLocked) {
+        console.log('[TimeTracker] Screen was ACTIVE when app closed - no inactive time to add');
+        console.log('[TimeTracker] Screen Active timer conceptually kept running while app was closed');
+        localStorage.removeItem('timeTracker_appCloseState');
+        localStorage.removeItem('timeTracker_lockState');
+        return;
+      }
 
-      // Only add if significant (more than 10 seconds to avoid false positives from quick refreshes)
-      if (inactiveDuration > 10 && sessionData?.status === 'active') {
-        // Send the inactive time to server
+      // Screen was LOCKED when app closed - calculate lock duration
+      // Use lockStartTime (when screen locked) as the start point
+      const lockStartTime = closeState.lockStartTime || closeState.closeTime;
+      const lockDuration = Math.floor((now - lockStartTime) / 1000);
+      console.log('[TimeTracker] Screen was LOCKED when app closed');
+      console.log('[TimeTracker] Lock started at:', new Date(lockStartTime).toLocaleTimeString());
+      console.log('[TimeTracker] Lock/Sleep duration:', lockDuration, 's');
+
+      // Only add if significant (more than 10 seconds)
+      if (lockDuration > 10 && sessionData?.status === 'active') {
         try {
-          await attendanceService.addInactiveTime({ inactive_seconds_to_add: inactiveDuration });
-          console.log('[TimeTracker] Sent inactive time to server:', inactiveDuration, 's');
+          await attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration });
+          console.log('[TimeTracker] Added', lockDuration, 's to Lock/Sleep time on server');
 
           // Show user-friendly message
-          const hours = Math.floor(inactiveDuration / 3600);
-          const mins = Math.floor((inactiveDuration % 3600) / 60);
-          const secs = inactiveDuration % 60;
+          const hours = Math.floor(lockDuration / 3600);
+          const mins = Math.floor((lockDuration % 3600) / 60);
+          const secs = lockDuration % 60;
           let timeStr = '';
           if (hours > 0) {
             timeStr = `${hours}h ${mins}m`;
@@ -153,12 +171,12 @@ const TimeTracker = () => {
           } else {
             timeStr = `${secs}s`;
           }
-          message.info(`Added ${timeStr} to inactive time (app was closed${closeState.wasLocked ? '/locked' : ''})`);
+          message.info(`Added ${timeStr} to Lock/Sleep time (screen was locked)`);
         } catch (err) {
-          console.error('[TimeTracker] Failed to send inactive time:', err);
+          console.error('[TimeTracker] Failed to add inactive time:', err);
         }
       } else {
-        console.log('[TimeTracker] Inactive duration too short, not adding:', inactiveDuration, 's');
+        console.log('[TimeTracker] Lock duration too short, not adding:', lockDuration, 's');
       }
 
       // Clear ALL saved states after recovery
@@ -477,59 +495,20 @@ const TimeTracker = () => {
     }
   }, [session?.status, sendHeartbeat, notifyServiceWorker, requestWakeLock, releaseWakeLock]);
 
-  // Handle visibility change - refresh session and recover inactive time when page becomes visible
+  // Handle visibility change - refresh session when page becomes visible
+  // IMPORTANT: Tab switch/minimize does NOT add inactive time - only screen lock/sleep does
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (!document.hidden && sessionRef.current?.status === 'active') {
-        console.log('[TimeTracker] Page visible - checking for inactive time');
+        console.log('[TimeTracker] Page visible - refreshing session');
 
-        // Check if there's saved close state (from being hidden/closed)
-        const savedState = localStorage.getItem('timeTracker_appCloseState');
-        if (savedState) {
-          try {
-            const closeState = JSON.parse(savedState);
-            const now = Date.now();
+        // Only recover inactive time from TRUE app close (beforeunload)
+        // Tab switches should NOT add inactive time - timer keeps running
+        // The appCloseState is set in beforeunload and recoverAppCloseTime handles initial load
+        // Here we just clear any stale visibility-based state and refresh
 
-            // Calculate inactive duration from inactiveStartTime
-            const inactiveStartTime = closeState.inactiveStartTime || closeState.closeTime;
-            const inactiveDuration = Math.floor((now - inactiveStartTime) / 1000);
-
-            console.log('[TimeTracker] Was hidden/closed for:', inactiveDuration, 's',
-              closeState.wasLocked ? '(was locked)' : '');
-
-            // Only add inactive time if hidden for more than 30 seconds
-            // This avoids counting quick tab switches as inactive
-            if (inactiveDuration > 30 && closeState.sessionDate === sessionRef.current?.date) {
-              try {
-                await attendanceService.addInactiveTime({ inactive_seconds_to_add: inactiveDuration });
-                console.log('[TimeTracker] Added inactive time:', inactiveDuration, 's');
-
-                // Show user-friendly message for significant durations (> 1 min)
-                if (inactiveDuration > 60) {
-                  const hours = Math.floor(inactiveDuration / 3600);
-                  const mins = Math.floor((inactiveDuration % 3600) / 60);
-                  let timeStr = '';
-                  if (hours > 0) {
-                    timeStr = `${hours}h ${mins}m`;
-                  } else {
-                    timeStr = `${mins}m`;
-                  }
-                  message.info(`Added ${timeStr} to inactive time`);
-                }
-              } catch (err) {
-                console.error('[TimeTracker] Failed to add inactive time:', err);
-              }
-            }
-
-            // Clear ALL saved states
-            localStorage.removeItem('timeTracker_appCloseState');
-            localStorage.removeItem('timeTracker_lockState');
-          } catch (e) {
-            console.error('[TimeTracker] Error parsing close state:', e);
-            localStorage.removeItem('timeTracker_appCloseState');
-            localStorage.removeItem('timeTracker_lockState');
-          }
-        }
+        // If screen was locked when hidden, the lock detector handles that via onUnlock
+        // We don't double-count here
 
         requestWakeLock();
         sendHeartbeat();
@@ -545,28 +524,28 @@ const TimeTracker = () => {
   }, [sendHeartbeat, requestWakeLock, fetchCurrentSession]);
 
   // Send final heartbeat and persist app close time on page unload
+  // IMPORTANT: Only beforeunload saves close state - NOT visibility changes (tab switch)
+  // Tab switch/minimize keeps the timer running - timer only pauses on screen lock/sleep
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (sessionRef.current?.status === 'active') {
         const token = localStorage.getItem('token');
         const now = Date.now();
 
-        // ALWAYS save the app close time - this is critical for tracking inactive time
-        // when user closes the app completely
-        // If currently locked, use the lock start time as the "inactive start" time
-        // This ensures we capture the full inactive period (lock + app closed)
-        const inactiveStartTime = isLockedRef.current && lockStartTimeRef.current
-          ? lockStartTimeRef.current
-          : now;
-
+        // Save app close state for recovery when app reopens
+        // CRITICAL: We need to know if screen was locked when app closed
+        // - If screen was ACTIVE: Screen Active timer keeps running (no inactive time)
+        // - If screen was LOCKED: Lock/Sleep timer keeps running (add to inactive time)
         const appCloseState = {
           closeTime: now,
-          inactiveStartTime: inactiveStartTime,
           sessionDate: sessionRef.current?.date,
-          wasLocked: isLockedRef.current
+          wasLocked: isLockedRef.current,
+          lockStartTime: isLockedRef.current ? lockStartTimeRef.current : null,
+          isAppClose: true
         };
         localStorage.setItem('timeTracker_appCloseState', JSON.stringify(appCloseState));
         console.log('[TimeTracker] Saved app close state:', appCloseState);
+        console.log('[TimeTracker] Screen was', isLockedRef.current ? 'LOCKED' : 'ACTIVE', 'when app closed');
 
         // Clear the separate lock state to avoid double-counting
         localStorage.removeItem('timeTracker_lockState');
@@ -577,7 +556,7 @@ const TimeTracker = () => {
           // Send final heartbeat
           const heartbeatData = JSON.stringify({
             timestamp: new Date().toISOString(),
-            is_active: false,
+            is_active: !isLockedRef.current,
             is_closing: true,
             screen_locked: isLockedRef.current,
             token: token
@@ -590,31 +569,14 @@ const TimeTracker = () => {
       }
     };
 
-    // Also persist state periodically while hidden (in case of crash)
-    const handleVisibilityHidden = () => {
-      if (document.hidden && sessionRef.current?.status === 'active') {
-        const now = Date.now();
-        // If currently locked, use the lock start time as the "inactive start" time
-        const inactiveStartTime = isLockedRef.current && lockStartTimeRef.current
-          ? lockStartTimeRef.current
-          : now;
-
-        const appCloseState = {
-          closeTime: now,
-          inactiveStartTime: inactiveStartTime,
-          sessionDate: sessionRef.current?.date,
-          wasLocked: isLockedRef.current
-        };
-        localStorage.setItem('timeTracker_appCloseState', JSON.stringify(appCloseState));
-      }
-    };
+    // DO NOT save state on visibility change - tab switch/minimize should NOT add inactive time
+    // Timer keeps running even when tab is in background or minimized
+    // Only screen lock/sleep pauses the timer (handled by screenLockDetector)
 
     window.addEventListener('beforeunload', handleBeforeUnload);
-    document.addEventListener('visibilitychange', handleVisibilityHidden);
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      document.removeEventListener('visibilitychange', handleVisibilityHidden);
     };
   }, []);
 

@@ -3,7 +3,8 @@
     "allow": [
       "Bash(find:*)",
       "Bash(npm run build:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []
