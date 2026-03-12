@@ -146,9 +146,12 @@ const TimeTracker = () => {
       console.log('[TimeTracker] App close state:', savedState ? JSON.parse(savedState) : null);
       console.log('[TimeTracker] Local lock state:', lockState);
 
-      // If no saved states, nothing to recover
-      if (!savedState && !lockState && !swLockState) {
-        console.log('[TimeTracker] No recovery states found');
+      // Even if no saved states, we should still check heartbeat gap
+      // This handles cases where localStorage was cleared but server has heartbeat data
+      const hasHeartbeatData = sessionData && sessionData.last_heartbeat;
+
+      if (!savedState && !lockState && !swLockState && !hasHeartbeatData) {
+        console.log('[TimeTracker] No recovery states found and no heartbeat data');
         return;
       }
 
@@ -179,74 +182,73 @@ const TimeTracker = () => {
       let lockDuration = 0;
       let lockReason = '';
 
-      // Priority 1: Direct lock state (screen was locked when app was running)
-      if (lockState && lockState.isLocked && lockState.lockStartTime) {
-        lockDuration = Math.floor((now - lockState.lockStartTime) / 1000);
-        lockReason = 'screen was locked (tracked by app)';
-        console.log('[TimeTracker] Using local lock state');
-        console.log('[TimeTracker] Lock started at:', new Date(lockState.lockStartTime).toLocaleTimeString());
-        console.log('[TimeTracker] Lock duration:', lockDuration, 's');
-      }
-      // Priority 2: SW lock state (screen locked after app closed - tracked by service worker)
-      else if (swLockState && swLockState.isLocked && swLockState.lockStartTime) {
-        lockDuration = Math.floor((now - swLockState.lockStartTime) / 1000);
-        lockReason = 'screen was locked (tracked by service worker)';
-        console.log('[TimeTracker] Using service worker lock state');
-        console.log('[TimeTracker] Lock started at:', new Date(swLockState.lockStartTime).toLocaleTimeString());
-        console.log('[TimeTracker] Lock duration:', lockDuration, 's');
-      }
-      // Priority 3: Close state with wasLocked flag
-      else if (closeState && closeState.wasLocked && closeState.lockStartTime) {
-        lockDuration = Math.floor((now - closeState.lockStartTime) / 1000);
-        lockReason = 'screen was locked when app closed';
-        console.log('[TimeTracker] Using close state lock info');
-        console.log('[TimeTracker] Lock started at:', new Date(closeState.lockStartTime).toLocaleTimeString());
-        console.log('[TimeTracker] Lock duration:', lockDuration, 's');
-      }
-      // Priority 4: Use server's last_heartbeat to detect gaps
-      // This is the most reliable method - if there's a gap between last heartbeat and now,
-      // and the app was closed, it means the screen was likely locked/asleep
-      else if (sessionData && sessionData.last_heartbeat) {
+      // FIRST: Always check heartbeat gap - this is the most reliable indicator
+      // When app closes, heartbeats stop. The gap tells us how long since last heartbeat.
+      // This works even if screen locked AFTER app closed.
+      let heartbeatGap = 0;
+      if (sessionData && sessionData.last_heartbeat) {
         const lastHeartbeat = new Date(sessionData.last_heartbeat).getTime();
-        const heartbeatGap = Math.floor((now - lastHeartbeat) / 1000);
+        heartbeatGap = Math.floor((now - lastHeartbeat) / 1000);
+        console.log('[TimeTracker] === HEARTBEAT ANALYSIS ===');
         console.log('[TimeTracker] Last server heartbeat:', new Date(lastHeartbeat).toLocaleTimeString());
-        console.log('[TimeTracker] Heartbeat gap:', heartbeatGap, 's');
+        console.log('[TimeTracker] Current time:', new Date(now).toLocaleTimeString());
+        console.log('[TimeTracker] Heartbeat gap:', heartbeatGap, 's (' + Math.floor(heartbeatGap/60) + 'm ' + (heartbeatGap%60) + 's)');
+      }
 
-        // HEARTBEAT_INTERVAL is 10 seconds
-        // If gap is more than 30 seconds (3 missed heartbeats), something happened
-        // If gap is more than 2 minutes, likely lock/sleep
-        const HEARTBEAT_THRESHOLD = 2 * 60; // 2 minutes (12 missed heartbeats)
+      // Check if we have direct lock tracking (app was running when lock happened)
+      const hasDirectLockTracking =
+        (lockState && lockState.isLocked && lockState.lockStartTime) ||
+        (swLockState && swLockState.isLocked && swLockState.lockStartTime) ||
+        (closeState && closeState.wasLocked && closeState.lockStartTime);
+
+      if (hasDirectLockTracking) {
+        // Use direct lock tracking - we know exactly when lock started
+        if (lockState && lockState.isLocked && lockState.lockStartTime) {
+          lockDuration = Math.floor((now - lockState.lockStartTime) / 1000);
+          lockReason = 'screen was locked (tracked by app)';
+          console.log('[TimeTracker] Using local lock state');
+          console.log('[TimeTracker] Lock started at:', new Date(lockState.lockStartTime).toLocaleTimeString());
+        } else if (swLockState && swLockState.isLocked && swLockState.lockStartTime) {
+          lockDuration = Math.floor((now - swLockState.lockStartTime) / 1000);
+          lockReason = 'screen was locked (tracked by service worker)';
+          console.log('[TimeTracker] Using service worker lock state');
+        } else if (closeState && closeState.wasLocked && closeState.lockStartTime) {
+          lockDuration = Math.floor((now - closeState.lockStartTime) / 1000);
+          lockReason = 'screen was locked when app closed';
+          console.log('[TimeTracker] Using close state lock info');
+        }
+        console.log('[TimeTracker] Direct lock duration:', lockDuration, 's');
+      } else {
+        // No direct lock tracking - use heartbeat gap to detect lock/sleep
+        // This handles: user closes app -> screen locks -> user reopens app
+        console.log('[TimeTracker] No direct lock tracking available');
+        console.log('[TimeTracker] closeState.wasLocked:', closeState?.wasLocked);
+
+        // The heartbeat gap is the time since the app last sent a heartbeat
+        // If this gap is significant, something happened (lock/sleep/app closed)
+        const HEARTBEAT_THRESHOLD = 30; // 30 seconds - if no heartbeat for 30s, assume lock/sleep
 
         if (heartbeatGap > HEARTBEAT_THRESHOLD) {
-          // Subtract normal heartbeat interval as buffer
-          const BUFFER = 30; // 30 seconds buffer
+          // Use heartbeat gap as lock duration
+          // Subtract a small buffer for normal app close latency
+          const BUFFER = 15; // 15 seconds buffer
           lockDuration = Math.max(0, heartbeatGap - BUFFER);
-          lockReason = 'detected from heartbeat gap (screen was likely locked/asleep)';
-          console.log('[TimeTracker] Using heartbeat gap detection');
+          lockReason = 'detected from heartbeat gap (screen was locked/asleep while app was closed)';
+          console.log('[TimeTracker] *** USING HEARTBEAT GAP DETECTION ***');
           console.log('[TimeTracker] Heartbeat gap:', heartbeatGap, 's');
           console.log('[TimeTracker] Estimated lock duration:', lockDuration, 's');
-        } else {
-          console.log('[TimeTracker] Small heartbeat gap, no lock time assumed');
-        }
-      }
-      // Priority 5: Fallback to close time gap detection
-      else if (closeState && closeState.closeTime) {
-        const closedDuration = Math.floor((now - closeState.closeTime) / 1000);
-        console.log('[TimeTracker] App was closed for:', closedDuration, 's');
+        } else if (closeState && closeState.closeTime) {
+          // Fallback: use close time if heartbeat data is not useful
+          const closedDuration = Math.floor((now - closeState.closeTime) / 1000);
+          console.log('[TimeTracker] Close time fallback - closed for:', closedDuration, 's');
 
-        // If closed for more than 2 minutes, assume some lock/sleep time
-        const MIN_GAP_FOR_LOCK = 2 * 60; // 2 minutes
-
-        if (closedDuration > MIN_GAP_FOR_LOCK) {
-          // Assume most of the time was lock/sleep with a small active buffer
-          const ACTIVE_BUFFER = 30; // 30 seconds buffer
-          lockDuration = Math.max(0, closedDuration - ACTIVE_BUFFER);
-          lockReason = 'app was closed (assumed lock/sleep from gap)';
-          console.log('[TimeTracker] Using gap-based detection');
-          console.log('[TimeTracker] Closed duration:', closedDuration, 's');
-          console.log('[TimeTracker] Estimated lock duration:', lockDuration, 's');
+          if (closedDuration > HEARTBEAT_THRESHOLD) {
+            const BUFFER = 15;
+            lockDuration = Math.max(0, closedDuration - BUFFER);
+            lockReason = 'app was closed (assumed lock/sleep)';
+          }
         } else {
-          console.log('[TimeTracker] Short gap, no lock time assumed');
+          console.log('[TimeTracker] Heartbeat gap too small (' + heartbeatGap + 's), no lock time assumed');
         }
       }
 
