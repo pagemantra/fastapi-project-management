@@ -95,8 +95,18 @@ const TimeTracker = () => {
   }, []);
 
   // Recover inactive time from app close (after app close/reopen)
-  // IMPORTANT: Only add time to Lock/Sleep if screen was LOCKED when app closed
-  // If screen was ACTIVE when app closed, timer keeps running (screen active time continues)
+  //
+  // SCENARIOS:
+  // 1. App closed while screen LOCKED -> Add lock duration (from lockStartTime to now)
+  // 2. App closed while screen ACTIVE, screen locked AFTER, then app reopened ->
+  //    We CAN'T detect this case because by the time app reopens, screen is unlocked
+  //    BUT: We use time-based heuristics for long gaps
+  // 3. App closed while screen ACTIVE, screen stayed active -> No inactive time
+  //
+  // IMPORTANT INSIGHT:
+  // - If screen locks WHILE app is open -> onLock callback handles it
+  // - If screen locks AFTER app closed -> We can't detect it directly
+  // - Best we can do: assume long gaps (>30 min) involved sleep/lock
   const recoverAppCloseTime = useCallback(async (sessionData) => {
     try {
       const savedState = localStorage.getItem('timeTracker_appCloseState');
@@ -134,30 +144,61 @@ const TimeTracker = () => {
         return;
       }
 
-      // CRITICAL: Only add to Lock/Sleep time if screen was LOCKED when app closed
-      // If screen was ACTIVE, the time while app was closed counts as SCREEN ACTIVE time
-      // (timer conceptually keeps running - we don't add anything to inactive)
-      if (!closeState.wasLocked) {
-        console.log('[TimeTracker] Screen was ACTIVE when app closed - no inactive time to add');
-        console.log('[TimeTracker] Screen Active timer conceptually kept running while app was closed');
-        localStorage.removeItem('timeTracker_appCloseState');
-        localStorage.removeItem('timeTracker_lockState');
-        return;
+      const closedDuration = Math.floor((now - closeState.closeTime) / 1000);
+      console.log('[TimeTracker] App was closed for:', closedDuration, 's');
+
+      let lockDuration = 0;
+      let lockReason = '';
+
+      if (closeState.wasLocked) {
+        // CASE 1: Screen was LOCKED when app closed
+        // The lock timer was running when app closed, so add the full duration
+        const lockStartTime = closeState.lockStartTime || closeState.closeTime;
+        lockDuration = Math.floor((now - lockStartTime) / 1000);
+        lockReason = 'screen was locked when app closed';
+        console.log('[TimeTracker] CASE 1: Screen was LOCKED when app closed');
+        console.log('[TimeTracker] Lock started at:', new Date(lockStartTime).toLocaleTimeString());
+        console.log('[TimeTracker] Total lock duration:', lockDuration, 's');
+      } else {
+        // CASE 2 & 3: Screen was ACTIVE when app closed
+        // We need to determine if screen locked AFTER app closed
+        //
+        // HEURISTIC: If app was closed for more than 30 minutes, assume sleep/lock occurred
+        // This covers scenarios like:
+        // - User closes laptop (system sleeps)
+        // - User locks screen after closing app
+        // - User goes to lunch/break
+        //
+        // The threshold of 30 min is conservative - we don't want to falsely add lock time
+        // for someone who just closed the tab for a few minutes
+        const LONG_GAP_THRESHOLD = 30 * 60; // 30 minutes
+
+        if (closedDuration > LONG_GAP_THRESHOLD) {
+          // Long gap detected - likely sleep/lock occurred at some point
+          // We can't know exactly when, so we assume:
+          // - First 5 minutes: possibly still active (user closing things, walking away)
+          // - Rest of the time: likely sleep/lock
+          const ACTIVE_BUFFER = 5 * 60; // 5 minutes buffer
+          lockDuration = Math.max(0, closedDuration - ACTIVE_BUFFER);
+          lockReason = 'app was closed for extended period';
+          console.log('[TimeTracker] CASE 2: Screen was ACTIVE when closed, long gap detected');
+          console.log('[TimeTracker] Closed duration:', closedDuration, 's');
+          console.log('[TimeTracker] Estimated lock duration:', lockDuration, 's (after', ACTIVE_BUFFER, 's buffer)');
+        } else {
+          // Short to medium gap - assume screen stayed active
+          // This covers quick app restarts, short breaks, etc.
+          console.log('[TimeTracker] CASE 3: Screen was ACTIVE when closed, short gap');
+          console.log('[TimeTracker] Closed duration:', closedDuration, 's (< threshold', LONG_GAP_THRESHOLD, 's)');
+          console.log('[TimeTracker] No lock time added - assuming screen stayed active');
+        }
       }
 
-      // Screen was LOCKED when app closed - calculate lock duration
-      // Use lockStartTime (when screen locked) as the start point
-      const lockStartTime = closeState.lockStartTime || closeState.closeTime;
-      const lockDuration = Math.floor((now - lockStartTime) / 1000);
-      console.log('[TimeTracker] Screen was LOCKED when app closed');
-      console.log('[TimeTracker] Lock started at:', new Date(lockStartTime).toLocaleTimeString());
-      console.log('[TimeTracker] Lock/Sleep duration:', lockDuration, 's');
-
-      // Only add if significant (more than 10 seconds)
+      // Add lock duration to server if significant
       if (lockDuration > 10 && sessionData?.status === 'active') {
         try {
           await attendanceService.addInactiveTime({ inactive_seconds_to_add: lockDuration });
           console.log('[TimeTracker] Added', lockDuration, 's to Lock/Sleep time on server');
+          console.log('[TimeTracker] Reason:', lockReason);
 
           // Show user-friendly message
           const hours = Math.floor(lockDuration / 3600);
@@ -171,12 +212,14 @@ const TimeTracker = () => {
           } else {
             timeStr = `${secs}s`;
           }
-          message.info(`Added ${timeStr} to Lock/Sleep time (screen was locked)`);
+          message.info(`Added ${timeStr} to Lock/Sleep time (${lockReason})`);
         } catch (err) {
           console.error('[TimeTracker] Failed to add inactive time:', err);
         }
-      } else {
+      } else if (lockDuration > 0) {
         console.log('[TimeTracker] Lock duration too short, not adding:', lockDuration, 's');
+      } else {
+        console.log('[TimeTracker] No lock time to add');
       }
 
       // Clear ALL saved states after recovery

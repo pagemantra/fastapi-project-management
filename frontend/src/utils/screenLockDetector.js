@@ -409,6 +409,40 @@ class ScreenLockDetector {
   }
 
   /**
+   * Check current screen state from IdleDetector (if available)
+   * This can be used even before full initialization to get current state
+   * @returns {Promise<{locked: boolean, available: boolean}>}
+   */
+  async checkCurrentScreenState() {
+    // Check if IdleDetector is available and we have an active detector
+    if (this.idleDetector && this.idleDetectorAvailable) {
+      try {
+        const { screenState } = this.idleDetector;
+        return {
+          locked: screenState === 'locked',
+          available: true
+        };
+      } catch (e) {
+        console.log('[ScreenLockDetector] Error reading IdleDetector state:', e);
+      }
+    }
+
+    // If detector is initialized but using fallback methods
+    if (this.isInitialized) {
+      return {
+        locked: this.isScreenLocked,
+        available: true
+      };
+    }
+
+    // Not initialized - can't determine state
+    return {
+      locked: false,
+      available: false
+    };
+  }
+
+  /**
    * Cleanup and stop detection
    */
   destroy() {
