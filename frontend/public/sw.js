@@ -293,17 +293,41 @@ self.addEventListener('message', async (event) => {
 
     case 'SET_LOCK_STATE':
       // Persist lock state for recovery after app crash/close
+      // This is CRITICAL for tracking lock time when app is closed
       if (data.isLocked && data.lockStartTime) {
-        await saveToDB('lockState', {
+        const lockState = {
           isLocked: true,
           lockStartTime: data.lockStartTime,
           sessionDate: data.sessionDate,
           savedAt: Date.now()
-        });
-        console.log('[SW] Lock state saved');
+        };
+        await saveToDB('lockState', lockState);
+        // Also save to a separate key for redundancy
+        await saveToDB('activeLockStart', data.lockStartTime);
+        console.log('[SW] Lock state saved - lock started at:', new Date(data.lockStartTime).toLocaleTimeString());
       } else {
         await saveToDB('lockState', null);
+        await saveToDB('activeLockStart', null);
         console.log('[SW] Lock state cleared');
+      }
+      break;
+
+    case 'CHECK_LOCK_RECOVERY':
+      // Check if there's an unrecovered lock state
+      // This is called when app reopens to see if we need to add lock time
+      const activeLockStart = await getFromDB('activeLockStart');
+      const currentLockState = await getFromDB('lockState');
+      if (activeLockStart && currentLockState?.isLocked) {
+        const lockDuration = Math.floor((Date.now() - activeLockStart) / 1000);
+        console.log('[SW] Found active lock state, duration:', lockDuration, 's');
+        event.ports[0]?.postMessage({
+          hasActiveLock: true,
+          lockStartTime: activeLockStart,
+          lockDuration: lockDuration,
+          sessionDate: currentLockState.sessionDate
+        });
+      } else {
+        event.ports[0]?.postMessage({ hasActiveLock: false });
       }
       break;
 

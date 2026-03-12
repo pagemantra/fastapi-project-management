@@ -96,100 +96,157 @@ const TimeTracker = () => {
 
   // Recover inactive time from app close (after app close/reopen)
   //
-  // SCENARIOS:
-  // 1. App closed while screen LOCKED -> Add lock duration (from lockStartTime to now)
-  // 2. App closed while screen ACTIVE, screen locked AFTER, then app reopened ->
-  //    We CAN'T detect this case because by the time app reopens, screen is unlocked
-  //    BUT: We use time-based heuristics for long gaps
-  // 3. App closed while screen ACTIVE, screen stayed active -> No inactive time
+  // KEY INSIGHT: We use localStorage to persist lock state even when app is closed.
+  // The screenLockDetector saves lock state to localStorage when lock is detected.
+  // This allows us to track lock time even if app closes AFTER screen locks.
   //
-  // IMPORTANT INSIGHT:
-  // - If screen locks WHILE app is open -> onLock callback handles it
-  // - If screen locks AFTER app closed -> We can't detect it directly
-  // - Best we can do: assume long gaps (>30 min) involved sleep/lock
+  // SCENARIOS:
+  // 1. Screen locks -> App detects it -> User closes app -> User reopens app
+  //    = We have lockState in localStorage with lockStartTime
+  // 2. User closes app -> Screen locks -> User reopens app
+  //    = We check separate 'timeTracker_lockState' saved by service worker OR
+  //      use gap-based detection
+  // 3. App closed, screen stayed active -> No inactive time
   const recoverAppCloseTime = useCallback(async (sessionData) => {
     try {
+      const now = Date.now();
+
+      // FIRST: Check for lock state from service worker (persisted via IndexedDB)
+      // This handles the case where screen locked AFTER app closed
+      let swLockState = null;
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        try {
+          const messageChannel = new MessageChannel();
+          const swResponse = await new Promise((resolve) => {
+            messageChannel.port1.onmessage = (event) => resolve(event.data);
+            navigator.serviceWorker.controller.postMessage(
+              { type: 'GET_LOCK_STATE' },
+              [messageChannel.port2]
+            );
+            // Timeout after 1 second
+            setTimeout(() => resolve(null), 1000);
+          });
+          swLockState = swResponse;
+          console.log('[TimeTracker] Service Worker lock state:', swLockState);
+        } catch (e) {
+          console.log('[TimeTracker] Could not get SW lock state:', e);
+        }
+      }
+
+      // SECOND: Check for app close state from localStorage
       const savedState = localStorage.getItem('timeTracker_appCloseState');
-      if (!savedState) {
-        console.log('[TimeTracker] No app close state found');
+      const lockStateStr = localStorage.getItem('timeTracker_lockState');
+      let lockState = null;
+      try {
+        lockState = lockStateStr ? JSON.parse(lockStateStr) : null;
+      } catch (e) {
+        lockState = null;
+      }
+
+      console.log('[TimeTracker] App close state:', savedState ? JSON.parse(savedState) : null);
+      console.log('[TimeTracker] Local lock state:', lockState);
+
+      // If no saved states, nothing to recover
+      if (!savedState && !lockState && !swLockState) {
+        console.log('[TimeTracker] No recovery states found');
         return;
       }
 
-      const closeState = JSON.parse(savedState);
-      console.log('[TimeTracker] Found app close state:', closeState);
-
-      // Only process TRUE app close events (set via beforeunload with isAppClose flag)
-      if (!closeState.isAppClose) {
-        console.log('[TimeTracker] State is not from app close (likely old format), clearing');
-        localStorage.removeItem('timeTracker_appCloseState');
-        localStorage.removeItem('timeTracker_lockState');
-        return;
+      let closeState = null;
+      if (savedState) {
+        try {
+          closeState = JSON.parse(savedState);
+        } catch (e) {
+          closeState = null;
+        }
       }
 
-      // Verify the close state is for today's session
-      if (closeState.sessionDate !== sessionData?.date) {
+      // Validate session date
+      const sessionDate = sessionData?.date;
+      if (closeState && closeState.sessionDate !== sessionDate) {
         console.log('[TimeTracker] Close state is from different date, clearing');
         localStorage.removeItem('timeTracker_appCloseState');
         localStorage.removeItem('timeTracker_lockState');
         return;
       }
-
-      // Check if too old (more than 24 hours) - safety check
-      const now = Date.now();
-      const stateAge = now - closeState.closeTime;
-      if (stateAge > 24 * 60 * 60 * 1000) {
-        console.log('[TimeTracker] Close state too old, clearing');
-        localStorage.removeItem('timeTracker_appCloseState');
+      if (lockState && lockState.sessionDate !== sessionDate) {
+        console.log('[TimeTracker] Lock state is from different date, clearing');
         localStorage.removeItem('timeTracker_lockState');
-        return;
+        lockState = null;
       }
 
-      const closedDuration = Math.floor((now - closeState.closeTime) / 1000);
-      console.log('[TimeTracker] App was closed for:', closedDuration, 's');
-
+      // Determine lock duration based on available states
       let lockDuration = 0;
       let lockReason = '';
 
-      if (closeState.wasLocked) {
-        // CASE 1: Screen was LOCKED when app closed
-        // The lock timer was running when app closed, so add the full duration
-        const lockStartTime = closeState.lockStartTime || closeState.closeTime;
-        lockDuration = Math.floor((now - lockStartTime) / 1000);
+      // Priority 1: Direct lock state (screen was locked when app was running)
+      if (lockState && lockState.isLocked && lockState.lockStartTime) {
+        lockDuration = Math.floor((now - lockState.lockStartTime) / 1000);
+        lockReason = 'screen was locked (tracked by app)';
+        console.log('[TimeTracker] Using local lock state');
+        console.log('[TimeTracker] Lock started at:', new Date(lockState.lockStartTime).toLocaleTimeString());
+        console.log('[TimeTracker] Lock duration:', lockDuration, 's');
+      }
+      // Priority 2: SW lock state (screen locked after app closed - tracked by service worker)
+      else if (swLockState && swLockState.isLocked && swLockState.lockStartTime) {
+        lockDuration = Math.floor((now - swLockState.lockStartTime) / 1000);
+        lockReason = 'screen was locked (tracked by service worker)';
+        console.log('[TimeTracker] Using service worker lock state');
+        console.log('[TimeTracker] Lock started at:', new Date(swLockState.lockStartTime).toLocaleTimeString());
+        console.log('[TimeTracker] Lock duration:', lockDuration, 's');
+      }
+      // Priority 3: Close state with wasLocked flag
+      else if (closeState && closeState.wasLocked && closeState.lockStartTime) {
+        lockDuration = Math.floor((now - closeState.lockStartTime) / 1000);
         lockReason = 'screen was locked when app closed';
-        console.log('[TimeTracker] CASE 1: Screen was LOCKED when app closed');
-        console.log('[TimeTracker] Lock started at:', new Date(lockStartTime).toLocaleTimeString());
-        console.log('[TimeTracker] Total lock duration:', lockDuration, 's');
-      } else {
-        // CASE 2 & 3: Screen was ACTIVE when app closed
-        // We need to determine if screen locked AFTER app closed
-        //
-        // HEURISTIC: If app was closed for more than 30 minutes, assume sleep/lock occurred
-        // This covers scenarios like:
-        // - User closes laptop (system sleeps)
-        // - User locks screen after closing app
-        // - User goes to lunch/break
-        //
-        // The threshold of 30 min is conservative - we don't want to falsely add lock time
-        // for someone who just closed the tab for a few minutes
-        const LONG_GAP_THRESHOLD = 30 * 60; // 30 minutes
+        console.log('[TimeTracker] Using close state lock info');
+        console.log('[TimeTracker] Lock started at:', new Date(closeState.lockStartTime).toLocaleTimeString());
+        console.log('[TimeTracker] Lock duration:', lockDuration, 's');
+      }
+      // Priority 4: Use server's last_heartbeat to detect gaps
+      // This is the most reliable method - if there's a gap between last heartbeat and now,
+      // and the app was closed, it means the screen was likely locked/asleep
+      else if (sessionData && sessionData.last_heartbeat) {
+        const lastHeartbeat = new Date(sessionData.last_heartbeat).getTime();
+        const heartbeatGap = Math.floor((now - lastHeartbeat) / 1000);
+        console.log('[TimeTracker] Last server heartbeat:', new Date(lastHeartbeat).toLocaleTimeString());
+        console.log('[TimeTracker] Heartbeat gap:', heartbeatGap, 's');
 
-        if (closedDuration > LONG_GAP_THRESHOLD) {
-          // Long gap detected - likely sleep/lock occurred at some point
-          // We can't know exactly when, so we assume:
-          // - First 5 minutes: possibly still active (user closing things, walking away)
-          // - Rest of the time: likely sleep/lock
-          const ACTIVE_BUFFER = 5 * 60; // 5 minutes buffer
-          lockDuration = Math.max(0, closedDuration - ACTIVE_BUFFER);
-          lockReason = 'app was closed for extended period';
-          console.log('[TimeTracker] CASE 2: Screen was ACTIVE when closed, long gap detected');
-          console.log('[TimeTracker] Closed duration:', closedDuration, 's');
-          console.log('[TimeTracker] Estimated lock duration:', lockDuration, 's (after', ACTIVE_BUFFER, 's buffer)');
+        // HEARTBEAT_INTERVAL is 10 seconds
+        // If gap is more than 30 seconds (3 missed heartbeats), something happened
+        // If gap is more than 2 minutes, likely lock/sleep
+        const HEARTBEAT_THRESHOLD = 2 * 60; // 2 minutes (12 missed heartbeats)
+
+        if (heartbeatGap > HEARTBEAT_THRESHOLD) {
+          // Subtract normal heartbeat interval as buffer
+          const BUFFER = 30; // 30 seconds buffer
+          lockDuration = Math.max(0, heartbeatGap - BUFFER);
+          lockReason = 'detected from heartbeat gap (screen was likely locked/asleep)';
+          console.log('[TimeTracker] Using heartbeat gap detection');
+          console.log('[TimeTracker] Heartbeat gap:', heartbeatGap, 's');
+          console.log('[TimeTracker] Estimated lock duration:', lockDuration, 's');
         } else {
-          // Short to medium gap - assume screen stayed active
-          // This covers quick app restarts, short breaks, etc.
-          console.log('[TimeTracker] CASE 3: Screen was ACTIVE when closed, short gap');
-          console.log('[TimeTracker] Closed duration:', closedDuration, 's (< threshold', LONG_GAP_THRESHOLD, 's)');
-          console.log('[TimeTracker] No lock time added - assuming screen stayed active');
+          console.log('[TimeTracker] Small heartbeat gap, no lock time assumed');
+        }
+      }
+      // Priority 5: Fallback to close time gap detection
+      else if (closeState && closeState.closeTime) {
+        const closedDuration = Math.floor((now - closeState.closeTime) / 1000);
+        console.log('[TimeTracker] App was closed for:', closedDuration, 's');
+
+        // If closed for more than 2 minutes, assume some lock/sleep time
+        const MIN_GAP_FOR_LOCK = 2 * 60; // 2 minutes
+
+        if (closedDuration > MIN_GAP_FOR_LOCK) {
+          // Assume most of the time was lock/sleep with a small active buffer
+          const ACTIVE_BUFFER = 30; // 30 seconds buffer
+          lockDuration = Math.max(0, closedDuration - ACTIVE_BUFFER);
+          lockReason = 'app was closed (assumed lock/sleep from gap)';
+          console.log('[TimeTracker] Using gap-based detection');
+          console.log('[TimeTracker] Closed duration:', closedDuration, 's');
+          console.log('[TimeTracker] Estimated lock duration:', lockDuration, 's');
+        } else {
+          console.log('[TimeTracker] Short gap, no lock time assumed');
         }
       }
 
