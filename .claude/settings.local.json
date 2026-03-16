@@ -4,7 +4,11 @@
       "Bash(find:*)",
       "Bash(npm run build:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(node tests/comprehensive-test.js:*)",
+      "Bash(node tests/comprehensive-test.cjs:*)",
+      "Bash(vercel:*)"
     ],
     "deny": [],
     "ask": []

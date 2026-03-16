@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import MainLayout from './layouts/MainLayout';
 import PWAEnforcement from './components/PWAEnforcement';
+import GlobalCloseBlocker from './components/GlobalCloseBlocker';
 
 // Auth pages
 import Login from './pages/auth/Login';
@@ -31,8 +32,9 @@ function App() {
         },
       }}
     >
-      <PWAEnforcement>
-        <AuthProvider>
+      <GlobalCloseBlocker>
+        <PWAEnforcement>
+          <AuthProvider>
           <BrowserRouter>
             <Routes>
               {/* Public routes */}
@@ -65,8 +67,9 @@ function App() {
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </BrowserRouter>
-        </AuthProvider>
-      </PWAEnforcement>
+          </AuthProvider>
+        </PWAEnforcement>
+      </GlobalCloseBlocker>
     </ConfigProvider>
   );
 }

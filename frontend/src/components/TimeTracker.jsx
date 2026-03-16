@@ -629,8 +629,14 @@ const TimeTracker = () => {
   // IMPORTANT: Only beforeunload saves close state - NOT visibility changes (tab switch)
   // Tab switch/minimize keeps the timer running - timer only pauses on screen lock/sleep
   useEffect(() => {
-    const handleBeforeUnload = () => {
+    const handleBeforeUnload = (e) => {
       if (sessionRef.current?.status === 'active') {
+        // PREVENT CLOSE: Show warning when user tries to close while clocked in
+        // This helps prevent accidental closes that break time tracking
+        const warningMessage = 'WARNING: You are currently clocked in!\n\nClosing this app will affect your time tracking accuracy.\n\nPlease minimize the app instead of closing it.';
+        e.preventDefault();
+        e.returnValue = warningMessage; // Required for Chrome/modern browsers
+
         const token = localStorage.getItem('token');
         const now = Date.now();
 
@@ -668,6 +674,8 @@ const TimeTracker = () => {
             new Blob([heartbeatData], { type: 'application/json' })
           );
         }
+
+        return warningMessage;
       }
     };
 

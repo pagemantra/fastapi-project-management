@@ -17,7 +17,8 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { notificationService } from '../api/services';
+import { notificationService, attendanceService } from '../api/services';
+import CloseBlocker from '../components/CloseBlocker';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -25,9 +26,32 @@ const { Text } = Typography;
 const MainLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isClockedIn, setIsClockedIn] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+
+  // Check if user is clocked in (for close blocker)
+  useEffect(() => {
+    if (!user) {
+      setIsClockedIn(false);
+      return;
+    }
+
+    const checkClockedInStatus = async () => {
+      try {
+        const response = await attendanceService.getCurrentSession();
+        setIsClockedIn(response.data?.status === 'active');
+      } catch (error) {
+        setIsClockedIn(false);
+      }
+    };
+
+    checkClockedInStatus();
+    // Check every 30 seconds
+    const interval = setInterval(checkClockedInStatus, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Reset and refetch notifications when user changes
   useEffect(() => {
@@ -234,6 +258,7 @@ const MainLayout = () => {
   };
 
   return (
+    <CloseBlocker isActive={isClockedIn}>
     <Layout style={{ minHeight: '100vh' }}>
       <Sider
         trigger={null}
@@ -314,6 +339,7 @@ const MainLayout = () => {
         </Content>
       </Layout>
     </Layout>
+    </CloseBlocker>
   );
 };
 
