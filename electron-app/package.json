@@ -39,6 +39,15 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "build",
+        "to": "app/icons",
+        "filter": [
+          "icon.png",
+          "icon.ico",
+          "icon.svg"
+        ]
       }
     ],
     "publish": {

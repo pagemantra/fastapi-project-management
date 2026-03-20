@@ -160,6 +160,31 @@ let isQuitting = false;
 let isUserClockedIn = false;
 let lockStartTime = null;
 
+// Helper function to get the correct icon path
+function getIconPath() {
+  if (app.isPackaged) {
+    // Try multiple locations in production (prioritize PNG)
+    const possiblePaths = [
+      path.join(process.resourcesPath, 'app', 'icons', 'icon.png'),
+      path.join(process.resourcesPath, 'app', 'icons', 'icon.ico'),
+      path.join(process.resourcesPath, 'icon.png'),
+      path.join(process.resourcesPath, 'icon.ico')
+    ];
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        console.log('[Main] Using icon:', p);
+        return p;
+      }
+    }
+    console.log('[Main] No icon found');
+    return null;
+  } else {
+    // Development path
+    const devPath = path.join(__dirname, 'build', 'icon.png');
+    return fs.existsSync(devPath) ? devPath : null;
+  }
+}
+
 // Auto-launch configuration
 const autoLauncher = new AutoLaunch({
   name: 'Work Tracker',
@@ -287,16 +312,20 @@ function createWindow() {
       // Check if user is clocked in
       if (isUserClockedIn) {
         // Show warning dialog
-        dialog.showMessageBox(mainWindow, {
+        const dialogOptions = {
           type: 'warning',
           buttons: ['Keep Open', 'Minimize to Tray'],
           defaultId: 0,
           cancelId: 0,
           title: 'Active Work Session',
           message: 'You are currently clocked in!',
-          detail: 'Closing this app will affect your time tracking. The app will minimize to the system tray instead.\n\nTo properly close the app, please clock out first.',
-          icon: path.join(__dirname, 'build', 'icon.png')
-        }).then((result) => {
+          detail: 'Closing this app will affect your time tracking. The app will minimize to the system tray instead.\n\nTo properly close the app, please clock out first.'
+        };
+        const iconPath = getIconPath();
+        if (iconPath) {
+          dialogOptions.icon = iconPath;
+        }
+        dialog.showMessageBox(mainWindow, dialogOptions).then((result) => {
           if (result.response === 1) {
             // Minimize to tray
             mainWindow.hide();
@@ -319,17 +348,11 @@ function createWindow() {
 }
 
 function createTray() {
-  // Create tray icon - handle both dev and production paths
-  let iconPath;
-  if (app.isPackaged) {
-    // In production, icon is in resources/app/icons/
-    iconPath = path.join(process.resourcesPath, 'app', 'icons', 'icon-192x192.svg');
-    // Fallback to PNG if SVG doesn't work well for tray
-    if (!fs.existsSync(iconPath)) {
-      iconPath = path.join(__dirname, 'build', 'icon.png');
-    }
-  } else {
-    // In development
+  // Create tray icon - use the helper function to get the correct path
+  let iconPath = getIconPath();
+
+  // Fallback to build folder in development
+  if (!iconPath && !app.isPackaged) {
     iconPath = path.join(__dirname, 'build', 'icon.png');
   }
 
@@ -459,11 +482,18 @@ function updateTrayMenu() {
 
 function showTrayNotification() {
   if (tray) {
-    tray.displayBalloon({
+    const balloonOptions = {
       title: 'Work Tracker',
-      content: 'App minimized to system tray. Your session continues running.',
-      icon: path.join(__dirname, 'build', 'icon.png')
-    });
+      content: 'App minimized to system tray. Your session continues running.'
+    };
+
+    // Only add icon if we have a valid path
+    const iconPath = getIconPath();
+    if (iconPath) {
+      balloonOptions.icon = iconPath;
+    }
+
+    tray.displayBalloon(balloonOptions);
   }
 }
 
