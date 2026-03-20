@@ -21,6 +21,7 @@ import Notifications from './pages/Notifications';
 import Attendance from './pages/Attendance';
 import Profile from './pages/Profile';
 import MyTeam from './pages/MyTeam';
+import AppUpdates from './pages/AppUpdates';
 
 function App() {
   return (
@@ -61,6 +62,7 @@ function App() {
                 <Route path="notifications" element={<Notifications />} />
                 <Route path="profile" element={<Profile />} />
                 <Route path="my-team" element={<MyTeam />} />
+                <Route path="app-updates" element={<AppUpdates />} />
               </Route>
 
               {/* Fallback route */}

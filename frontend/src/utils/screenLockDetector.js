@@ -1,9 +1,15 @@
 /**
- * Screen Lock & Sleep Detector for PWA
+ * Screen Lock & Sleep Detector for PWA and Electron
  *
  * This utility provides robust detection of screen lock and system sleep events
  * using multiple APIs with proper fallback mechanisms:
  *
+ * FOR ELECTRON (Native):
+ * - Uses Electron's powerMonitor for lock-screen/unlock-screen events
+ * - Uses suspend/resume events for system sleep
+ * - These are 100% reliable native OS events
+ *
+ * FOR PWA/Browser:
  * 1. IdleDetector API (Chrome 94+) - Native screen lock detection
  *    - Maps to Windows WM_WTSSESSION_CHANGE (WTS_SESSION_LOCK/UNLOCK)
  *    - Provides screenState: 'locked' | 'unlocked'
@@ -20,6 +26,7 @@
  * - Windows API: https://learn.microsoft.com/en-us/windows/win32/termserv/wm-wtssession-change
  * - IdleDetector: https://developer.chrome.com/docs/capabilities/web-apis/idle-detection
  * - Page Lifecycle: https://developer.chrome.com/docs/web-platform/page-lifecycle-api
+ * - Electron powerMonitor: https://www.electronjs.org/docs/latest/api/power-monitor
  */
 
 // Constants
@@ -27,6 +34,11 @@ const IDLE_THRESHOLD_MS = 60000; // Minimum for IdleDetector (1 minute)
 const HEARTBEAT_INTERVAL_MS = 5000; // Heartbeat check interval
 const SLEEP_DETECTION_BUFFER_MS = 15000; // Buffer to account for browser throttling
 const MIN_SLEEP_DURATION_MS = 10000; // Minimum 10 seconds to count as sleep
+
+// Check if running in Electron
+const isElectron = () => {
+  return typeof window !== 'undefined' && window.electronAPI !== undefined;
+};
 
 /**
  * Screen Lock Detector Class
@@ -88,19 +100,27 @@ class ScreenLockDetector {
 
     // Only initialize detection methods once
     if (!this.isInitialized) {
-      // Initialize all detection methods
-      await this.initIdleDetector();
-      this.initPageLifecycleDetection();
-      this.initVisibilityDetection();
-      this.startHeartbeat();
+      // Check if running in Electron - use native APIs
+      if (isElectron()) {
+        console.log('[ScreenLockDetector] Running in Electron - using native APIs');
+        this.initElectronDetection();
+        this.isInitialized = true;
+        console.log('[ScreenLockDetector] Initialized with Electron native detection');
+      } else {
+        // PWA/Browser mode - use browser APIs
+        await this.initIdleDetector();
+        this.initPageLifecycleDetection();
+        this.initVisibilityDetection();
+        this.startHeartbeat();
 
-      this.isInitialized = true;
-      console.log('[ScreenLockDetector] Initialized with:', {
-        idleDetector: this.idleDetectorAvailable,
-        pageLifecycle: 'onfreeze' in document,
-        visibility: true,
-        heartbeat: true
-      });
+        this.isInitialized = true;
+        console.log('[ScreenLockDetector] Initialized with:', {
+          idleDetector: this.idleDetectorAvailable,
+          pageLifecycle: 'onfreeze' in document,
+          visibility: true,
+          heartbeat: true
+        });
+      }
     } else {
       console.log('[ScreenLockDetector] Already initialized, added new callbacks');
     }
@@ -469,6 +489,100 @@ class ScreenLockDetector {
 
     this.isInitialized = false;
     this.idleDetectorAvailable = false;
+  }
+
+  /**
+   * Initialize Electron-specific detection
+   * Uses native powerMonitor events from Electron main process
+   */
+  initElectronDetection() {
+    console.log('[ScreenLockDetector] Setting up Electron native detection');
+
+    // Store cleanup functions
+    this.electronCleanupFns = [];
+
+    // Screen lock/unlock events from Electron
+    const lockCleanup = window.electronAPI.onScreenLockChanged((data) => {
+      console.log('[ScreenLockDetector] Electron screen lock event:', data);
+
+      if (data.isLocked) {
+        // Screen locked
+        this.isScreenLocked = true;
+        this.screenLockStartTime = data.timestamp;
+        this.currentLockEventId = data.timestamp;
+
+        // Call lock callbacks
+        this.lockCallbacks.forEach(cb => {
+          try {
+            cb();
+          } catch (e) {
+            console.error('[ScreenLockDetector] Lock callback error:', e);
+          }
+        });
+      } else {
+        // Screen unlocked
+        const lockDuration = data.lockDuration || 0;
+        this.isScreenLocked = false;
+        this.screenLockStartTime = null;
+        this.currentLockEventId = null;
+
+        // Call unlock callbacks with duration
+        this.unlockCallbacks.forEach(cb => {
+          try {
+            cb(lockDuration);
+          } catch (e) {
+            console.error('[ScreenLockDetector] Unlock callback error:', e);
+          }
+        });
+      }
+    });
+    this.electronCleanupFns.push(lockCleanup);
+
+    // System suspend (sleep) event
+    const suspendCleanup = window.electronAPI.onSystemSuspend((data) => {
+      console.log('[ScreenLockDetector] Electron system suspend:', data);
+
+      this.isFrozen = true;
+      this.freezeStartTime = data.timestamp;
+
+      // Also treat as lock if not already locked
+      if (!this.isScreenLocked) {
+        this.isScreenLocked = true;
+        this.screenLockStartTime = data.timestamp;
+        this.currentLockEventId = data.timestamp;
+      }
+
+      // Call sleep callbacks
+      this.sleepCallbacks.forEach(cb => {
+        try {
+          cb();
+        } catch (e) {
+          console.error('[ScreenLockDetector] Sleep callback error:', e);
+        }
+      });
+    });
+    this.electronCleanupFns.push(suspendCleanup);
+
+    // System resume (wake) event
+    const resumeCleanup = window.electronAPI.onSystemResume((data) => {
+      console.log('[ScreenLockDetector] Electron system resume:', data);
+
+      const sleepDuration = data.sleepDuration || 0;
+      this.isFrozen = false;
+      this.freezeStartTime = null;
+
+      // Call wake callbacks with duration
+      this.wakeCallbacks.forEach(cb => {
+        try {
+          cb(sleepDuration);
+        } catch (e) {
+          console.error('[ScreenLockDetector] Wake callback error:', e);
+        }
+      });
+    });
+    this.electronCleanupFns.push(resumeCleanup);
+
+    console.log('[ScreenLockDetector] Electron detection setup complete');
   }
 }
 

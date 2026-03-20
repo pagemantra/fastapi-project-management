@@ -21,8 +21,15 @@ const PWAEnforcement = ({ children }) => {
   const [showAutoStartGuide, setShowAutoStartGuide] = useState(false);
 
   useEffect(() => {
-    // Check if running as PWA (standalone mode)
+    // Check if running as PWA (standalone mode) or Electron
     const checkPWAMode = () => {
+      // If running in Electron, skip PWA enforcement entirely
+      if (window.electronAPI) {
+        console.log('[PWA] Running in Electron - PWA enforcement skipped');
+        setIsPWA(true); // Treat Electron as "installed"
+        return;
+      }
+
       // Check if we've already verified PWA mode in this session
       const cachedPWAMode = sessionStorage.getItem('isPWA');
       if (cachedPWAMode === 'true') {

@@ -76,6 +76,12 @@ const GlobalCloseBlocker = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    // Skip browser close handling in Electron - native handler takes care of it
+    if (window.electronAPI) {
+      console.log('[GlobalCloseBlocker] Running in Electron - using native close prevention');
+      return;
+    }
+
     // CRITICAL: Attach beforeunload immediately
     const handleBeforeUnload = (e) => {
       // Always check if we should block

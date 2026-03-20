@@ -4,4 +4,7 @@ __pycache__/
 .vercel
 node_modules/
 .env
-node_modules/
+node_modules/# Electron dist folders
+electron-app/dist/
+electron-app/dist-*/
+electron-app/node_modules/

@@ -6264,6 +6264,181 @@ app.get('/reports/export/overtime', authenticate, requireRoles([UserRole.ADMIN, 
   }
 });
 
+// ==================== APP UPDATES API ====================
+
+// Store for app updates (in MongoDB)
+// Collection: app_updates
+// {
+//   version: "1.0.1",
+//   release_notes: "Bug fixes and improvements",
+//   download_url: "https://...",
+//   file_name: "Work Tracker Setup 1.0.1.exe",
+//   file_size: 78000000,
+//   sha512: "...",
+//   released_by: ObjectId,
+//   released_at: Date,
+//   is_active: true
+// }
+
+// Get latest version info (for electron-updater)
+app.get('/api/v1/app-updates/latest.yml', async (req, res) => {
+  try {
+    const latestUpdate = await db.collection('app_updates').findOne(
+      { is_active: true },
+      { sort: { released_at: -1 } }
+    );
+
+    if (!latestUpdate) {
+      return res.status(404).send('No updates available');
+    }
+
+    // Generate YAML format for electron-updater
+    const yaml = `version: ${latestUpdate.version}
+files:
+  - url: ${latestUpdate.file_name}
+    sha512: ${latestUpdate.sha512 || ''}
+    size: ${latestUpdate.file_size || 0}
+path: ${latestUpdate.file_name}
+sha512: ${latestUpdate.sha512 || ''}
+releaseDate: ${latestUpdate.released_at.toISOString()}`;
+
+    res.setHeader('Content-Type', 'text/yaml');
+    res.send(yaml);
+  } catch (error) {
+    console.error('Get latest update error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// Serve update file (redirect to download URL)
+app.get('/api/v1/app-updates/:fileName', async (req, res) => {
+  try {
+    const fileName = req.params.fileName;
+
+    // Skip if requesting YAML files
+    if (fileName.endsWith('.yml')) {
+      return res.status(404).send('Not found');
+    }
+
+    const update = await db.collection('app_updates').findOne({
+      file_name: fileName,
+      is_active: true
+    });
+
+    if (!update || !update.download_url) {
+      return res.status(404).json({ detail: 'Update file not found' });
+    }
+
+    // Redirect to actual download URL (e.g., GitHub release, S3, etc.)
+    res.redirect(update.download_url);
+  } catch (error) {
+    console.error('Download update error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// Get all app versions (admin only)
+app.get('/api/v1/app-updates', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+  try {
+    const updates = await db.collection('app_updates')
+      .find({})
+      .sort({ released_at: -1 })
+      .toArray();
+
+    res.json(updates);
+  } catch (error) {
+    console.error('Get app updates error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// Create new app version (admin only)
+app.post('/api/v1/app-updates', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+  try {
+    const { version, release_notes, download_url, file_name, file_size, sha512 } = req.body;
+
+    if (!version || !download_url || !file_name) {
+      return res.status(400).json({ detail: 'Version, download_url, and file_name are required' });
+    }
+
+    // Check if version already exists
+    const existing = await db.collection('app_updates').findOne({ version });
+    if (existing) {
+      return res.status(400).json({ detail: 'Version already exists' });
+    }
+
+    const newUpdate = {
+      version,
+      release_notes: release_notes || '',
+      download_url,
+      file_name,
+      file_size: file_size || 0,
+      sha512: sha512 || '',
+      released_by: new ObjectId(req.user.id),
+      released_at: new Date(),
+      is_active: true
+    };
+
+    const result = await db.collection('app_updates').insertOne(newUpdate);
+    newUpdate._id = result.insertedId;
+
+    res.status(201).json(newUpdate);
+  } catch (error) {
+    console.error('Create app update error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// Update app version (admin only)
+app.put('/api/v1/app-updates/:id', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+  try {
+    const updateId = req.params.id;
+    const { version, release_notes, download_url, file_name, file_size, sha512, is_active } = req.body;
+
+    const updateData = {};
+    if (version !== undefined) updateData.version = version;
+    if (release_notes !== undefined) updateData.release_notes = release_notes;
+    if (download_url !== undefined) updateData.download_url = download_url;
+    if (file_name !== undefined) updateData.file_name = file_name;
+    if (file_size !== undefined) updateData.file_size = file_size;
+    if (sha512 !== undefined) updateData.sha512 = sha512;
+    if (is_active !== undefined) updateData.is_active = is_active;
+
+    const result = await db.collection('app_updates').findOneAndUpdate(
+      { _id: new ObjectId(updateId) },
+      { $set: updateData },
+      { returnDocument: 'after' }
+    );
+
+    if (!result.value) {
+      return res.status(404).json({ detail: 'Update not found' });
+    }
+
+    res.json(result.value);
+  } catch (error) {
+    console.error('Update app version error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
+// Delete app version (admin only)
+app.delete('/api/v1/app-updates/:id', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+  try {
+    const updateId = req.params.id;
+
+    const result = await db.collection('app_updates').deleteOne({ _id: new ObjectId(updateId) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ detail: 'Update not found' });
+    }
+
+    res.json({ message: 'Update deleted successfully' });
+  } catch (error) {
+    console.error('Delete app update error:', error);
+    res.status(500).json({ detail: error.message });
+  }
+});
+
 // ==================== START SERVER ====================
 
 async function startServer() {

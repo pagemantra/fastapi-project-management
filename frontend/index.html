@@ -96,9 +96,10 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
 
-    <!-- Register Service Worker -->
+    <!-- Register Service Worker (only in browser, not Electron) -->
     <script>
-      if ('serviceWorker' in navigator) {
+      // Skip service worker in Electron (uses native APIs instead)
+      if ('serviceWorker' in navigator && !window.electronAPI) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
             .then((registration) => {
@@ -108,6 +109,8 @@
               console.error('[App] Service Worker registration failed:', error);
             });
         });
+      } else if (window.electronAPI) {
+        console.log('[App] Running in Electron - using native APIs instead of Service Worker');
       }
     </script>
   </body>

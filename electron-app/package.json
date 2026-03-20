@@ -1,0 +1,96 @@
+{
+  "name": "work-tracker-electron",
+  "version": "1.0.0",
+  "description": "Employee Work Tracker - Desktop Application",
+  "main": "main.js",
+  "author": "Your Company",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "concurrently \"npm run dev:react\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:react": "cd ../frontend && npm run dev",
+    "build": "npm run build:react && electron-builder",
+    "build:react": "cd ../frontend && npm run build",
+    "build:win": "npm run build:react && electron-builder --win",
+    "build:mac": "npm run build:react && electron-builder --mac",
+    "build:linux": "npm run build:react && electron-builder --linux",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "build": {
+    "appId": "com.company.worktracker",
+    "productName": "Work Tracker",
+    "directories": {
+      "output": "dist-release",
+      "buildResources": "build"
+    },
+    "asar": false,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "app",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "publish": {
+      "provider": "generic",
+      "url": "https://fastapi-project-management-production-22e0.up.railway.app/api/v1/app-updates/"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Work Tracker"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "build/icon.icns"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/icon.png"
+    }
+  },
+  "dependencies": {
+    "auto-launch": "^5.0.6",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.3"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "sharp": "^0.34.5",
+    "wait-on": "^7.2.0"
+  }
+}

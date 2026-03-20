@@ -13,6 +13,7 @@ import { attendanceService } from '../api/services';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from '../utils/dayjs';
 import screenLockDetector from '../utils/screenLockDetector';
+import * as electronBridge from '../utils/electronBridge';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -297,6 +298,11 @@ const TimeTracker = () => {
       const response = await attendanceService.getCurrentSession();
       const sessionData = response.data;
       setSession(sessionData);
+
+      // Notify Electron about clock status on initial load
+      if (isInitialLoad) {
+        electronBridge.setClockStatus(sessionData?.status === 'active');
+      }
 
       // Initialize lastConfirmedInactiveRef if this is the first load or session changed
       if (sessionData && sessionData.inactive_seconds !== undefined) {
@@ -829,6 +835,8 @@ const TimeTracker = () => {
     try {
       const response = await attendanceService.clockIn();
       setSession(response.data);
+      // Notify Electron about clock-in status (for close prevention)
+      electronBridge.setClockStatus(true);
       message.success('Clocked in successfully!');
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to clock in');
@@ -856,6 +864,9 @@ const TimeTracker = () => {
       const response = await attendanceService.clockOut({});
       setSession(response.data);
       notifyServiceWorker('CLEAR_SESSION', {});
+      // Notify Electron about clock-out status (allows app to be closed)
+      electronBridge.setClockStatus(false);
+      electronBridge.clearSessionData();
       message.success('Clocked out successfully!');
     } catch (error) {
       message.error(error.response?.data?.detail || 'Failed to clock out');
