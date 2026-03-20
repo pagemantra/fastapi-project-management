@@ -6338,7 +6338,7 @@ app.get('/api/v1/app-updates/:fileName', async (req, res) => {
 });
 
 // Get all app versions (admin only)
-app.get('/api/v1/app-updates', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+app.get('/api/v1/app-updates', authenticate, requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const updates = await db.collection('app_updates')
       .find({})
@@ -6353,7 +6353,7 @@ app.get('/api/v1/app-updates', authenticateToken, requireRole([UserRole.ADMIN]),
 });
 
 // Create new app version (admin only)
-app.post('/api/v1/app-updates', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+app.post('/api/v1/app-updates', authenticate, requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const { version, release_notes, download_url, file_name, file_size, sha512 } = req.body;
 
@@ -6390,7 +6390,7 @@ app.post('/api/v1/app-updates', authenticateToken, requireRole([UserRole.ADMIN])
 });
 
 // Update app version (admin only)
-app.put('/api/v1/app-updates/:id', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+app.put('/api/v1/app-updates/:id', authenticate, requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const updateId = req.params.id;
     const { version, release_notes, download_url, file_name, file_size, sha512, is_active } = req.body;
@@ -6422,7 +6422,7 @@ app.put('/api/v1/app-updates/:id', authenticateToken, requireRole([UserRole.ADMI
 });
 
 // Delete app version (admin only)
-app.delete('/api/v1/app-updates/:id', authenticateToken, requireRole([UserRole.ADMIN]), async (req, res) => {
+app.delete('/api/v1/app-updates/:id', authenticate, requireRole([UserRole.ADMIN]), async (req, res) => {
   try {
     const updateId = req.params.id;
 
