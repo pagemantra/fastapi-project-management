@@ -451,66 +451,62 @@ const TimeTracker = () => {
         },
 
         onWake: (duration) => {
-          console.log('[TimeTracker] System wake - was sleeping for', duration, 's');
-          console.log('[TimeTracker] Screen active at sleep was:', screenActiveAtLockRef.current);
-          console.log('[TimeTracker] Already reported?', inactiveTimeReportedRef.current);
+          // NOTE: In Electron, the screenLockDetector uses mutex-style locking
+          // Duration is ONLY reported on unlock, not on wake
+          // This prevents double-counting when both wake and unlock fire
+          console.log('[TimeTracker] System wake - duration:', duration, 's (not reporting, unlock will handle it)');
 
-          // Skip if already reported (prevents double-counting from sleep/wake + lock/unlock)
-          if (inactiveTimeReportedRef.current) {
-            console.log('[TimeTracker] Skipping wake - inactive time already reported for this lock event');
-            // Just clear the lock state
+          // In Electron, we don't clear lock state on wake because unlock will follow
+          // The screenLockDetector handles the mutex state
+          // We just log for debugging and don't send any inactive time
+
+          // For PWA/browser, wake might be the only event, so we still handle it
+          // But the screenLockDetector now passes 0 duration for Electron wake events
+          if (duration > 0 && !window.electronAPI) {
+            // Browser-only: handle wake with duration
+            console.log('[TimeTracker] Browser wake with duration:', duration, 's');
+
+            // Skip if already reported
+            if (inactiveTimeReportedRef.current) {
+              console.log('[TimeTracker] Skipping wake - already reported');
+              return;
+            }
+
+            // Calculate actual duration from our tracking
+            let actualDuration = duration;
+            if (lockStartTimeRef.current) {
+              actualDuration = Math.floor((Date.now() - lockStartTimeRef.current) / 1000);
+            }
+            const finalDuration = Math.max(duration, actualDuration);
+
+            inactiveTimeReportedRef.current = true;
+
+            if (finalDuration > 0) {
+              pendingInactiveSecondsRef.current += finalDuration;
+
+              if (sessionRef.current?.status === 'active') {
+                attendanceService.addInactiveTime({ inactive_seconds_to_add: finalDuration })
+                  .then(() => {
+                    console.log('[TimeTracker] Added', finalDuration, 's sleep time on server');
+                    fetchCurrentSession();
+                  })
+                  .catch(err => {
+                    console.error('[TimeTracker] Failed to add sleep time:', err);
+                    pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - finalDuration);
+                    inactiveTimeReportedRef.current = false;
+                  });
+              }
+            }
+
+            // Clear lock tracking for browser
             lockStartTimeRef.current = null;
             lockEventIdRef.current = null;
             isLockedRef.current = false;
             setIsScreenLocked(false);
-            return;
+            localStorage.removeItem('timeTracker_lockState');
+            notifyServiceWorker('SET_LOCK_STATE', { isLocked: false });
           }
-
-          // Calculate actual sleep duration from our client-side tracking
-          let actualDuration = duration;
-          if (lockStartTimeRef.current) {
-            actualDuration = Math.floor((Date.now() - lockStartTimeRef.current) / 1000);
-            console.log('[TimeTracker] Client-side sleep duration:', actualDuration, 's');
-          }
-
-          // Use the larger of the two durations
-          const finalDuration = Math.max(duration, actualDuration);
-
-          // Mark as reported to prevent duplicate reports
-          inactiveTimeReportedRef.current = true;
-
-          // Add sleep time to pending (to prevent time jump during API call)
-          if (finalDuration > 0) {
-            pendingInactiveSecondsRef.current += finalDuration;
-            console.log('[TimeTracker] Pending inactive seconds:', pendingInactiveSecondsRef.current);
-          }
-
-          // Add sleep time to server
-          if (finalDuration > 0 && sessionRef.current?.status === 'active') {
-            const eventId = lockEventIdRef.current;
-            attendanceService.addInactiveTime({ inactive_seconds_to_add: finalDuration })
-              .then(() => {
-                console.log('[TimeTracker] Added', finalDuration, 's sleep time on server (event:', eventId, ')');
-                fetchCurrentSession();
-              })
-              .catch(err => {
-                console.error('[TimeTracker] Failed to add sleep time:', err);
-                // Revert pending on error
-                pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - finalDuration);
-                // Also reset reported flag so it can retry
-                inactiveTimeReportedRef.current = false;
-              });
-          }
-
-          // Clear lock tracking
-          lockStartTimeRef.current = null;
-          lockEventIdRef.current = null;
-          isLockedRef.current = false;
-          setIsScreenLocked(false);
-
-          // Clear persisted lock state
-          localStorage.removeItem('timeTracker_lockState');
-          notifyServiceWorker('SET_LOCK_STATE', { isLocked: false });
+          // For Electron, do nothing - unlock will handle everything
         },
 
         onError: (err) => {

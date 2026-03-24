@@ -497,17 +497,30 @@ function showTrayNotification() {
   }
 }
 
+// Track if we've already reported inactive time for current lock/sleep cycle
+let inactiveTimeReported = false;
+
 // Power monitor events for lock/sleep detection
 function setupPowerMonitor() {
   // Screen lock detection
   powerMonitor.on('lock-screen', () => {
     console.log('[Main] Screen locked');
-    lockStartTime = Date.now();
-    sessionStore.set('lockStartTime', lockStartTime);
+    const lockTime = Date.now();
+
+    // Only set lockStartTime if not already set (avoid overwriting when lock happens after suspend)
+    const existingLockStart = sessionStore.get('lockStartTime');
+    if (!existingLockStart) {
+      lockStartTime = lockTime;
+      sessionStore.set('lockStartTime', lockTime);
+      inactiveTimeReported = false;
+      console.log('[Main] Lock start time set:', lockTime);
+    } else {
+      console.log('[Main] Lock start time already set (from suspend?):', existingLockStart);
+    }
 
     // Notify renderer
     if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.send('screen-lock-changed', { isLocked: true, timestamp: lockStartTime });
+      mainWindow.webContents.send('screen-lock-changed', { isLocked: true, timestamp: lockTime });
     }
   });
 
@@ -515,9 +528,28 @@ function setupPowerMonitor() {
     console.log('[Main] Screen unlocked');
     const unlockTime = Date.now();
     const storedLockStart = sessionStore.get('lockStartTime');
-    const lockDuration = storedLockStart ? Math.floor((unlockTime - storedLockStart) / 1000) : 0;
 
+    // Calculate duration from earliest lock/suspend time
+    let lockDuration = 0;
+    if (storedLockStart) {
+      lockDuration = Math.floor((unlockTime - storedLockStart) / 1000);
+      console.log('[Main] Lock duration calculated:', lockDuration, 's (from', storedLockStart, 'to', unlockTime, ')');
+    }
+
+    // Clear lock time
     sessionStore.set('lockStartTime', null);
+    lockStartTime = null;
+
+    // Also clear suspend time if any (they overlap)
+    sessionStore.set('suspendStartTime', null);
+
+    // Check if we already reported this via resume event
+    if (inactiveTimeReported) {
+      console.log('[Main] Inactive time already reported via resume, sending 0 for unlock');
+      lockDuration = 0;
+    } else {
+      inactiveTimeReported = true;
+    }
 
     // Notify renderer with lock duration
     if (mainWindow && mainWindow.webContents) {
@@ -535,6 +567,15 @@ function setupPowerMonitor() {
     const suspendTime = Date.now();
     sessionStore.set('suspendStartTime', suspendTime);
 
+    // Also set lock start time if not already locked
+    const existingLockStart = sessionStore.get('lockStartTime');
+    if (!existingLockStart) {
+      sessionStore.set('lockStartTime', suspendTime);
+      lockStartTime = suspendTime;
+      inactiveTimeReported = false;
+      console.log('[Main] Lock start time set from suspend:', suspendTime);
+    }
+
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send('system-suspend', { timestamp: suspendTime });
     }
@@ -544,14 +585,26 @@ function setupPowerMonitor() {
     console.log('[Main] System resumed from sleep');
     const resumeTime = Date.now();
     const suspendStart = sessionStore.get('suspendStartTime');
-    const sleepDuration = suspendStart ? Math.floor((resumeTime - suspendStart) / 1000) : 0;
+    const storedLockStart = sessionStore.get('lockStartTime');
 
+    // Calculate sleep duration from the earliest time (lock or suspend)
+    const earliestStart = storedLockStart || suspendStart;
+    let sleepDuration = earliestStart ? Math.floor((resumeTime - earliestStart) / 1000) : 0;
+
+    console.log('[Main] Sleep duration calculated:', sleepDuration, 's');
+
+    // Clear suspend time
     sessionStore.set('suspendStartTime', null);
+
+    // DON'T send sleep duration here - let unlock handle it to avoid double-counting
+    // The frontend handles the complexity of sleep vs lock events
+    // We just send 0 and let unlock calculate the full duration
+    // This is because: suspend -> resume -> unlock all fire, and we only want to count once
 
     if (mainWindow && mainWindow.webContents) {
       mainWindow.webContents.send('system-resume', {
         timestamp: resumeTime,
-        sleepDuration: sleepDuration
+        sleepDuration: 0 // Don't send duration here, unlock will calculate it
       });
     }
   });
