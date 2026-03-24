@@ -496,137 +496,86 @@ class ScreenLockDetector {
    * Uses native powerMonitor events from Electron main process
    */
   initElectronDetection() {
-    console.log('[ScreenLockDetector] Setting up Electron native detection (mutex-style)');
+    console.log('[ScreenLockDetector] Setting up Electron native detection');
 
     // Store cleanup functions
     this.electronCleanupFns = [];
 
-    // MUTEX-STYLE LOCK: Only track ONE lock event at a time
-    // The sequence is: lock -> (optional suspend -> resume) -> unlock
-    // We only send inactive time on UNLOCK to prevent double-counting
+    // Simple state tracking - Electron main.js does all the heavy lifting
     this.electronLockActive = false;
-    this.electronLockStartTime = null;
 
-    // Screen lock/unlock events from Electron (PRIMARY - handles duration calculation)
+    // Screen lock/unlock events from Electron
     const lockCleanup = window.electronAPI.onScreenLockChanged((data) => {
-      console.log('[ScreenLockDetector] Electron screen lock event:', data, 'lockActive:', this.electronLockActive);
+      console.log('[ScreenLockDetector] Electron lock event:', data);
 
       if (data.isLocked) {
-        // Screen locked - START tracking (only if not already tracking)
+        // Screen locked
         if (!this.electronLockActive) {
           this.electronLockActive = true;
-          this.electronLockStartTime = data.timestamp;
           this.isScreenLocked = true;
-          this.screenLockStartTime = data.timestamp;
-          this.currentLockEventId = data.timestamp;
-          console.log('[ScreenLockDetector] LOCK START - timestamp:', data.timestamp);
+          this.screenLockStartTime = Date.now();
+          console.log('[ScreenLockDetector] LOCKED at', new Date().toLocaleTimeString());
 
-          // Call lock callbacks
+          // Notify callbacks - UI update
           this.lockCallbacks.forEach(cb => {
-            try {
-              cb();
-            } catch (e) {
-              console.error('[ScreenLockDetector] Lock callback error:', e);
-            }
+            try { cb(); } catch (e) { console.error('[ScreenLockDetector] Lock callback error:', e); }
           });
-        } else {
-          console.log('[ScreenLockDetector] Lock event ignored - already locked');
         }
       } else {
-        // Screen unlocked - END tracking and report duration
-        if (this.electronLockActive) {
-          // Calculate duration from our tracked start time (more accurate than Electron's)
-          const now = Date.now();
-          const clientDuration = this.electronLockStartTime
-            ? Math.floor((now - this.electronLockStartTime) / 1000)
-            : 0;
+        // Screen unlocked - Electron provides the accurate duration
+        const lockDuration = data.lockDuration || 0;
+        console.log('[ScreenLockDetector] UNLOCKED - duration from Electron:', lockDuration, 's');
 
-          // Use the larger of client-side or Electron-provided duration
-          const lockDuration = Math.max(clientDuration, data.lockDuration || 0);
+        // Reset state
+        this.electronLockActive = false;
+        this.isScreenLocked = false;
+        this.screenLockStartTime = null;
+        this.isFrozen = false;
 
-          console.log('[ScreenLockDetector] UNLOCK - client duration:', clientDuration, 's, electron duration:', data.lockDuration, 's, using:', lockDuration, 's');
-
-          // Reset state
-          this.electronLockActive = false;
-          this.electronLockStartTime = null;
-          this.isScreenLocked = false;
-          this.screenLockStartTime = null;
-          this.currentLockEventId = null;
-          this.isFrozen = false;
-          this.freezeStartTime = null;
-
-          // Call unlock callbacks with FINAL duration (only place we report!)
-          this.unlockCallbacks.forEach(cb => {
-            try {
-              cb(lockDuration);
-            } catch (e) {
-              console.error('[ScreenLockDetector] Unlock callback error:', e);
-            }
-          });
-        } else {
-          console.log('[ScreenLockDetector] Unlock event ignored - was not locked');
-        }
+        // Pass duration to callbacks - TimeTracker will send to server
+        this.unlockCallbacks.forEach(cb => {
+          try { cb(lockDuration); } catch (e) { console.error('[ScreenLockDetector] Unlock callback error:', e); }
+        });
       }
     });
     this.electronCleanupFns.push(lockCleanup);
 
-    // System suspend (sleep) event - only triggers lock callback, NO duration reporting
+    // System suspend - UI update only
     const suspendCleanup = window.electronAPI.onSystemSuspend((data) => {
-      console.log('[ScreenLockDetector] Electron system suspend:', data, 'lockActive:', this.electronLockActive);
-
+      console.log('[ScreenLockDetector] System SUSPEND');
       this.isFrozen = true;
-      this.freezeStartTime = data.timestamp;
 
-      // Start lock tracking if not already locked
+      // Mark as locked if not already
       if (!this.electronLockActive) {
         this.electronLockActive = true;
-        this.electronLockStartTime = data.timestamp;
         this.isScreenLocked = true;
-        this.screenLockStartTime = data.timestamp;
-        this.currentLockEventId = data.timestamp;
-        console.log('[ScreenLockDetector] SUSPEND triggered LOCK START - timestamp:', data.timestamp);
+        this.screenLockStartTime = Date.now();
 
-        // Call lock callbacks (UI update only, NO duration reporting)
+        // UI update
         this.lockCallbacks.forEach(cb => {
-          try {
-            cb();
-          } catch (e) {
-            console.error('[ScreenLockDetector] Sleep callback error:', e);
-          }
+          try { cb(); } catch (e) { console.error('[ScreenLockDetector] Suspend callback error:', e); }
         });
       }
 
-      // Also call sleep callbacks for UI purposes
       this.sleepCallbacks.forEach(cb => {
-        try {
-          cb();
-        } catch (e) {
-          console.error('[ScreenLockDetector] Sleep callback error:', e);
-        }
+        try { cb(); } catch (e) { console.error('[ScreenLockDetector] Sleep callback error:', e); }
       });
     });
     this.electronCleanupFns.push(suspendCleanup);
 
-    // System resume (wake) event - NO duration reporting (unlock handles it)
+    // System resume - UI update only, NO duration (unlock handles it)
     const resumeCleanup = window.electronAPI.onSystemResume((data) => {
-      console.log('[ScreenLockDetector] Electron system resume:', data, 'lockActive:', this.electronLockActive);
-
+      console.log('[ScreenLockDetector] System RESUME');
       this.isFrozen = false;
-      this.freezeStartTime = null;
 
-      // DO NOT report duration here - unlock will handle it
-      // Just call wake callbacks for UI purposes with 0 duration
+      // Wake callbacks with 0 - actual duration comes from unlock
       this.wakeCallbacks.forEach(cb => {
-        try {
-          cb(0); // Pass 0 - actual duration reported on unlock
-        } catch (e) {
-          console.error('[ScreenLockDetector] Wake callback error:', e);
-        }
+        try { cb(0); } catch (e) { console.error('[ScreenLockDetector] Wake callback error:', e); }
       });
     });
     this.electronCleanupFns.push(resumeCleanup);
 
-    console.log('[ScreenLockDetector] Electron detection setup complete (mutex-style)');
+    console.log('[ScreenLockDetector] Electron detection ready');
   }
 }
 
