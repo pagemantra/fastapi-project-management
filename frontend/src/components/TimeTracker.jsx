@@ -341,16 +341,20 @@ const TimeTracker = () => {
       const cleanup = await screenLockDetector.init({
         onLock: () => {
           console.log('[TimeTracker] Screen locked - timer paused at:', currentScreenActiveRef.current);
-          // Only start tracking if not already locked (prevent duplicate lock events)
-          if (!isLockedRef.current) {
+
+          // For Electron: ALWAYS reset state on lock (Electron main.js is authoritative)
+          // For Browser: Only start tracking if not already locked
+          const isElectronApp = !!window.electronAPI;
+
+          if (isElectronApp || !isLockedRef.current) {
             screenActiveAtLockRef.current = currentScreenActiveRef.current;
             lockStartTimeRef.current = Date.now();
-            lockEventIdRef.current = Date.now(); // Unique ID for this lock event
+            lockEventIdRef.current = Date.now();
             isLockedRef.current = true;
-            inactiveTimeReportedRef.current = false; // Reset the reported flag
-            console.log('[TimeTracker] Lock event started with ID:', lockEventIdRef.current);
+            inactiveTimeReportedRef.current = false; // ALWAYS reset for new lock event
+            console.log('[TimeTracker] Lock event started, reported flag reset');
 
-            // Persist lock state to localStorage and notify service worker
+            // Persist lock state
             const lockState = {
               isLocked: true,
               lockStartTime: lockStartTimeRef.current,
@@ -364,14 +368,16 @@ const TimeTracker = () => {
         },
 
         onUnlock: (duration) => {
-          console.log('[TimeTracker] Screen unlocked - was locked for', duration, 's');
-          console.log('[TimeTracker] Screen active at lock was:', screenActiveAtLockRef.current);
-          console.log('[TimeTracker] Already reported?', inactiveTimeReportedRef.current);
+          console.log('[TimeTracker] Screen unlocked - duration from detector:', duration, 's');
 
-          // Skip if already reported (prevents double-counting from sleep/wake + lock/unlock)
-          if (inactiveTimeReportedRef.current) {
-            console.log('[TimeTracker] Skipping unlock - inactive time already reported for this lock event');
-            // Just clear the lock state
+          // For Electron: The duration from screenLockDetector is AUTHORITATIVE
+          // It comes from Electron main.js which uses persistent storage
+          // We ALWAYS report this duration, regardless of local state
+          const isElectronApp = !!window.electronAPI;
+
+          // For browser/PWA: Check if already reported to prevent double-counting
+          if (!isElectronApp && inactiveTimeReportedRef.current) {
+            console.log('[TimeTracker] Browser: Skipping - already reported');
             lockStartTimeRef.current = null;
             lockEventIdRef.current = null;
             isLockedRef.current = false;
@@ -379,40 +385,40 @@ const TimeTracker = () => {
             return;
           }
 
-          // Calculate actual lock duration from our client-side tracking
-          let actualDuration = duration;
-          if (lockStartTimeRef.current) {
-            actualDuration = Math.floor((Date.now() - lockStartTimeRef.current) / 1000);
-            console.log('[TimeTracker] Client-side lock duration:', actualDuration, 's');
+          // For browser: Calculate from client-side tracking as backup
+          let finalDuration = duration;
+          if (!isElectronApp && lockStartTimeRef.current) {
+            const clientDuration = Math.floor((Date.now() - lockStartTimeRef.current) / 1000);
+            finalDuration = Math.max(duration, clientDuration);
+            console.log('[TimeTracker] Browser: Using max of', duration, 'and', clientDuration, '=', finalDuration);
           }
 
-          // Use the larger of the two durations (detector vs client-side)
-          const finalDuration = Math.max(duration, actualDuration);
-
-          // Mark as reported to prevent duplicate reports
+          // Mark as reported
           inactiveTimeReportedRef.current = true;
 
-          // Add lock time to pending (to prevent time jump during API call)
+          // Add to pending for UI
           if (finalDuration > 0) {
             pendingInactiveSecondsRef.current += finalDuration;
             console.log('[TimeTracker] Pending inactive seconds:', pendingInactiveSecondsRef.current);
           }
 
-          // Add lock time to server
+          // Send to server
           if (finalDuration > 0 && sessionRef.current?.status === 'active') {
-            const eventId = lockEventIdRef.current;
+            console.log('[TimeTracker] Sending', finalDuration, 's to server...');
             attendanceService.addInactiveTime({ inactive_seconds_to_add: finalDuration })
               .then(() => {
-                console.log('[TimeTracker] Added', finalDuration, 's to Lock/Sleep on server (event:', eventId, ')');
+                console.log('[TimeTracker] SUCCESS: Added', finalDuration, 's to Lock/Sleep on server');
                 fetchCurrentSession();
               })
               .catch(err => {
-                console.error('[TimeTracker] Failed to add inactive time:', err);
-                // Revert pending on error
+                console.error('[TimeTracker] FAILED to add inactive time:', err);
                 pendingInactiveSecondsRef.current = Math.max(0, pendingInactiveSecondsRef.current - finalDuration);
-                // Also reset reported flag so it can retry
                 inactiveTimeReportedRef.current = false;
               });
+          } else if (finalDuration === 0) {
+            console.log('[TimeTracker] Duration is 0, not sending to server');
+          } else {
+            console.log('[TimeTracker] Session not active, not sending to server');
           }
 
           // Clear lock tracking
@@ -420,8 +426,6 @@ const TimeTracker = () => {
           lockEventIdRef.current = null;
           isLockedRef.current = false;
           setIsScreenLocked(false);
-
-          // Clear persisted lock state
           localStorage.removeItem('timeTracker_lockState');
           notifyServiceWorker('SET_LOCK_STATE', { isLocked: false });
         },

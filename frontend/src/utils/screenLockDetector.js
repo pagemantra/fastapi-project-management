@@ -509,20 +509,19 @@ class ScreenLockDetector {
       console.log('[ScreenLockDetector] Electron lock event:', data);
 
       if (data.isLocked) {
-        // Screen locked
-        if (!this.electronLockActive) {
-          this.electronLockActive = true;
-          this.isScreenLocked = true;
-          this.screenLockStartTime = Date.now();
-          console.log('[ScreenLockDetector] LOCKED at', new Date().toLocaleTimeString());
+        // Screen locked - ALWAYS update state and call callbacks
+        this.electronLockActive = true;
+        this.isScreenLocked = true;
+        this.screenLockStartTime = Date.now();
+        console.log('[ScreenLockDetector] LOCKED at', new Date().toLocaleTimeString());
 
-          // Notify callbacks - UI update
-          this.lockCallbacks.forEach(cb => {
-            try { cb(); } catch (e) { console.error('[ScreenLockDetector] Lock callback error:', e); }
-          });
-        }
+        // Notify callbacks - UI update
+        this.lockCallbacks.forEach(cb => {
+          try { cb(); } catch (e) { console.error('[ScreenLockDetector] Lock callback error:', e); }
+        });
       } else {
-        // Screen unlocked - Electron provides the accurate duration
+        // Screen unlocked - Electron provides the AUTHORITATIVE duration
+        // ALWAYS process unlock and send duration, regardless of local state
         const lockDuration = data.lockDuration || 0;
         console.log('[ScreenLockDetector] UNLOCKED - duration from Electron:', lockDuration, 's');
 
@@ -532,7 +531,7 @@ class ScreenLockDetector {
         this.screenLockStartTime = null;
         this.isFrozen = false;
 
-        // Pass duration to callbacks - TimeTracker will send to server
+        // ALWAYS pass duration to callbacks - Electron main.js has authoritative data
         this.unlockCallbacks.forEach(cb => {
           try { cb(lockDuration); } catch (e) { console.error('[ScreenLockDetector] Unlock callback error:', e); }
         });
