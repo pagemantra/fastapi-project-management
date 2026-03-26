@@ -1,0 +1,28 @@
+{
+  "total": 3,
+  "passed": 2,
+  "failed": 1,
+  "warnings": 1,
+  "errors": [
+    {
+      "test": "Login flow",
+      "error": "Navigation timeout of 30000 ms exceeded"
+    }
+  ],
+  "screenshots": [
+    {
+      "name": "login-page-initial",
+      "path": "D:\\Development\\fastapi-project-management\\frontend\\tests\\screenshots\\login-page-initial-1773673575416.png"
+    },
+    {
+      "name": "login-page-filled",
+      "path": "D:\\Development\\fastapi-project-management\\frontend\\tests\\screenshots\\login-page-filled-1773673578007.png"
+    },
+    {
+      "name": "login-real-failed",
+      "path": "D:\\Development\\fastapi-project-management\\frontend\\tests\\screenshots\\login-real-failed-1773673590739.png"
+    }
+  ],
+  "startTime": "2026-03-16T15:06:11.256Z",
+  "endTime": "2026-03-16T15:09:01.487Z"
+}

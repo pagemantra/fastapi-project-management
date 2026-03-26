@@ -741,19 +741,16 @@ const TimeTracker = () => {
     if (session && (session.status === 'active' || session.status === 'on_break')) {
       const calculateTimes = () => {
         try {
-          let loginTime;
-          if (session.login_time) {
-            loginTime = dayjs.utc(session.login_time).isValid()
-              ? dayjs.utc(session.login_time).tz('Asia/Kolkata')
-              : dayjs(session.login_time).tz('Asia/Kolkata');
-          } else {
+          if (!session.login_time) {
             setScreenActiveSeconds(0);
             setLockSleepSeconds(0);
             return;
           }
 
-          const now = dayjs().tz('Asia/Kolkata');
-          const totalSeconds = now.diff(loginTime, 'second');
+          // Use native Date for reliable timestamp calculation (no timezone conversion bugs)
+          const nowMs = Date.now();
+          const loginTimeMs = new Date(session.login_time).getTime();
+          const totalSeconds = Math.floor((nowMs - loginTimeMs) / 1000);
 
           // Calculate break seconds including any ongoing break
           let breakSeconds = 0;
@@ -762,10 +759,8 @@ const TimeTracker = () => {
               if (b.duration_minutes && typeof b.duration_minutes === 'number') {
                 breakSeconds += Math.round(b.duration_minutes * 60);
               } else if (b.start_time && !b.end_time) {
-                const breakStart = dayjs.utc(b.start_time).isValid()
-                  ? dayjs.utc(b.start_time).tz('Asia/Kolkata')
-                  : dayjs(b.start_time).tz('Asia/Kolkata');
-                breakSeconds += Math.max(0, now.diff(breakStart, 'second'));
+                const breakStartMs = new Date(b.start_time).getTime();
+                breakSeconds += Math.max(0, Math.floor((nowMs - breakStartMs) / 1000));
               }
             });
           }
@@ -789,10 +784,8 @@ const TimeTracker = () => {
           // Calculate current lock duration from our client-side tracking
           let currentLockDur = 0;
           if (isCurrentlyLocked && lockStartTimeRef.current) {
-            currentLockDur = Math.floor((Date.now() - lockStartTimeRef.current) / 1000);
+            currentLockDur = Math.floor((nowMs - lockStartTimeRef.current) / 1000);
           }
-          // Note: We don't use screenLockDetector.getCurrentLockDuration() here
-          // because it might be out of sync with our state
 
           // Total lock/sleep time = saved + pending (not yet confirmed) + current ongoing lock
           const totalLockSleepSecs = savedInactiveSeconds + pendingInactiveSecondsRef.current + currentLockDur;
@@ -805,11 +798,24 @@ const TimeTracker = () => {
           // This naturally "freezes" during lock because currentLockDur grows at same rate as totalSeconds
           const activeSeconds = Math.max(0, totalSeconds - breakSeconds - totalLockSleepSecs);
 
+          // Debug: Log calculation breakdown periodically (every 30 seconds)
+          if (totalSeconds % 30 === 0) {
+            console.log('[TimeTracker] Time calculation:', {
+              totalElapsed: totalSeconds + 's',
+              breakTime: breakSeconds + 's',
+              lockSleep: totalLockSleepSecs + 's (saved:' + savedInactiveSeconds + ' pending:' + pendingInactiveSecondsRef.current + ' current:' + currentLockDur + ')',
+              screenActive: activeSeconds + 's',
+              sum: (breakSeconds + totalLockSleepSecs + activeSeconds) + 's',
+              match: (breakSeconds + totalLockSleepSecs + activeSeconds) === totalSeconds ? 'YES' : 'NO'
+            });
+          }
+
           // Save current value for reference
           currentScreenActiveRef.current = activeSeconds;
 
           setScreenActiveSeconds(activeSeconds);
-          setCurrentSystemTime(now);
+          // Keep dayjs for display only (currentSystemTime is used for formatting)
+          setCurrentSystemTime(dayjs().tz('Asia/Kolkata'));
         } catch (error) {
           console.error('[TimeTracker] Error calculating times:', error);
           // Don't reset to 0 on error - keep previous values
